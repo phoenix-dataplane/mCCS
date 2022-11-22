@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "cuda-sys/cuda-driver-sys",
+    "cuda-sys/cuda-runtime-sys",
+    "cuda-sys/cuda-finder",
+    "experimental",
+]
