@@ -1,8 +1,14 @@
 [workspace]
 
 members = [
-    "cuda-sys/cuda-driver-sys",
-    "cuda-sys/cuda-runtime-sys",
-    "cuda-sys/cuda-finder",
-    "experimental",
+    "src/cuda-sys/cuda-driver-sys",
+    "src/cuda-sys/cuda-runtime-sys",
+    "src/cuda-sys/cuda-finder",
+    "src/experimental",
+    "src/ipc",
+    "src/ipc/core",
+    "src/ipc/mccs",
+    "src/libmccs",
+    "src/mccs",
+    "src/mccs_examples/cuda_hello",
 ]

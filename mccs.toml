@@ -1,0 +1,6 @@
+mccs_daemon_basename = "mccs-deamon"
+mccs_daemon_prefix = "/tmp/mccs"
+
+[control]
+prefix = "/tmp/mccs"
+path = "control.sock"

@@ -1,0 +1,10 @@
+[package]
+name = "cuda_hello"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cuda-runtime-sys = { path = "../../cuda-sys/cuda-runtime-sys" }
+libmccs = { path = "../../libmccs" }

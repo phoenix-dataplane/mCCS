@@ -1,0 +1,19 @@
+[package]
+name = "mccs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cuda-runtime-sys = { path = "../cuda-sys/cuda-runtime-sys" }
+ipc = { path = "../ipc", features = ["mccs"] }
+
+anyhow = "1.0.66"
+bincode = "1.3.3"
+serde = "1.0.149"
+toml = "0.5.9"
+thiserror = "1.0.37"
+uuid = { version = "1.2.2", features = ["v4"] }
+structopt = "0.3.26"
+nix = "0.26.1"
