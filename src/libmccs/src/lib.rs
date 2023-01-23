@@ -8,6 +8,8 @@ use ipc::mccs::command;
 use ipc::mccs::dp;
 
 pub mod memory;
+pub mod collectives;
+pub mod communicator;
 
 const DEFAULT_MCCS_PREFIX: &str = "/tmp/mccs";
 const DEFAULT_MCCS_CONTROL: &str = "control.sock";
@@ -31,7 +33,6 @@ lazy_static::lazy_static! {
 #[macro_export]
 macro_rules! _rx_recv_impl {
     ($srv:expr, $resp:path) => {
-        #[allow(unreachable_patterns)]
         match $srv.recv_comp()?.0 {
             Ok($resp) => Ok(()),
             Err(e) => Err(Error::Control(stringify!($resp), e)),

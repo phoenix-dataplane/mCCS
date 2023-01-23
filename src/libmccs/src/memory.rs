@@ -9,9 +9,9 @@ use crate::MCCS_CTX;
 use crate::rx_recv_impl;
 use crate::Error;
 
-pub fn cuda_malloc(size: usize) -> Result<*mut c_void, Error> {
+pub fn cuda_malloc(device_idx: usize, size: usize) -> Result<*mut c_void, Error> {
     MCCS_CTX.with(|ctx| {
-        let req = Command::CudaMalloc(size);
+        let req = Command::CudaMalloc(device_idx, size);
         ctx.service.send_cmd(req)?;
         rx_recv_impl!(ctx.service, CompletionKind::CudaMalloc, handle, {
             let mut dev_ptr: *mut c_void = std::ptr::null_mut();

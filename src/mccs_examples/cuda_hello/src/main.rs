@@ -6,7 +6,7 @@ use libmccs::memory::cuda_malloc;
 const BUFFER_SIZE: usize = 1 * 1024 * 1024;
 
 fn main() {
-    let dev_ptr = cuda_malloc(BUFFER_SIZE).unwrap();
+    let dev_ptr = cuda_malloc(0, BUFFER_SIZE).unwrap();
     let buf = vec![42i32; BUFFER_SIZE / std::mem::size_of::<i32>()];
     let err = unsafe { 
         cudaMemcpy(

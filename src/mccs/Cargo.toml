@@ -17,3 +17,6 @@ thiserror = "1.0.37"
 uuid = { version = "1.2.2", features = ["v4"] }
 structopt = "0.3.26"
 nix = "0.26.1"
+dashmap = "5.4.0"
+crossbeam = "0.8.2"
+rand = "0.8.5"

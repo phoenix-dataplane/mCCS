@@ -9,3 +9,5 @@ pub(crate) enum Error {
     #[error("Customer error: {0}")]
     Customer(#[from] ipc::Error),
 }
+
+pub type DaemonId = u64;
