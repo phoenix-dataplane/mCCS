@@ -9,4 +9,7 @@ pub mod cuda;
 pub mod transport;
 pub mod communicator;
 pub mod proxy;
-pub mod resources;
+pub mod pattern;
+pub mod registry;
+pub mod message;
+pub mod utils;

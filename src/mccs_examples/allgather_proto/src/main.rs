@@ -31,14 +31,12 @@ fn main() {
         }
         println!("rank 1 - pre : buf[0]={}, buf[{}]={}", buf[0], BUFFER_SIZE / 2 / std::mem::size_of::<i32>(), buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
 
-        println!("initcomm");
         let comm = init_communicator_rank(
             42,
             1,
             2,
             1,
         ).unwrap();
-        println!("allgather");
         all_gather(comm, (), (), BUFFER_SIZE / 2).unwrap();
 
         let mut buf = vec![0; BUFFER_SIZE];

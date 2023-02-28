@@ -26,10 +26,3 @@ pub enum ProxyCompletion {
     InitCommunicator,
     AllGather,
 }
-
-#[allow(unused)]
-pub struct CommandEndpointProxy {
-    pub daemon_id: DaemonId,
-    pub command_rx: Receiver<ProxyCommand>,
-    pub completion_tx: Sender<ProxyCompletion>,
-}

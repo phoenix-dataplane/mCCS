@@ -1,333 +1,491 @@
-use std::collections::{LinkedList, HashMap};
-use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 
-use crossbeam::channel::{Sender, Receiver, TryRecvError};
-use cuda_runtime_sys::{cudaMemcpy, cudaError};
+use crossbeam::channel::{Sender, Receiver};
 
-use crate::communicator::{LocalCommunicator, PeerInfo, PeerType, CommunicatorGlobalInfo, RankInfo, CommChannel, RingPattern};
-use crate::daemon::DaemonId;
-use crate::proxy::ops::SetupTransport;
-use crate::resources::GlobalResources;
-use crate::transport::connector::ConnectorIdentifier;
-use crate::transport::hmem::config::HostMemTptConfig;
-use crate::transport::hmem::ops::{HostMemTptEndpoint, hmem_sender_setup, hmem_receiver_setup, hmem_sender_connect, hmem_receiver_connect};
-use super::command::{ProxyCommand, ProxyCompletion, CommandEndpointProxy};
-use super::ops::{ProxyOp, LocalCommunicatorBootstrap};
+use crate::communicator::{PeerInfo, PeerType, CommunicatorId, Communicator};
+use crate::message::{ControlRequest, ControlNotification};
+use crate::proxy::init::PeerConnConstruct;
+use crate::registry::GlobalRegistry;
+use crate::transport::channel::{PeerConnId, ConnType, PeerConnector};
+use crate::transport::engine::TransportEngineId;
+use crate::transport::message::{TransportEngineRequest, TransportEngineReply};
+use crate::transport::transporter::{TransportSetup, TransportConnect, TransportAgentId, ConnectInfo};
+use crate::utils::pool::WorkPool;
+use super::command::{ProxyCommand, ProxyCompletion};
+use super::op::ProxyOp;
+use super::init::{CommInitState, CommInitStage};
+use super::message::ProxyPeerMessage;
 use super::DeviceInfo;
 
+pub struct ProxyResources {
+    device_info: DeviceInfo,
+    control_tx: Sender<ControlRequest>,
+    control_rx: Receiver<ControlNotification>,
+    proxy_peer_tx: Vec<Sender<ProxyPeerMessage>>,
+    proxy_peer_rx: Receiver<ProxyPeerMessage>,
+    comms_init: HashMap<CommunicatorId, CommInitState>,
+    communicators: HashMap<CommunicatorId, Communicator>,
+    global_registry: Arc<GlobalRegistry>,
+    transport_engines_tx: HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
+    transport_engines_rx: Vec<(TransportEngineId, Receiver<TransportEngineReply>)>,
+    transport_submission_pool: HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+}
+
+impl ProxyResources {
+    fn register_transport_engine(
+        &mut self,
+        id: TransportEngineId,
+        tx: Sender<TransportEngineRequest>,
+        rx: Receiver<TransportEngineReply>,
+    ) {
+        let pool = self.transport_submission_pool.remove(&id);
+        if let Some(requests) = pool {
+            for req in requests {
+                tx.send(req).unwrap();
+            }
+        }
+        self.transport_engines_tx.insert(id, tx);
+        let rx_idx = self.transport_engines_rx.iter().position(|(rx_id, _)| id == *rx_id); 
+        if let Some(idx) = rx_idx {
+            self.transport_engines_rx.swap_remove(idx);
+        }
+        self.transport_engines_rx.push((id, rx));
+    }
+}
+
+impl ProxyResources {
+    fn send_transport_request(
+        request: TransportEngineRequest,
+        transport_engine: TransportEngineId,
+        transport_tx: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
+        submission_pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+    ) {
+        use crossbeam::channel::SendError;
+
+        let sender = transport_tx.get_mut(&transport_engine);
+        if let Some(sender) = sender {
+            match sender.send(request) {
+                Ok(()) => (),
+                Err(SendError(request)) => {
+                    // disconnected
+                    Self::enqueue_submission_pool(
+                        submission_pool,
+                        transport_engine, 
+                        request,
+                    );
+                },
+            }
+        } else {
+            Self::enqueue_submission_pool(
+                submission_pool,
+                transport_engine, 
+                request,
+            );
+        }
+    }
+
+    fn exchange_connect_info(
+        comm: &CommInitState,
+        peer_conn: &PeerConnId,
+        peer_connect_info: ConnectInfo,
+        peer_proxy_tx: &mut Vec<Sender<ProxyPeerMessage>>,
+    ) {
+        let remote_conn_type = match peer_conn.conn_type {
+            ConnType::Send => ConnType::Recv,
+            ConnType::Recv => ConnType::Send,
+        };
+        let remote_peer_conn = PeerConnId {
+            peer_rank: comm.rank,
+            channel: peer_conn.channel,
+            conn_index: peer_conn.conn_index,
+            conn_type: remote_conn_type,
+        };
+        let peer_rank = peer_conn.peer_rank;
+        let peer_info = comm.peers_info.get(&peer_rank).unwrap();
+        match peer_info.peer_type {
+            PeerType::Local => panic!("self-connection encountered"),
+            PeerType::IntraNode => {
+                let peer_message = ProxyPeerMessage::ConnectInfoExchange(
+                    comm.id,
+                    remote_peer_conn,
+                    peer_connect_info
+                );
+                peer_proxy_tx[peer_rank].send(peer_message).unwrap();
+            },
+            PeerType::InterNode => todo!("inter-node connect info exchange is not implemented"),
+        }
+    }
+    
+    fn enqueue_submission_pool(
+        pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+        transport_engine: TransportEngineId, 
+        request: TransportEngineRequest
+    ) {
+        let queue = pool.entry(transport_engine)
+            .or_insert_with(Vec::new);
+        queue.push(request);
+    }
+
+    fn init_communicator(&mut self, comm_id: CommunicatorId) -> bool {
+        let comm = self.comms_init.get_mut(&comm_id).unwrap();
+        if comm.stage == CommInitStage::RegisterRank {
+            let rank_info = PeerInfo {
+                peer_type: PeerType::Local,
+                host: self.device_info.host,
+                cuda_device_idx: self.device_info.cuda_device_idx,
+            };
+            self.global_registry.register_communicator_rank(
+                comm_id, 
+                comm.rank, 
+                comm.num_ranks, 
+                &rank_info,
+            );
+            comm.peers_info.insert(comm.rank, rank_info);
+
+            comm.peers_await_exchange.extend(0..comm.rank);
+            comm.peers_await_exchange.extend((comm.rank + 1)..comm.num_ranks);
+            comm.stage = CommInitStage::PeerInfoExchange;
+        } else if comm.stage == CommInitStage::PeerInfoExchange {
+            if comm.peers_info.len() == comm.num_ranks {
+                let patterns = self.global_registry.arbitrate_comm_patterns(
+                    comm_id,
+                    comm.rank
+                );
+                if let Some(patterns) = patterns {
+                    comm.comm_patterns = patterns;
+                    for pattern in comm.comm_patterns.iter() {
+                        let ring_next = PeerConnId {
+                            peer_rank: pattern.ring.next,
+                            channel: pattern.channel,
+                            conn_index: 0,
+                            conn_type: ConnType::Send,
+                        };
+                        let ring_prev = PeerConnId {
+                            peer_rank: pattern.ring.prev,
+                            channel: pattern.channel,
+                            conn_index: 0,
+                            conn_type: ConnType::Recv,
+                        };
+                        comm.to_setup.push_back(ring_next);
+                        comm.to_setup.push_back(ring_prev);
+                    }
+                    comm.stage = CommInitStage::ConnectChannel;
+                }
+            }
+            self.global_registry.query_communicator_peers(
+                comm_id, 
+                comm.rank, 
+                &mut comm.peers_await_exchange, 
+                &mut comm.peers_info,
+            );
+        } else {
+            if let Some(peer_conn) = comm.to_setup.pop_front() {
+                let transporter = self.global_registry.arbitrate_conn_transporter(
+                    comm_id, 
+                    comm.rank, 
+                    &peer_conn
+                );
+                let setup_result = match peer_conn.conn_type {
+                    ConnType::Send => transporter.send_setup(&peer_conn),
+                    ConnType::Recv => transporter.recv_setup(&peer_conn),
+                };
+                match setup_result {
+                    TransportSetup::PreAgentCb { 
+                        agent_request, 
+                        setup_resources 
+                    } => {
+                        let agent = TransportAgentId {
+                            communicator_id: comm_id,
+                            client_rank: comm.rank,
+                            client_cuda_dev: self.device_info.cuda_device_idx,
+                            peer_conn,
+                        };
+                        let transport_engine_idx = self.global_registry.assign_transport_engine(
+                            self.device_info.cuda_device_idx, 
+                            agent, 
+                            &mut self.control_tx
+                        );
+                        let request = match peer_conn.conn_type {
+                            ConnType::Send => TransportEngineRequest::AgentSendSetup(
+                                transporter,
+                                agent,
+                                agent_request,
+                            ),
+                            ConnType::Recv => TransportEngineRequest::AgentRecvSetup(
+                                transporter,
+                                agent,
+                                agent_request,
+                            ),
+                        };
+                        Self::send_transport_request(
+                            request, 
+                            transport_engine_idx, 
+                            &mut self.transport_engines_tx, 
+                            &mut self.transport_submission_pool,
+                        );
+
+                        let construct = PeerConnConstruct {
+                            transporter,
+                            resources: setup_resources,
+                        };
+                        comm.peer_setup_pre_agent.insert(peer_conn, construct);
+                    },
+                    TransportSetup::Setup { 
+                        peer_connect_info,
+                        setup_resources 
+                    } => { 
+                        let construct = PeerConnConstruct {
+                            transporter,
+                            resources: setup_resources,
+                        };
+                        comm.peer_setup.insert(peer_conn, construct);
+                        Self::exchange_connect_info(
+                            comm, 
+                            &peer_conn, 
+                            peer_connect_info,
+                            &mut self.proxy_peer_tx
+                        );
+                    },
+                }
+            } else if let Some((peer_conn, agent_reply)) = comm.to_setup_agent_cb.pop_front() {
+                let construct = comm.peer_setup_pre_agent.remove(&peer_conn).unwrap();
+                let setup_result = match peer_conn.conn_type {
+                    ConnType::Send => construct.transporter.send_setup_agent_callback(
+                        &peer_conn,
+                        agent_reply,
+                        construct.resources,
+                    ),
+                    ConnType::Recv => construct.transporter.recv_setup_agent_callback(
+                        &peer_conn, 
+                        agent_reply, 
+                        construct.resources,
+                    ),
+                };
+                match setup_result {
+                    TransportSetup::PreAgentCb { .. } => panic!("PreAgentCb variant is not expected"),
+                    TransportSetup::Setup { 
+                        peer_connect_info,
+                        setup_resources,
+                     } => {
+                        let construct = PeerConnConstruct {
+                            transporter: construct.transporter,
+                            resources: setup_resources,
+                        };
+                        comm.peer_setup.insert(peer_conn, construct);
+                        Self::exchange_connect_info(
+                            comm,
+                            &peer_conn,
+                            peer_connect_info,
+                            &mut self.proxy_peer_tx,
+                        );
+                     },
+                }
+            } else if let Some((peer_conn, conn_info)) = comm.to_connect.pop_front() {
+                let setup = comm.peer_setup.remove(&peer_conn).unwrap();
+                let connect_result = match peer_conn.conn_type {
+                    ConnType::Send => setup.transporter.send_connect(
+                        &peer_conn,
+                        conn_info,
+                        setup.resources,
+                    ),
+                    ConnType::Recv => setup.transporter.recv_connect(
+                        &peer_conn,
+                        conn_info,
+                        setup.resources,
+                    ),
+                };
+                match connect_result {
+                    TransportConnect::PreAgentCb { 
+                        agent_request, 
+                        transport_resources 
+                    } => {
+                        let agent = TransportAgentId {
+                            communicator_id: comm_id,
+                            client_rank: comm.rank,
+                            client_cuda_dev: self.device_info.cuda_device_idx,
+                            peer_conn,
+                        };
+                        let transport_engine = *comm.peer_transport_assigned.entry(peer_conn)
+                            .or_insert_with(| | {
+                                self.global_registry.assign_transport_engine(
+                                    self.device_info.cuda_device_idx, 
+                                    agent, 
+                                    &mut self.control_tx
+                                )
+                            });
+                        let request = match peer_conn.conn_type {
+                            ConnType::Send => TransportEngineRequest::AgentSendConnect(
+                                setup.transporter,
+                                agent,
+                                agent_request,
+                            ),
+                            ConnType::Recv => TransportEngineRequest::AgentRecvConnect(
+                                setup.transporter,
+                                agent,
+                                agent_request,
+                            ),
+                        };
+                        Self::send_transport_request(
+                            request, 
+                            transport_engine, 
+                            &mut self.transport_engines_tx, 
+                            &mut self.transport_submission_pool,
+                        );
+                        
+                        let construct = PeerConnConstruct {
+                            transporter: setup.transporter,
+                            resources: transport_resources,
+                        };
+                        comm.peer_connect_pre_agent.insert(peer_conn, construct);
+                    },
+                    TransportConnect::Connect {
+                        conn_info,
+                        transport_resources,
+                    } => { 
+                        let transport_engine = comm.peer_transport_assigned .get(&peer_conn)
+                            .map(|x| *x);
+
+                        let peer_connector = PeerConnector {
+                            conn_index: peer_conn.conn_index,
+                            conn_info,
+                            transport_agent_engine: transport_engine,
+                            transporter: setup.transporter,
+                            transport_resources: transport_resources,
+                        };
+                        comm.peer_connected.insert(peer_conn, peer_connector);
+                        comm.await_connections -= 1;
+                    },
+                }
+            } else if let Some((peer_conn, agent_reply)) = comm.to_connect_agent_cb.pop_front() {
+                let construct = comm.peer_connect_pre_agent.remove(&peer_conn).unwrap();
+                let connect_result = match peer_conn.conn_type {
+                    ConnType::Send => construct.transporter.send_connect_agent_callback(
+                        &peer_conn, 
+                        agent_reply, 
+                        construct.resources,
+                    ),
+                    ConnType::Recv => construct.transporter.recv_connect_agent_callback(
+                        &peer_conn, 
+                        agent_reply, 
+                        construct.resources
+                    ),
+                };
+                match connect_result {
+                    TransportConnect::PreAgentCb { .. } => panic!("PreAgentCb variant is not expected"),
+                    TransportConnect::Connect {
+                        conn_info, 
+                        transport_resources 
+                    } => {
+                        let transport_engine = comm.peer_transport_assigned .get(&peer_conn)
+                            .map(|x| *x);
+
+                        let peer_connector = PeerConnector {
+                            conn_index: peer_conn.conn_index,
+                            conn_info,
+                            transport_agent_engine: transport_engine,
+                            transporter: construct.transporter,
+                            transport_resources: transport_resources,
+                        };
+                        comm.peer_connected.insert(peer_conn, peer_connector);
+                        comm.await_connections -= 1;
+                    },
+                }
+            }
+        }
+        
+        if comm.await_connections == 0 {
+            let comm_init = self.comms_init.remove(&comm_id).unwrap();
+            let communicator = comm_init.finalize_communicator();
+            self.communicators.insert(comm_id, communicator);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl ProxyResources {
+    fn check_transport_reply(&mut self) {
+        for (_, transport_rx) in self.transport_engines_rx.iter_mut() {
+            match transport_rx.try_recv() {
+                Ok(msg) => {
+                    match msg {
+                        TransportEngineReply::AgentSendSetup(agent_id, reply)  | 
+                        TransportEngineReply::AgentRecvSetup(agent_id, reply) => {
+                            let peer_conn = agent_id.peer_conn;
+                            let comm = self.comms_init.get_mut(&agent_id.communicator_id).unwrap();
+                            comm.to_setup_agent_cb.push_back((peer_conn, reply));
+                        },
+                        TransportEngineReply::AgentSendConnect(agent_id, reply) | 
+                        TransportEngineReply::AgentRecvConnect(agent_id, reply)=> { 
+                            let peer_conn = agent_id.peer_conn;
+                            let comm = self.comms_init.get_mut(&agent_id.communicator_id).unwrap();
+                            comm.to_connect_agent_cb.push_back((peer_conn, reply));
+                        },
+                    }
+                },
+                Err(_) => (),
+            }
+        }
+    }
+
+    fn check_proxy_peer_message(&mut self) {
+        match self.proxy_peer_rx.try_recv() {
+            Ok(msg) => {
+                match msg {
+                    ProxyPeerMessage::ConnectInfoExchange(comm_id, peer_conn, conn_info) => {
+                        let comm = self.comms_init.get_mut(&comm_id).unwrap();
+                        comm.to_connect.push_back((peer_conn, conn_info));
+                    },
+                }
+            },
+            Err(_) => (),
+        }
+    }
+
+    fn check_control_notify(&mut self) {
+        match self.control_rx.try_recv() {
+            Ok(msg) => {
+               match msg {
+                ControlNotification::NewTransportEngine { 
+                    id, 
+                    request_tx,
+                    reply_rx 
+                } => {
+                    self.register_transport_engine(id, request_tx, reply_rx);
+                },
+            } 
+            },
+            Err(_) => (),
+        }
+    }
+
+}
+
+impl ProxyResources {
+    fn process_op(&mut self, op: &mut ProxyOp) -> bool {
+        match op {
+            ProxyOp::InitCommunicator(comm_id) => self.init_communicator(*comm_id),
+        }
+    }
+}
+
 pub struct ProxyEngine {
-    pub device_info: DeviceInfo,
-    pub outstanding_ops: LinkedList<(ProxyOp, OpStatus)>,
-    pub daemon_endpoint_rx: Receiver<CommandEndpointProxy>,
-    pub daemon_command_rx: Vec<(DaemonId, Receiver<ProxyCommand>)>,
-    pub daemon_completion_tx: Vec<(DaemonId, Sender<ProxyCompletion>)>,
-    pub communicators: HashMap<u32, LocalCommunicator>,
-    pub global_resources: Arc<GlobalResources>,
-    pub hmem_senders: HashMap<ConnectorIdentifier, HostMemTptEndpoint>,
-    pub hmem_receivers: HashMap<ConnectorIdentifier, HostMemTptEndpoint>,
+    resources: ProxyResources,
+    ops: WorkPool<ProxyOp>,
 }
 
 impl ProxyEngine {
     pub fn mainloop(&mut self) {
-        loop {
-            if rand::random::<u8>() < 10 {
-                self.check_new_endpoint();
-            }
-            self.check_command();
-            self.process_ops();
-        }
+        self.resources.check_proxy_peer_message();
+        self.resources.check_transport_reply();
+        self.resources.check_control_notify();
+
+        self.ops.progress(|op| self.resources.process_op(op));
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EngineStatus {
-    Progress(usize),
-}
-
-use EngineStatus::Progress;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OpStatus {
-    Init,
-    InProgress,
-    Completed,
 }
 
 impl ProxyEngine {
-    fn check_new_endpoint(&mut self) {
-        match self.daemon_endpoint_rx.try_recv() {
-            Ok(endpoint) => {
-                self.daemon_command_rx.push((endpoint.daemon_id, endpoint.command_rx));
-                self.daemon_completion_tx.push((endpoint.daemon_id, endpoint.completion_tx));
-            },
-            Err(_) => {},
-        }
-    }
 
-    fn check_command(&mut self) -> EngineStatus {
-        let mut progress = 0;
-        self.daemon_command_rx.drain_filter(|(_, cmd_rx)| {
-            match cmd_rx.try_recv() {
-                Ok(cmd) => {
-                    match cmd {
-                        ProxyCommand::InitCommunicator(init) => {
-                            let init = LocalCommunicatorBootstrap {
-                                daemon_id: init.daemon_id,
-                                communicator_id: init.communicator_id,
-                                rank: init.rank,
-                                peers_info: HashMap::with_capacity(init.num_ranks),
-                                num_ranks: init.num_ranks,
-                            };
-                            let op = ProxyOp::InitCommunicator(init);
-                            self.outstanding_ops.push_back((op, OpStatus::Init));
-                        },
-                        ProxyCommand::AllGather(all_gather) => {
-                            let all_gather = super::ops::AllGather {
-                                daemon_id: all_gather.daemon_id,
-                                communicator_id: all_gather.communicator_id,
-                                send_buf: all_gather.send_buf_addr as *mut u8,
-                                recv_buf: all_gather.recv_buf_addr as *mut u8,
-                                size: all_gather.size,
-                                step: 0,
-                                recv_completed: false,
-                                send_completed: false,
-                            };
-                            let op = ProxyOp::AllGather(all_gather);
-                            self.outstanding_ops.push_back((op, OpStatus::Init));
-                        },
-                    }
-                    progress += 1;
-                    false
-                },
-                Err(TryRecvError::Empty) => false,
-                Err(TryRecvError::Disconnected) => true,
-            }
-        });
-        Progress(progress)
-    }
-
-    fn process_ops(&mut self) -> EngineStatus {
-        // TBD: process only one op per engine mainloop?
-        // minimize amount of work per op?
-        let mut progress = 0;
-        let mut new_ops = Vec::new();
-
-        self.outstanding_ops.drain_filter(|(op, status)| {
-            assert_ne!(*status, OpStatus::Completed);
-            match op {
-                ProxyOp::InitCommunicator(bootstrap) => {
-                    let mut comm_global = self.global_resources.communicators.entry(bootstrap.communicator_id) 
-                        .or_insert_with(|| {
-                            CommunicatorGlobalInfo {
-                                communicator_id: bootstrap.communicator_id,
-                                num_ranks: bootstrap.num_ranks,
-                                ranks_info: vec![None; bootstrap.num_ranks],
-                            }
-                        });
-                    if *status == OpStatus::Init {
-                        let local_peer_info = PeerInfo {
-                            peer_type: PeerType::Local,
-                            rank: bootstrap.rank,
-                            cuda_device_idx: self.device_info.cuda_device_idx,
-                            cuda_comp_cap: self.device_info.cuda_comp_cap,
-                        };
-                        let local_rank_info = RankInfo {
-                            rank: bootstrap.rank,
-                            // TBD
-                            host: 0,
-                            cuda_device_idx: local_peer_info.cuda_device_idx,
-                            cuda_comp_cap: local_peer_info.cuda_comp_cap,
-                        };
-                        comm_global.ranks_info[bootstrap.rank] = Some(local_rank_info);
-                        bootstrap.peers_info.insert(bootstrap.rank, local_peer_info);
-                        *status = OpStatus::InProgress;
-                    }
-                    for rank_info in comm_global.ranks_info.iter().filter_map(|x| x.as_ref()) {
-                        match bootstrap.peers_info.entry(rank_info.rank) {
-                            Entry::Occupied(_) => { },
-                            Entry::Vacant(entry) => { 
-                                let peer_info = PeerInfo {
-                                    peer_type: PeerType::IntraNode,
-                                    rank: rank_info.rank,
-                                    cuda_device_idx: rank_info.cuda_device_idx,
-                                    cuda_comp_cap: rank_info.cuda_comp_cap,
-                                };
-                                entry.insert(peer_info);
-                            },
-                        }
-                    }
-                    if bootstrap.peers_info.len() == bootstrap.num_ranks {
-                        let mut local_rank = 0;
-                        let mut local_num_ranks = 0;
-                        let mut peers = vec![None; bootstrap.num_ranks];
-                        for (peer_rank, peer_info) in bootstrap.peers_info.iter_mut() {
-                            peers[*peer_rank] = Some(peer_info.clone());
-                        }
-                        let peers = peers.into_iter().map(|x| x.unwrap()).collect::<Vec<_>>();
-                        for peer in peers.iter() {
-                            if peer.rank == bootstrap.rank {
-                                local_rank = local_num_ranks;
-                            } 
-                            if peer.peer_type == PeerType::IntraNode {
-                                local_num_ranks += 1;
-                            }
-                        }
-
-                        let ring = RingPattern {
-                            prev_rank: (bootstrap.rank - 1 + bootstrap.num_ranks) % bootstrap.num_ranks,
-                            next_rank: (bootstrap.rank + 1) % bootstrap.num_ranks,
-                        };
-                        let channel = CommChannel {
-                            id: 0,
-                            ring,
-                        };
-                        let comm = LocalCommunicator {
-                            communicator_id: bootstrap.communicator_id,
-                            daemon_id: bootstrap.daemon_id,
-                            rank: bootstrap.rank,
-                            n_ranks: bootstrap.num_ranks,
-                            cuda_device_idx: self.device_info.cuda_device_idx,
-                            local_rank: local_rank,
-                            local_ranks: local_num_ranks,
-                            channels: vec![channel],
-                            peers_info: peers,
-                        };
-                        self.communicators.insert(comm.communicator_id, comm);
-                        let setup_transport = ProxyOp::InitCommSetupTransport(
-                            SetupTransport {
-                                daemon_id: bootstrap.daemon_id,
-                                communicator_id: bootstrap.communicator_id,
-                            }
-                        );
-                        new_ops.push(setup_transport);
-                        *status = OpStatus::Completed;
-                    }
-                },
-                ProxyOp::InitCommSetupTransport(setup) => {
-                    let comm = self.communicators.get(&setup.communicator_id).unwrap();
-                    let prev = comm.channels[0].ring.prev_rank;
-                    let next = comm.channels[0].ring.next_rank;
-                    let send_id = ConnectorIdentifier {
-                        communicator_id: comm.communicator_id,
-                        sender_rank: comm.rank,
-                        receiver_rank: next,
-                        channel: 0,
-                    };
-                    let recv_id = ConnectorIdentifier {
-                        communicator_id: comm.communicator_id,
-                        sender_rank: prev,
-                        receiver_rank: comm.rank,
-                        channel: 0,
-                    };
-                    if *status == OpStatus::Init {
-                        let config = HostMemTptConfig {
-                            buff_sizes: [8192],
-                            locality: crate::transport::hmem::config::MemLocality::SenderSide,
-                        };
-                        hmem_sender_setup(&self.global_resources.transport_setup, send_id, &config);
-                        hmem_receiver_setup(&self.global_resources.transport_setup, recv_id, &config);
-                        *status = OpStatus::InProgress;
-                    }
-                    let mut completed = true;
-                    if !self.hmem_senders.contains_key(&send_id) {
-                        match hmem_sender_connect(&self.global_resources.transport_setup, &send_id) {
-                            Ok(sender) => { self.hmem_senders.insert(send_id, sender); }, 
-                            Err(_) => { completed = false; },
-                        }
-                    }
-                    if !self.hmem_receivers.contains_key(&recv_id) {
-                        match hmem_receiver_connect(&self.global_resources.transport_setup, &recv_id) {
-                            Ok(receiver) => { self.hmem_receivers.insert(recv_id, receiver); }, 
-                            Err(_) => { completed = false; },
-                        }
-                    }
-                    if completed {
-                        self.daemon_completion_tx.iter_mut()
-                            .find(|(id, _)| *id == setup.daemon_id)
-                            .unwrap()
-                            .1
-                            .send(ProxyCompletion::InitCommunicator).unwrap();
-                        *status = OpStatus::Completed;
-                    }
-                },
-                ProxyOp::AllGather(all_gather) => {
-                    assert!(all_gather.size == 4096);
-                    assert!(all_gather.step < 2);
-                    *status = OpStatus::InProgress;
-                    let comm = self.communicators.get(&all_gather.communicator_id).unwrap();
-                    let send_chunk = (comm.rank - all_gather.step as usize + comm.n_ranks) % comm.n_ranks;
-                    let recv_chunk = (send_chunk - 1 + comm.n_ranks) % comm.n_ranks;
-                    let prev = comm.channels[0].ring.prev_rank;
-                    let next = comm.channels[0].ring.next_rank;
-                    let send_id = ConnectorIdentifier {
-                        communicator_id: comm.communicator_id,
-                        sender_rank: comm.rank,
-                        receiver_rank: next,
-                        channel: 0,
-                    };
-                    let recv_id = ConnectorIdentifier {
-                        communicator_id: comm.communicator_id,
-                        sender_rank: prev,
-                        receiver_rank: comm.rank,
-                        channel: 0,
-                    }; 
-                    let sender = self.hmem_senders.get(&send_id).unwrap();
-                    let receiver = self.hmem_receivers.get(&recv_id).unwrap();
-
-                    let size = all_gather.size;
-                    if !all_gather.send_completed {
-                        let src = unsafe { all_gather.send_buf.add(send_chunk * size) };
-                        let dst = unsafe { sender.connector.info.bufs[0].as_ptr().add(send_chunk * size) };
-                        unsafe { 
-                            let err = cudaMemcpy(dst as *mut _, src as *mut _, size, cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyDeviceToHost);
-                            if err != cudaError::cudaSuccess {
-                                panic!("cudaMemcpy failed")
-                            }
-                            (*sender.connector.info.tail).fetch_add(1, Ordering::Relaxed);
-                        };
-                        all_gather.send_completed = true;
-                    }
-                    if !all_gather.recv_completed {
-                        unsafe { 
-                            let tail = (*receiver.connector.info.tail).load(Ordering::Relaxed);
-                            if tail > all_gather.step as u64 {
-                                let src = receiver.connector.info.bufs[0].as_ptr().add(recv_chunk * size);
-                                let dst = all_gather.recv_buf.add(recv_chunk * size);
-                                let err = cudaMemcpy(dst as *mut _, src as *mut _, size, cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyHostToDevice);
-                                if err != cudaError::cudaSuccess {
-                                    panic!("cudaMemcpy failed")
-                                }
-                                (*receiver.connector.info.head).fetch_add(1, Ordering::Relaxed);
-                                all_gather.recv_completed = true;
-                            }
-                        }
-                    }
-                    if all_gather.send_completed && all_gather.recv_completed {
-                        all_gather.step += 1;
-                        all_gather.send_completed = false;
-                        all_gather.recv_completed = false;
-                        if all_gather.step as usize == comm.n_ranks {
-                            self.daemon_completion_tx.iter_mut()
-                                .find(|(id, _)| *id == all_gather.daemon_id)
-                                .unwrap()
-                                .1
-                                .send(ProxyCompletion::AllGather).unwrap();
-                            *status = OpStatus::Completed;
-                        }
-                    }
-                },
-            }
-            if *status == OpStatus::Completed { progress += 1; }
-            *status == OpStatus::Completed
-            
-        });
-
-        for op in new_ops {
-            self.outstanding_ops.push_back((op, OpStatus::Init));
-        }
-
-        Progress(progress)
-    }
 }
