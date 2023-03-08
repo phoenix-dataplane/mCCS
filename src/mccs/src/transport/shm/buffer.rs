@@ -1,63 +1,17 @@
-use std::ffi::c_void;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicBool, AtomicPtr};
 use std::alloc::{Layout, System, GlobalAlloc};
 use std::ops::{Deref, DerefMut};
 
-use super::MAX_BUFFER_SLOTS;
-const CACHE_LINE_SIZE: usize = 128;
-const ATOMIC_U32_INIT: AtomicU32 = AtomicU32::new(0);
-const ATOMIC_U64_INIT: AtomicU64 = AtomicU64::new(0);
-
-
-#[repr(C, align(4096))]
-pub struct SendBufMeta {
-    pub head: AtomicU64,
-    _pad1: [u8; CACHE_LINE_SIZE - std::mem::size_of::<u64>()],
-    _ptr_exchange: AtomicPtr<c_void>,
-    _reduce_op_arg_exchange: [AtomicU64; 2],
-    _pad2: [u8; CACHE_LINE_SIZE - std::mem::size_of::<*mut c_void>() - 2 * std::mem::size_of::<u64>()],
-    _slots_offsets: [AtomicU32; MAX_BUFFER_SLOTS],
-}
-
-impl SendBufMeta {
-    pub fn new() -> Self {
-        SendBufMeta {
-            head: ATOMIC_U64_INIT,
-            _pad1: [0; CACHE_LINE_SIZE - std::mem::size_of::<u64>()],
-            _ptr_exchange: AtomicPtr::new(std::ptr::null_mut()),
-            _reduce_op_arg_exchange: [ATOMIC_U64_INIT; 2],
-            _pad2: [0; CACHE_LINE_SIZE - std::mem::size_of::<*mut c_void>() - 2 * std::mem::size_of::<u64>()],
-            _slots_offsets: [ATOMIC_U32_INIT; MAX_BUFFER_SLOTS],
-        }
-    }
-}
-
-#[repr(C, align(4096))]
-pub struct RecvBufMeta {
-    pub tail: AtomicU64,
-    _pad1: [u8; CACHE_LINE_SIZE - std::mem::size_of::<u64>()],
-    _slots_sizes: [AtomicU32; MAX_BUFFER_SLOTS],
-    _slots_offsets: [AtomicU32; MAX_BUFFER_SLOTS],
-    _flush: AtomicBool,
-}
-
-impl RecvBufMeta {
-    pub fn new() -> Self {
-        RecvBufMeta {
-            tail: ATOMIC_U64_INIT,
-            _pad1: [0; CACHE_LINE_SIZE - std::mem::size_of::<u64>()],
-            _slots_sizes: [ATOMIC_U32_INIT; MAX_BUFFER_SLOTS],
-            _slots_offsets: [ATOMIC_U32_INIT; MAX_BUFFER_SLOTS],
-            _flush: AtomicBool::new(false),
-        }
-    }
-}
-
+// Transport buffer is designed to be a host registerd buffer
+// for GPU kernels to read/write
+// agent may also access the memory
 pub struct TransportBuffer<T> {
     ptr: *mut T,
     size: usize,
     align: usize,
 }
+
+unsafe impl<T> Send for TransportBuffer<T> { }
+unsafe impl<T> Sync for TransportBuffer<T> { }
 
 impl<T> TransportBuffer<T> {
     pub fn new(meta: T, size: usize, align: usize) -> TransportBuffer<T> {
@@ -81,7 +35,22 @@ impl<T> TransportBuffer<T> {
     pub unsafe fn get_meta_mut(&self) -> &mut T {
         &mut *self.ptr
     }
+
+    #[inline]
+    pub fn meta_ptr(&self) -> *const T {
+        self.ptr as *const _
+    }
     
+    #[inline]
+    pub fn meta_mut_ptr(&self) -> *mut T {
+        self.ptr
+    }
+
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
     #[inline]
     pub fn buf_ptr(&self) -> *const u8 {
         unsafe { self.ptr.add(1) as *const u8 }
@@ -156,6 +125,3 @@ impl<T> Drop for TransportBuffer<T> {
         }
     }
 }
-
-unsafe impl<T: Send + Sync> Send for TransportBuffer<T> { }
-unsafe impl<T: Send + Sync> Sync for TransportBuffer<T> { }

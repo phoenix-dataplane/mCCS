@@ -15,7 +15,7 @@ LIBSRCFILES += src/functions.cu
 
 DEPFILES   := $(patsubst src/%.cu, $(OBJDIR)/%.d, $(LIBSRCFILES))
 DEPENDFILES:= $(DEPFILES:%.d=%.dep)
-STATICLIB  := $(OBJDIR)/colldevice.a
+STATICLIB  := $(OBJDIR)/libcolldevice.a
 DEVOBJ     := $(OBJDIR)/devlink.o
 RULESFILE  := $(OBJDIR)/Makefile.rules
 

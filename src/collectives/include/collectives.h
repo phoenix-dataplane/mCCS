@@ -56,14 +56,9 @@ struct mccsDevRedOpFull {
 
 #define DECL4(func, algo, devredop, type, undef) \
   MACRO_IF(undef, /*undefined*/, DECL5(func, algo, SIMPLE, devredop, type)) \
-  MACRO_IF(undef, /*undefined*/, DECL5(func, algo, LL,     devredop, type)) \
-  MACRO_IF(undef, /*undefined*/, DECL5(func, algo, LL128,  devredop, type))
 
 #define DECL3(func, devredop, type, undef) \
   DECL4(func, RING,    devredop, type, undef) \
-  DECL4(func, TREE,    devredop, type, undef) \
-  DECL4(func, COLLNET_DIRECT, devredop, type, undef) \
-  DECL4(func, COLLNET_CHAIN, devredop, type, undef)
 
 #if defined(__CUDA_BF16_TYPES_EXIST__)
 #define DECL2(func, devredop, undefForFloat) \
@@ -99,5 +94,9 @@ struct mccsDevRedOpFull {
   DECL2(func, SumPostDiv, /*undefForFloat=*/1)
 
 DECL2(AllGather, Sum, /*undefForFloat=*/0)
+
+#define ALLGATHER_SLICESTEPS (MCCS_BUFFER_SLOTS/4)
+#define ALLGATHER_CHUNKSTEPS (MCCS_BUFFER_SLOTS/2)
+#define MCCS_MAX_SLICE_PER_CHUNK 2  
 
 #endif

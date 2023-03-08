@@ -9,15 +9,15 @@ const MAX_CONNS_PER_ENGINE: usize = 8;
 const MAX_NUM_ENGINES_PER_DEVICE: usize = 8;
 
 pub struct TransportDelegator {
-    active_connections: DashMap<usize, Vec<(u32, usize)>>,
+    active_connections: DashMap<i32, Vec<(u32, usize)>>,
     agent_assignments: DashMap<TransportAgentId, TransportEngineId>,
-    shutdown_engines: DashMap<usize, Vec<u32>>,
+    shutdown_engines: DashMap<i32, Vec<u32>>,
 }
 
 impl TransportDelegator {
     pub fn assign_transport_engine(
         &self, 
-        cuda_dev: usize, 
+        cuda_dev: i32, 
         agent: TransportAgentId,
         control: &mut Sender<ControlRequest>
     ) -> TransportEngineId {
@@ -61,7 +61,7 @@ impl TransportDelegator {
             cuda_device_idx: cuda_dev,
             index: idx,
         };
-        control.send(ControlRequest::NewTransportEngine(new_engine));
+        control.send(ControlRequest::NewTransportEngine(new_engine)).unwrap();
         new_engine
     }
 }

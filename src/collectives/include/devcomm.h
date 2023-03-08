@@ -4,6 +4,7 @@
 
 #include "align.h"
 #include <stdint.h>
+#include <stddef.h>
 
 #define MCCS_NUM_FUNCTIONS 5 // Send/Recv not included for now
 typedef enum { 
@@ -16,7 +17,7 @@ typedef enum {
   mccsFuncSend, 
   mccsFuncRecv, 
   mccsNumFuncs
-} mccsFunc_t;
+} mccsDevFunc_t;
 
 #define MCCS_NUM_ALGORITHMS 1
 #define MCCS_ALGO_RING 0
@@ -28,7 +29,7 @@ typedef enum {
 #define MCCS_BUFFER_SLOTS 8
 
 #define WARP_SIZE 32
-#define MAX_NCHANNELS 32
+#define MCCS_MAX_NCHANNELS 32
 #define MCCS_MAX_NTHREADS 640
 #define MCCS_SIMPLE_MAX_NTHREADS 512
 
@@ -39,6 +40,7 @@ struct mccsDevConnInfo {
   uint64_t *head;     // Local for send, remote for recv
 
   int *sizesFifo;     // Sizes fifo from GPU to proxy
+  int *offsFifo;      // Buffer fifo from proxy to GPU
 
   uint64_t step;      // Keep where we are
 };
@@ -158,7 +160,7 @@ struct mccsDevComm {
 
 struct alignas(16) mccsDevCommAndChannels {
   struct mccsDevComm comm;
-  struct mccsDevChannel channels[MAX_NCHANNELS];
+  struct mccsDevChannel channels[MCCS_MAX_NCHANNELS];
 };
 
 #endif

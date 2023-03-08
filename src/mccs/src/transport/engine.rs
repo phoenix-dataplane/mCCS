@@ -9,13 +9,13 @@ use crate::utils::pool::WorkPool;
 
 use super::message::{TransportEngineRequest, TransportEngineReply};
 use super::queue::TransrportOpQueue;
-use super::task::TransportOp;
+use super::op::TransportOp;
 use super::transporter::{TransportAgentId, AnyResources, Transporter, AgentMessage};
 use super::channel::ConnType;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TransportEngineId {
-    pub cuda_device_idx: usize,
+    pub cuda_device_idx: i32,
     pub index: u32,
 }
 
@@ -128,11 +128,11 @@ impl TrasnportEngineResources {
                         setup_resources, 
                         reply 
                     } => {
-                        let reply = TransportEngineReply::AgentSendSetup(
+                        let reply = TransportEngineReply::AgentSetup(
                             task.agent_id,
                             reply
                         );
-                        self.proxy_tx[task.agent_id.client_cuda_dev].send(reply).unwrap();
+                        self.proxy_tx[task.agent_id.client_cuda_dev as usize].send(reply).unwrap();
                         self.agent_setup.insert(task.agent_id, setup_resources);
                     },
                     AsyncTaskResult::Connect { 
@@ -143,11 +143,11 @@ impl TrasnportEngineResources {
                             transporter: task.transporter,
                             agent_resources,
                         };
-                        let reply = TransportEngineReply::AgentSendConnect(
+                        let reply = TransportEngineReply::AgentConnect(
                             task.agent_id,
                             reply
                         );
-                        self.proxy_tx[task.agent_id.client_cuda_dev].send(reply).unwrap();
+                        self.proxy_tx[task.agent_id.client_cuda_dev as usize].send(reply).unwrap();
                         self.agent_connected.insert(task.agent_id, connected);
                     },
                 }
@@ -180,22 +180,14 @@ impl TransportEngine {
             match rx.try_recv() {
                 Ok(request) => {
                     let task = match request {
-                        TransportEngineRequest::AgentSendSetup(
+                        TransportEngineRequest::AgentSetup(
                             transporter, 
                             agent_id, 
-                            request,
-                        ) | TransportEngineRequest::AgentRecvSetup(
-                            transporter,
-                            agent_id,
                             request,
                         ) => {
                             new_setup_task(transporter, agent_id, request)
                         },
-                        TransportEngineRequest::AgentSendConnect(
-                            transporter,
-                            agent_id,
-                            request,
-                        ) | TransportEngineRequest::AgentRecvConnect(
+                        TransportEngineRequest::AgentConnect(
                             transporter,
                             agent_id,
                             request,

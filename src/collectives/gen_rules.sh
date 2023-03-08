@@ -25,7 +25,7 @@ for base in all_gather; do
 
       echo "	@printf \"Compiling  %-35s > %s\\\\n\" src/${base}.cu ${dir}/${base}_${op}_${dt}.o"
       echo "	mkdir -p ${dir}"
-      echo "	\${NVCC} -DNCCL_OP=${opn} -DNCCL_TYPE=${dtn} \${NVCUFLAGS} -dc \$< -o \$@"
+      echo "	\${NVCC} -DMCCS_OP=${opn} -DMCCS_TYPE=${dtn} \${NVCUFLAGS} -dc \$< -o \$@"
       echo ""
       targets="$targets\t${dir}/${base}_${op}_${dt}.o \\\\\n"
       dtn=$(($dtn + 1))

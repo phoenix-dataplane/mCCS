@@ -1,8 +1,9 @@
-use std::ptr::NonNull;
 use std::any::Any;
 
+use super::NUM_PROTOCOLS;
 use super::engine::TransportEngineId;
 use super::transporter::Transporter;
+use crate::cuda::ptr::DeviceNonNull;
 use crate::pattern::RingPattern;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -20,10 +21,10 @@ pub struct PeerConnId {
 }
 
 pub struct PeerConnInfo {
-    bufs: [NonNull<u8>; 3],
-    head: NonNull<u64>,
-    tail: NonNull<u64>,
-    slots_sizes: NonNull<[i32]>,
+    pub bufs: [DeviceNonNull<u8>; NUM_PROTOCOLS],
+    pub head: DeviceNonNull<u64>,
+    pub tail: DeviceNonNull<u64>,
+    pub slots_sizes: Option<DeviceNonNull<u32>>,
 }
 
 pub struct PeerConnector {

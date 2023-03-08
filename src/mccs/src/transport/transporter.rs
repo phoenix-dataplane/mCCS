@@ -1,9 +1,10 @@
 use std::any::Any;
 use async_trait::async_trait;
 
-use crate::communicator::CommunicatorId;
+use crate::communicator::{CommunicatorId, CommProfile};
 use super::channel::{PeerConnId, PeerConnInfo};
-use super::task::TransportOp;
+use super::op::TransportOp;
+use super::catalog::TransportCatalog;
 
 pub type AgentMessage = Option<Box<dyn Any + Send>>;
 pub type AnyResources = Box<dyn Any + Send>;
@@ -35,7 +36,7 @@ pub enum TransportConnect {
 pub struct TransportAgentId {
     pub communicator_id: CommunicatorId,
     pub client_rank: usize,
-    pub client_cuda_dev: usize,
+    pub client_cuda_dev: i32,
     pub peer_conn: PeerConnId,
 }
 
@@ -46,7 +47,12 @@ pub trait Transporter: Send + Sync {
     // returns PreAgentCb variant of TransportSetup
     // if transport agent setup is required,
     // otherwise, returns Setup variant
-    fn send_setup(&self, conn_id: &PeerConnId) -> TransportSetup;
+    fn send_setup(
+        &self, 
+        profile: &CommProfile,
+        conn_id: &PeerConnId,
+        catalog: &TransportCatalog,
+    ) -> TransportSetup;
 
     // If agent setup is requested, then this function will be invoked,
     // to finish up remaining work
@@ -86,7 +92,12 @@ pub trait Transporter: Send + Sync {
     }
 
     // Setup receiver transport
-    fn recv_setup(&self, conn_id: &PeerConnId) -> TransportSetup;
+    fn recv_setup(
+        &self, 
+        profile: &CommProfile,
+        conn_id: &PeerConnId,
+        catalog: &TransportCatalog,
+    ) -> TransportSetup;
 
     // Complete receiver transport setup with transport agent,
     // after agent completes setup and replies
@@ -156,12 +167,21 @@ pub trait Transporter: Send + Sync {
         unimplemented!("Transport agent is not implemented for this transport");
     }
 
-    // Progress transport op
-    fn agent_progress_op(
+    // Progress transport op for send connection
+    fn agent_send_progress_op(
         &self,
-        _id: TransportAgentId,
         _op: &mut TransportOp,
-    ) -> bool {
+        _resources: &mut AnyResources,
+    ) {
+        unimplemented!("Transport agent is not implemented for this transport");
+    }
+
+    // Progress transport op for recv connection
+    fn agent_recv_progress_op(
+        &self,
+        _op: &mut TransportOp,
+        _resources: &mut AnyResources,
+    ) {
         unimplemented!("Transport agent is not implemented for this transport");
     }
 }

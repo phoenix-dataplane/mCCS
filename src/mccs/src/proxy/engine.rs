@@ -4,6 +4,7 @@ use std::sync::Arc;
 use crossbeam::channel::{Sender, Receiver};
 
 use crate::communicator::{PeerInfo, PeerType, CommunicatorId, Communicator};
+use crate::daemon::DaemonId;
 use crate::message::{ControlRequest, ControlNotification};
 use crate::proxy::init::PeerConnConstruct;
 use crate::registry::GlobalRegistry;
@@ -22,6 +23,8 @@ pub struct ProxyResources {
     device_info: DeviceInfo,
     control_tx: Sender<ControlRequest>,
     control_rx: Receiver<ControlNotification>,
+    daemon_tx: HashMap<DaemonId, ProxyCompletion>,
+    daemon_rx: Vec<(DaemonId, ProxyCommand)>,
     proxy_peer_tx: Vec<Sender<ProxyPeerMessage>>,
     proxy_peer_rx: Receiver<ProxyPeerMessage>,
     comms_init: HashMap<CommunicatorId, CommInitState>,
@@ -187,8 +190,16 @@ impl ProxyResources {
                     &peer_conn
                 );
                 let setup_result = match peer_conn.conn_type {
-                    ConnType::Send => transporter.send_setup(&peer_conn),
-                    ConnType::Recv => transporter.recv_setup(&peer_conn),
+                    ConnType::Send => transporter.send_setup(
+                        &comm.profile,
+                        &peer_conn,
+                        &self.global_registry.transport_catalog
+                    ),
+                    ConnType::Recv => transporter.recv_setup(
+                        &comm.profile,
+                        &peer_conn,
+                        &self.global_registry.transport_catalog
+                    ),
                 };
                 match setup_result {
                     TransportSetup::PreAgentCb { 
@@ -201,18 +212,18 @@ impl ProxyResources {
                             client_cuda_dev: self.device_info.cuda_device_idx,
                             peer_conn,
                         };
-                        let transport_engine_idx = self.global_registry.assign_transport_engine(
+                        let transport_engine_idx = self.global_registry.transport_delegator.assign_transport_engine(
                             self.device_info.cuda_device_idx, 
                             agent, 
                             &mut self.control_tx
                         );
                         let request = match peer_conn.conn_type {
-                            ConnType::Send => TransportEngineRequest::AgentSendSetup(
+                            ConnType::Send => TransportEngineRequest::AgentSetup(
                                 transporter,
                                 agent,
                                 agent_request,
                             ),
-                            ConnType::Recv => TransportEngineRequest::AgentRecvSetup(
+                            ConnType::Recv => TransportEngineRequest::AgentSetup(
                                 transporter,
                                 agent,
                                 agent_request,
@@ -308,19 +319,19 @@ impl ProxyResources {
                         };
                         let transport_engine = *comm.peer_transport_assigned.entry(peer_conn)
                             .or_insert_with(| | {
-                                self.global_registry.assign_transport_engine(
+                                self.global_registry.transport_delegator.assign_transport_engine(
                                     self.device_info.cuda_device_idx, 
                                     agent, 
                                     &mut self.control_tx
                                 )
                             });
                         let request = match peer_conn.conn_type {
-                            ConnType::Send => TransportEngineRequest::AgentSendConnect(
+                            ConnType::Send => TransportEngineRequest::AgentConnect(
                                 setup.transporter,
                                 agent,
                                 agent_request,
                             ),
-                            ConnType::Recv => TransportEngineRequest::AgentRecvConnect(
+                            ConnType::Recv => TransportEngineRequest::AgentConnect(
                                 setup.transporter,
                                 agent,
                                 agent_request,
@@ -411,14 +422,18 @@ impl ProxyResources {
             match transport_rx.try_recv() {
                 Ok(msg) => {
                     match msg {
-                        TransportEngineReply::AgentSendSetup(agent_id, reply)  | 
-                        TransportEngineReply::AgentRecvSetup(agent_id, reply) => {
+                        TransportEngineReply::AgentSetup(
+                            agent_id, 
+                            reply
+                        ) => {
                             let peer_conn = agent_id.peer_conn;
                             let comm = self.comms_init.get_mut(&agent_id.communicator_id).unwrap();
                             comm.to_setup_agent_cb.push_back((peer_conn, reply));
                         },
-                        TransportEngineReply::AgentSendConnect(agent_id, reply) | 
-                        TransportEngineReply::AgentRecvConnect(agent_id, reply)=> { 
+                        TransportEngineReply::AgentConnect(
+                            agent_id, 
+                            reply
+                        ) => { 
                             let peer_conn = agent_id.peer_conn;
                             let comm = self.comms_init.get_mut(&agent_id.communicator_id).unwrap();
                             comm.to_connect_agent_cb.push_back((peer_conn, reply));
@@ -460,7 +475,6 @@ impl ProxyResources {
             Err(_) => (),
         }
     }
-
 }
 
 impl ProxyResources {

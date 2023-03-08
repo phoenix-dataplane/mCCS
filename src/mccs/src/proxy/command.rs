@@ -1,5 +1,3 @@
-use crossbeam::channel::{Sender, Receiver};
-
 use crate::daemon::DaemonId;
 
 pub struct InitCommunicator {

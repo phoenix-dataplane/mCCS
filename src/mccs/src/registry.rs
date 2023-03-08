@@ -1,21 +1,19 @@
 use std::collections::HashMap;
 
 use dashmap::DashMap;
-use crossbeam::channel::Sender;
 
 use crate::communicator::{CommunicatorId, PeerInfo, HostIdent, PeerType, ChannelCommPattern};
 use crate::pattern;
+use crate::transport::catalog::TransportCatalog;
 use crate::transport::channel::PeerConnId;
-use crate::transport::transporter::{Transporter, TransportAgentId};
+use crate::transport::transporter::Transporter;
 use crate::transport::delegator::TransportDelegator;
-use crate::message::ControlRequest;
-use crate::transport::engine::TransportEngineId;
 
 #[derive(Clone)]
 pub struct RankInfo {
     exchanged: bool,
     host: HostIdent,
-    cuda_device_idx: usize,
+    cuda_device_idx: i32,
 }
 
 pub struct CommunicatorInfo {
@@ -45,20 +43,8 @@ impl CommunicatorInfo {
 
 pub struct GlobalRegistry {
     communicators: DashMap<CommunicatorId, CommunicatorInfo>,
-    transport_delegator: TransportDelegator,
-}
-
-
-impl GlobalRegistry {
-    #[inline]
-    pub fn assign_transport_engine(
-        &self, 
-        cuda_dev: usize, 
-        agent: TransportAgentId,
-        control: &mut Sender<ControlRequest>, 
-    ) -> TransportEngineId {
-        self.transport_delegator.assign_transport_engine(cuda_dev, agent, control)
-    }
+    pub transport_delegator: TransportDelegator,
+    pub transport_catalog: TransportCatalog
 }
 
 impl GlobalRegistry {

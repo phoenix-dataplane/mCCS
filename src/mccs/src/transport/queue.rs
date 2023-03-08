@@ -1,7 +1,7 @@
 use std::collections::{VecDeque, HashMap};
 use std::collections::hash_map::Entry;
 
-use super::task::TransportOp;
+use super::op::TransportOp;
 use super::transporter::TransportAgentId;
 
 const PER_CONN_QUEUE_INIT_CAPACITY: usize = 16;

@@ -18,13 +18,15 @@
 #endif
 
 
-typedef void(*mccsKern_t)();
+typedef void(*mccsDevKern_t)();
+extern __device__ mccsDevKern_t mccsDevFuncs[];
 
 struct mccsShmemGroup {
-  mccsDevConnInfo *recvConn;
-  mccsDevConnInfo *sendConn;
+  mccsDevConnInfo *recvConns[1];
+  mccsDevConnInfo *sendConns[1];
   void* srcs[2];
   void* dsts[2];
+  int totalSendSize[MCCS_MAX_SLICE_PER_CHUNK];
 };
 
 struct mccsShmemData {
@@ -60,34 +62,34 @@ inline __device__ void copyToShmem16(int tid, void* dst, void const* src, int by
   }
 }
 
-template<mccsFunc_t Fn, typename T, typename RedOp, int Algo, int Proto>
+template<mccsDevFunc_t Fn, typename T, typename RedOp, int Algo, int Proto>
 struct RunWorkElement {
-  __device__ void run(mccsWorkElem*) {
+  __device__ void run(mccsDevWorkElem*) {
     // Put NOT IMPLEMENTED behavior here.
   }
 };
 
-template<mccsFunc_t Fn, typename T, typename RedOp, int Algo, int Proto>
+template<mccsDevFunc_t Fn, typename T, typename RedOp, int Algo, int Proto>
 struct RunWork {
   // This __forceinline__ is necessary. The compiler was inserting a function call
   // here from the LL mccsKernel.
-  __device__ __forceinline__ void run(mccsWork *w) {
+  __device__ __forceinline__ void run(mccsDevWork *w) {
     int wid = threadIdx.x / WARP_SIZE;
-    mccsWorkElem* we = &w->elems[0];
-    int stride = sizeof(mccsWorkElem);
+    mccsDevWorkElem* we = &w->elems[0];
+    int stride = sizeof(mccsDevWorkElem);
     #pragma unroll 1
     while ((char*)we + stride <= (char*)(w+1) && we->isUsed) {
       if (wid < we->nWarps) {
         RunWorkElement<Fn, T, RedOp, Algo, Proto>().run(we);
       }
-      we = (mccsWorkElem*)((char*)we + stride);
+      we = (mccsDevWorkElem*)((char*)we + stride);
     }
   }
 };
 
-template<mccsFunc_t Fn, typename T, typename RedOp, int Algo, int Proto, int FnIndex>
+template<mccsDevFunc_t Fn, typename T, typename RedOp, int Algo, int Proto, int FnIndex>
 __device__ void mccsKernel(
-    struct mccsDevComm* comm, uint64_t channelMask, struct mccsWork* workHead
+    struct mccsDevComm* comm, uint64_t channelMask, struct mccsDevWork* workHead
   )  {
   int tid = threadIdx.x;
 
@@ -101,7 +103,7 @@ __device__ void mccsKernel(
       int y = __popcll(channelMask & ((1ull<<x)-1));
       if (blockIdx.x == y) mccsShmem.channelId = x;
     }
-    if (32 < MAXCHANNELS) {
+    if (32 < MCCS_MAX_NCHANNELS) {
       // each thread also checks higher 32 channels if needed
       x = 32 + tid;
       if (channelMask & (1ull<<x)) {
@@ -134,8 +136,8 @@ __device__ void mccsKernel(
     case 2:
       dst = &mccsShmem.work;
       src = workHead + blockIdx.x;
-      bytes = sizeof(mccsWork);
-      static_assert(sizeof(mccsWork) <= 16*WARP_SIZE, "mccsWork cannot be loaded by a single warp in one insn.");
+      bytes = sizeof(mccsDevWork);
+      static_assert(sizeof(mccsDevWork) <= 16*WARP_SIZE, "mccsDevWork cannot be loaded by a single warp in one insn.");
       break;
     default:
       bytes = 0;
@@ -155,13 +157,15 @@ __device__ void mccsKernel(
 
     if (mccsShmem.work.header.funcIndex == FnIndex) {
       RunWork<Fn, T, RedOp, Algo, Proto>().run(&mccsShmem.work);
-    } 
+    } else {
+      mccsDevFuncs[mccsShmem.work.header.funcIndex]();
+    }
 
     int workIxNext = mccsShmem.work.header.workNext;
     __syncthreads();
     if (mccsShmem.work.header.isLast) break;
 
-    copyToShmem16(tid, &mccsShmem.work, workHead + workIxNext, sizeof(mccsWork));
+    copyToShmem16(tid, &mccsShmem.work, workHead + workIxNext, sizeof(mccsDevWork));
 
     { // Check whether the last operation was aborted and make sure all threads exit
       int aborted = tid == 0 ? *comm->abortFlag : 0;
@@ -175,7 +179,7 @@ __device__ void mccsKernel(
 #if MCCS_OP == mccsDevSum
 #define IMPL_COLL_KERN(func, algo, proto, devredop, type, fIndex) \
 __global__ void MCCS_KERN_NAME(func, algo, proto, devredop, type)( \
-    struct mccsDevComm* comm, uint64_t channelMask, struct mccsWork* workHead \
+    struct mccsDevComm* comm, uint64_t channelMask, struct mccsDevWork* workHead \
   ) { \
   mccsKernel<mccsFunc##func, type, Func##devredop<type>, MCCS_ALGO_##algo, MCCS_PROTO_##proto, fIndex> \
     (comm, channelMask, workHead); \
@@ -189,10 +193,10 @@ __device__ void MCCS_FUNC_NAME(func, algo, proto, devredop, type)() { \
   RunWork<mccsFunc##func, type, Func##devredop<type>, MCCS_ALGO_##algo, MCCS_PROTO_##proto>().run(&mccsShmem.work); \
 }
 
-// Only generate inline kernels for LL
+// Only generate inline kernels for SIMPLE
 #define IMPL_COLL4(func, algo, devredop, type, mccsType) \
   IMPL_COLL_FUNC(func, algo, SIMPLE, devredop, type) \
-  IMPL_COLL_KERN(func, algo, SIMPLE, devredop, type, FUNC_INDEX(mccsFunc##func, mccsDev##devredop, mccsType, MCCS_ALGO_##algo, MCCS_PROTO_LL)) \
+  IMPL_COLL_KERN(func, algo, SIMPLE, devredop, type, FUNC_INDEX(mccsFunc##func, mccsDev##devredop, mccsType, MCCS_ALGO_##algo, MCCS_PROTO_SIMPLE)) \
 
 #define IMPL_COLL3(func, devredop, type, mccsType) \
   IMPL_COLL4(func, RING,    devredop, type, mccsType) \
@@ -215,11 +219,8 @@ __device__ void MCCS_FUNC_NAME(func, algo, proto, devredop, type)() { \
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, float,    mccsFloat32)
 #elif MCCS_TYPE == mccsFloat64
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, double,   mccsFloat64)
-#endif
-#if defined(__CUDA_BF16_TYPES_EXIST__)
-#if MCCS_TYPE == mccsBfloat16
+#elif MCCS_TYPE == mccsBfloat16 && defined(__CUDA_BF16_TYPES_EXIST__)
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __nv_bfloat16, mccsBfloat16)
-#endif
 #endif
 
 // Reduction define all functions

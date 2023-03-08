@@ -1,10 +1,9 @@
-use std::any::Any;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::transport::engine::TransportEngineId;
 use crate::transport::transporter::{Transporter, AgentMessage, AnyResources, ConnectInfo}; 
 use crate::transport::channel::{PeerConnId, PeerConnector, ConnType, CommChannel, ChannelPeerConn};
-use crate::communicator::{CommunicatorId, PeerInfo, ChannelCommPattern, Communicator};
+use crate::communicator::{CommunicatorId, PeerInfo, ChannelCommPattern, Communicator, CommProfile};
 
 pub struct PeerConnConstruct {
     pub transporter: &'static dyn Transporter,
@@ -24,6 +23,7 @@ pub struct CommInitState {
 
     pub rank: usize,
     pub num_ranks: usize,
+    pub profile: CommProfile,
     pub peers_info: HashMap<usize, PeerInfo>,
     pub peers_await_exchange: Vec<usize>,
 
