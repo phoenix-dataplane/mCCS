@@ -717,6 +717,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bincode",
+ "collectives-sys",
  "crossbeam",
  "cuda-runtime-sys",
  "dashmap",

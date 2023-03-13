@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use dashmap::DashMap;
 
-use crate::communicator::{CommunicatorId, PeerInfo, HostIdent, PeerType, ChannelCommPattern};
+use crate::comm::{CommunicatorId, PeerInfo, HostIdent, PeerType, ChannelCommPattern};
 use crate::pattern;
+use crate::transport::SHM_TRANSPORTER;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::channel::PeerConnId;
 use crate::transport::transporter::Transporter;
@@ -150,6 +151,6 @@ impl GlobalRegistry {
         _rank: usize,
         _peer: &PeerConnId,
     ) -> &'static dyn Transporter {
-        todo!()
+        &SHM_TRANSPORTER
     }
 }

@@ -1,9 +1,16 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
+use std::mem::MaybeUninit;
 
+use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
+
+use crate::comm::device::CommDevResources;
 use crate::transport::engine::TransportEngineId;
 use crate::transport::transporter::{Transporter, AgentMessage, AnyResources, ConnectInfo}; 
 use crate::transport::channel::{PeerConnId, PeerConnector, ConnType, CommChannel, ChannelPeerConn};
-use crate::communicator::{CommunicatorId, PeerInfo, ChannelCommPattern, Communicator, CommProfile};
+use crate::comm::{CommunicatorId, PeerInfo, ChannelCommPattern, Communicator, CommProfile};
+
+use super::plan::ChanWorkSchedule;
+use super::task::TaskQueue;
 
 pub struct PeerConnConstruct {
     pub transporter: &'static dyn Transporter,
@@ -41,8 +48,43 @@ pub struct CommInitState {
 
     pub peer_connected: HashMap<PeerConnId, PeerConnector>,
     pub await_connections: usize,
+}
 
-    pub pending_conn: HashSet<PeerConnId>,
+impl CommInitState {
+    pub fn new(
+        id: CommunicatorId,
+        rank: usize,
+        num_ranks: usize,
+        comm_profile: CommProfile,
+    ) -> Self {
+        CommInitState { 
+            id, 
+            stage: CommInitStage::RegisterRank, 
+            rank, 
+            num_ranks, 
+            profile: comm_profile, 
+            peers_info: HashMap::new(), 
+            peers_await_exchange: Vec::new(), 
+            comm_patterns: Vec::new(), 
+            to_setup: VecDeque::new(), 
+            to_setup_agent_cb: VecDeque::new(), 
+            to_connect: VecDeque::new(),
+            to_connect_agent_cb: VecDeque::new(), 
+            peer_transport_assigned: HashMap::new(), 
+            peer_setup_pre_agent: HashMap::new(), 
+            peer_setup: HashMap::new(), 
+            peer_connect_pre_agent: HashMap::new(), 
+            peer_connected: HashMap::new(), 
+            await_connections: 0, 
+        }
+    }
+}
+
+fn new_chan_peer_conn() -> ChannelPeerConn {
+    ChannelPeerConn {
+        send: HashMap::new(),
+        recv: HashMap::new(),
+    }
 }
 
 impl CommInitState {
@@ -66,48 +108,81 @@ impl CommInitState {
     }
 
     pub fn finalize_communicator(self) -> Communicator {
-        let mut send_peer_conns = HashMap::new();
-        let mut recv_peer_conns = HashMap::new();
-        for (peer_conn, peer_connector) in self.peer_connected {
-            let peer_conns = match peer_conn.conn_type {
-                ConnType::Send => &mut send_peer_conns,
-                ConnType::Recv => &mut recv_peer_conns,
-            };
-            let channel = peer_conns
-                .entry(peer_conn.channel)
-                .or_insert_with(HashMap::new);
-            let chan_peer = channel
-                .entry(peer_conn.peer_rank)
-                .or_insert_with(Vec::new);
-            chan_peer.push(peer_connector);
-        }
-
-        let mut channels = Vec::new();
+        let mut channels = HashMap::new();
         for chan_pattern in self.comm_patterns {
-            let send_peers = send_peer_conns
-                .remove(&chan_pattern.channel)
-                .unwrap_or_else(HashMap::new);
-            let mut recv_peers = recv_peer_conns
-                .remove(&chan_pattern.channel)
-                .unwrap_or_else(HashMap::new);
-            let mut chan_peers = Vec::new();
-            for (peer_rank, send) in send_peers {
-                let recv = recv_peers.remove(&peer_rank).unwrap_or_else(Vec::new);
-                let peer = ChannelPeerConn {
-                    send,
-                    recv,
-                    peer_rank,
-                };
-                chan_peers.push(peer);
-            }
-
             let channel = CommChannel {
-                id: chan_pattern.channel,
-                peers: chan_peers,
+                peers: HashMap::new(),
                 ring: chan_pattern.ring,
             };
-            channels.push(channel);
+            channels.insert(chan_pattern.channel, channel);
         }
-        todo!()
+        for (peer_conn, peer_connector) in self.peer_connected {
+            let channel = channels.get_mut(&peer_conn.channel).unwrap();
+            let peer = channel.peers
+                .entry(peer_conn.peer_rank)
+                .or_insert_with(new_chan_peer_conn);
+            let peer_conns= match peer_conn.conn_type {
+                ConnType::Send => &mut peer.send,
+                ConnType::Recv => &mut peer.recv,
+            };
+            peer_conns.insert(peer_conn.conn_index, peer_connector);
+        }
+
+        let dev_resources = CommDevResources::new(
+            self.rank, 
+            self.num_ranks, 
+            &self.profile, 
+            &channels
+        );
+        
+        let mut plan_schedule = HashMap::new();
+        for chan in channels.keys() {
+            let schedule = ChanWorkSchedule {
+                coll_bytes: 0,
+                work_queue: VecDeque::new(),
+            };
+            plan_schedule.insert(*chan, schedule);
+        }
+        let task_queue = TaskQueue {
+            coll_queue: VecDeque::new(),
+        };
+        let event = unsafe {
+            let mut event = std::ptr::null_mut();
+            cudaEventCreate(&mut event);
+            event
+        };
+        let stream = unsafe {
+            let mut stream = std::ptr::null_mut();
+            cudaStreamCreate(&mut stream);
+            stream
+        };
+
+        let mut peers_info = Vec::new();
+        for _ in 0..self.num_ranks {
+            peers_info.push(MaybeUninit::uninit());
+        }
+        for (peer_rank, peer_info) in self.peers_info {
+            peers_info[peer_rank].write(peer_info);
+        }
+
+        let peers_info = peers_info.into_iter().map(|x| {
+            unsafe {
+                x.assume_init()
+            }
+        }).collect();
+        Communicator {
+            id: self.id,
+            rank: self.rank,
+            num_ranks: self.num_ranks,
+            peers_info,
+            channels,
+            profile: self.profile,
+            dev_resources,
+            task_queue,
+            plan_schedule,
+            unlaunched_plans: VecDeque::new(),
+            stream,
+            event,
+        }
     }
 }

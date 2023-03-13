@@ -15,6 +15,16 @@ pub struct TransportDelegator {
 }
 
 impl TransportDelegator {
+    pub fn new() -> Self {
+        TransportDelegator {
+            active_connections: DashMap::new(),
+            agent_assignments: DashMap::new(),
+            shutdown_engines: DashMap::new(),
+        }
+    }
+}
+
+impl TransportDelegator {
     pub fn assign_transport_engine(
         &self, 
         cuda_dev: i32, 

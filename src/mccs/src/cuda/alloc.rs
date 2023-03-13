@@ -170,6 +170,12 @@ impl<T> DeviceAlloc<T> {
     pub fn as_ptr(&self) -> *mut T {
         self.ptr.as_ptr()
     }
+    
+    #[must_use]
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.size
+    }
 }
 
 impl<T> Drop for DeviceAlloc<T> {

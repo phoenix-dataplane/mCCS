@@ -1,15 +1,13 @@
-use crate::daemon::DaemonId;
+use crate::comm::CommunicatorId;
 
 pub struct InitCommunicator {
-    pub daemon_id: DaemonId,
-    pub communicator_id: u32,
+    pub communicator_id: CommunicatorId,
     pub rank: usize,
     pub num_ranks: usize,
 }
 
 pub struct AllGather {
-    pub daemon_id: DaemonId,
-    pub communicator_id: u32,
+    pub communicator_id: CommunicatorId,
     pub send_buf_addr: usize,
     pub recv_buf_addr: usize,
     pub size: usize,

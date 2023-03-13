@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 use std::fs;
+use std::hash::Hash;
 use std::io;
+use std::net::IpAddr;
+use std::net::Ipv4Addr;
+use std::net::SocketAddrV4;
 use std::os::unix::net::{SocketAddr, UCred};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -17,10 +21,17 @@ use cuda_runtime_sys::cudaSetDevice;
 use ipc::customer::ShmCustomer;
 use ipc::unix::DomainSocket;
 
+use crate::comm::HostIdent;
 use crate::config::Config;
 use crate::daemon::DaemonId;
 use crate::proxy::DeviceInfo;
 use crate::proxy::engine::ProxyEngine;
+use crate::proxy::engine::ProxyResources;
+use crate::registry::GlobalRegistry;
+use crate::transport::catalog::TransportCatalog;
+use crate::transport::delegator::TransportDelegator;
+use crate::transport::shm::config::ShmConfig;
+use crate::utils::pool::WorkPool;
 
 pub struct Control {
     sock: DomainSocket,
@@ -92,7 +103,7 @@ impl Control {
         Ok(())
     }
 
-    fn create_proxies(&mut self) -> anyhow::Result<()> {
+    fn test(&mut self) -> anyhow::Result<()> {
         let mut num_devices = 0;
         unsafe {
             let error = cudaGetDeviceCount(&mut num_devices as *mut _);
@@ -100,7 +111,110 @@ impl Control {
                 panic!("cudaGetDeviceCount");
             }
         }
-        for idx in 0..(num_devices as usize) {
+        let transport_delegator = TransportDelegator::new();
+        let transport_catalog = TransportCatalog::new();
+        let shm_config = ShmConfig {
+            locality: crate::transport::shm::config::ShmLocality::Sender,
+            use_memcpy_send: false,
+            use_memcpy_recv: false,
+        };
+        transport_catalog.register_config(String::from("ShmTransport"), shm_config);
+        let registry = GlobalRegistry {
+            communicators: DashMap::new(),
+            transport_delegator,
+            transport_catalog,
+        };
+        let registry = Arc::new(registry);
+        let (proxy_0_tx, proxy_0_rx) = crossbeam::channel::unbounded();
+        let (proxy_1_tx, proxy_1_rx) = crossbeam::channel::unbounded();
+        let (daemon_0_cmd_tx, daemon_0_cmd_rx) = crossbeam::channel::unbounded();
+        let (daemon_0_comp_tx, daemon_0_comp_rx) = crossbeam::channel::unbounded();
+        let (daemon_1_cmd_tx, daemon_1_cmd_rx) = crossbeam::channel::unbounded();
+        let (daemon_1_comp_tx, daemon_1comp_rx) = crossbeam::channel::unbounded();
+
+        let sock_addr = std::net::SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
+            8000
+        );
+        let dev_info = DeviceInfo {
+            host: HostIdent(sock_addr),
+            cuda_device_idx: 0,
+        };
+        let (control_req_tx, _control_req_rx) = crossbeam::channel::unbounded();
+        let (_control_notify_tx, control_notify_rx) = crossbeam::channel::unbounded();
+        let mut daemon_tx = HashMap::new();
+        daemon_tx.insert(0, daemon_0_comp_tx);
+        let daemon_rx = vec![(0, daemon_0_cmd_rx)];
+        let proxy_peer_tx = vec![proxy_0_tx.clone(), proxy_1_tx.clone()];
+        let proxy_0_resources = ProxyResources {
+            device_info: dev_info,
+            control_tx: control_req_tx,
+            control_rx: control_notify_rx,
+            daemon_tx,
+            daemon_rx,
+            proxy_peer_tx,
+            proxy_peer_rx: proxy_0_rx,
+            comms_init: HashMap::new(),
+            communicators: HashMap::new(),
+            global_registry: Arc::clone(&registry),
+            transport_engines_tx: HashMap::new(),
+            transport_engines_rx: Vec::new(),
+            transport_submission_pool: HashMap::new(),
+        };
+        let proxy_0 = ProxyEngine {
+            resources: proxy_0_resources,
+            ops: WorkPool::new(),
+        };
+
+        let (control_req_tx, _control_req_rx) = crossbeam::channel::unbounded();
+        let (_control_notify_tx, control_notify_rx) = crossbeam::channel::unbounded();
+        let mut daemon_tx = HashMap::new();
+        daemon_tx.insert(0, daemon_1_comp_tx);
+        let daemon_rx = vec![(0, daemon_1_cmd_rx)];
+        let proxy_peer_tx = vec![proxy_0_tx.clone(), proxy_1_tx.clone()];
+        let dev_info = DeviceInfo {
+            host: HostIdent(sock_addr),
+            cuda_device_idx: 0,
+        };
+        let proxy_1_resources = ProxyResources {
+            device_info: dev_info,
+            control_tx: control_req_tx,
+            control_rx: control_notify_rx,
+            daemon_tx,
+            daemon_rx,
+            proxy_peer_tx,
+            proxy_peer_rx: proxy_1_rx,
+            comms_init: HashMap::new(),
+            communicators: HashMap::new(),
+            global_registry: Arc::clone(&registry),
+            transport_engines_tx: HashMap::new(),
+            transport_engines_rx: Vec::new(),
+            transport_submission_pool: HashMap::new(),
+        };
+        let proxy_1 = ProxyEngine {
+            resources: proxy_1_resources,
+            ops: WorkPool::new(),
+        };
+        std::thread::spawn(move || {
+            unsafe {
+                let error = cudaSetDevice(idx as _);
+                if error != cudaError::cudaSuccess {
+                    panic!("cudaSetDevice");
+                }
+            }
+            proxy_0.mainloop();
+        });
+        std::thread::spawn(move || {
+            unsafe {
+                let error = cudaSetDevice(idx as _);
+                if error != cudaError::cudaSuccess {
+                    panic!("cudaSetDevice");
+                }
+            }
+            proxy_1.mainloop();
+        });
+
+
             // let (endpoint_tx, endpoint_rx) = crossbeam::channel::unbounded();
             // let device_info = DeviceInfo {
             //     cuda_device_idx: idx,
@@ -128,7 +242,6 @@ impl Control {
             //     }
             //     proxy_engine.mainloop();
             // });
-        }
         Ok(())
     }
 

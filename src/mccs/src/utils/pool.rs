@@ -3,6 +3,14 @@ pub struct WorkPool<T> {
 }
 
 impl<T> WorkPool<T> {
+    pub fn new() -> Self {
+        WorkPool {
+            pool: Vec::new(),
+        }
+    }
+}
+
+impl<T> WorkPool<T> {
     pub fn progress<F>(&mut self, mut f: F)
     where 
         F: FnMut(&mut T) -> bool,

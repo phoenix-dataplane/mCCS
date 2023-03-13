@@ -1,6 +1,6 @@
 use crate::transport::channel::PeerConnId;
 use crate::transport::transporter::ConnectInfo;
-use crate::communicator::CommunicatorId;
+use crate::comm::CommunicatorId;
 
 pub enum ProxyPeerMessage {
     ConnectInfoExchange(CommunicatorId, PeerConnId, ConnectInfo),

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use memoffset::raw_field;
 
-use crate::communicator::CommProfile;
+use crate::comm::CommProfile;
 use crate::cuda::alloc::DeviceHostMapped;
 use crate::cuda::ptr::DeviceNonNull;
 use crate::transport::{NUM_PROTOCOLS, PROTOCOL_SIMPLE};
@@ -104,7 +104,7 @@ impl Transporter for ShmTransporter {
                 DeviceNonNull::new_unchecked(ptr as _)
             };
 
-            let slots_sizes = if receiver.use_memcpy {
+            let slots_size = if receiver.use_memcpy {
                 let meta = shm_resources.receiver_buf_dev.as_ptr_dev();
                 let sizes_ptr = raw_field!(meta, RecvBufMeta, slots_sizes);
                 let dev_ptr = unsafe { DeviceNonNull::new_unchecked(sizes_ptr as _) };
@@ -135,7 +135,7 @@ impl Transporter for ShmTransporter {
                 bufs,
                 head,
                 tail,
-                slots_sizes,
+                slots_size,
             };
             TransportConnect::Connect {
                 conn_info: info,
@@ -188,7 +188,7 @@ impl Transporter for ShmTransporter {
             bufs,
             head,
             tail,
-            slots_sizes: Some(sizes_dev_ptr),
+            slots_size: Some(sizes_dev_ptr),
         };
         TransportConnect::Connect {
             conn_info: info,
@@ -298,7 +298,7 @@ impl Transporter for ShmTransporter {
                 bufs,
                 head,
                 tail,
-                slots_sizes: None,
+                slots_size: None,
             };
             TransportConnect::Connect {
                 conn_info: info,
@@ -349,7 +349,7 @@ impl Transporter for ShmTransporter {
             bufs,
             head,
             tail,
-            slots_sizes: None,
+            slots_size: None,
         };
         TransportConnect::Connect {
             conn_info: info,

@@ -155,12 +155,14 @@ __device__ void mccsKernel(
 
     __syncthreads();
 
-    if (mccsShmem.work.header.funcIndex == FnIndex) {
-      RunWork<Fn, T, RedOp, Algo, Proto>().run(&mccsShmem.work);
-    } else {
-      mccsDevFuncs[mccsShmem.work.header.funcIndex]();
-    }
+    // if (mccsShmem.work.header.funcIndex == FnIndex) {
+    //   RunWork<Fn, T, RedOp, Algo, Proto>().run(&mccsShmem.work);
+    // } else {
+    //   mccsDevFuncs[mccsShmem.work.header.funcIndex]();
+    // }
 
+    RunWork<Fn, T, RedOp, Algo, Proto>().run(&mccsShmem.work);
+    
     int workIxNext = mccsShmem.work.header.workNext;
     __syncthreads();
     if (mccsShmem.work.header.isLast) break;

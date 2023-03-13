@@ -11,7 +11,7 @@ pub mod control;
 pub mod daemon;
 pub mod cuda;
 pub mod transport;
-pub mod communicator;
+pub mod comm;
 pub mod proxy;
 pub mod pattern;
 pub mod registry;

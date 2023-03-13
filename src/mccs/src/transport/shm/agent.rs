@@ -194,7 +194,7 @@ pub fn shm_agent_recv_progress(
             if res == cudaError::cudaSuccess {
                 op.done += op.slice_steps as u64;
                 let meta = resources.meta_sync.as_ptr_host();
-                unsafe { (&mut *meta).tail = op.base + op.done; }
+                (&mut *meta).tail = op.base + op.done; 
                 if op.done == op.num_steps as u64 {
                     resources.step = op.base + op.num_steps as u64;
                     op.state = TransportOpState::Completed;

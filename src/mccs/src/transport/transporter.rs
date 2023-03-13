@@ -1,7 +1,7 @@
 use std::any::Any;
 use async_trait::async_trait;
 
-use crate::communicator::{CommunicatorId, CommProfile};
+use crate::comm::{CommunicatorId, CommProfile};
 use super::channel::{PeerConnId, PeerConnInfo};
 use super::op::TransportOp;
 use super::catalog::TransportCatalog;

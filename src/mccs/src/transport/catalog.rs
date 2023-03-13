@@ -21,6 +21,14 @@ pub struct TransportCatalog {
 }
 
 impl TransportCatalog {
+    pub fn new() -> Self {
+        TransportCatalog { 
+            config: DashMap::new(),
+        }
+    }
+}
+
+impl TransportCatalog {
     pub fn register_config<T>(&self, name: String, config: T) 
     where 
         T: Any + Send + Sync,

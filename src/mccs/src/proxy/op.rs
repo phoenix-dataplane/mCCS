@@ -1,6 +1,7 @@
-use crate::communicator::CommunicatorId;
+use crate::{comm::CommunicatorId, daemon::DaemonId};
 
 
 pub enum ProxyOp {
-    InitCommunicator(CommunicatorId),
+    InitCommunicator(DaemonId, CommunicatorId),
+    PollCudaEvent(DaemonId, CommunicatorId),
 }

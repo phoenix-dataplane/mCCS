@@ -4,9 +4,9 @@ pub mod command;
 pub mod init;
 pub mod message;
 pub mod plan;
-pub mod work;
+pub mod task;
 
-use crate::communicator::HostIdent;
+use crate::comm::HostIdent;
 
 pub struct DeviceInfo {
     pub host: HostIdent,

@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::collections::HashMap;
 
 use super::NUM_PROTOCOLS;
 use super::engine::TransportEngineId;
@@ -24,11 +25,10 @@ pub struct PeerConnInfo {
     pub bufs: [DeviceNonNull<u8>; NUM_PROTOCOLS],
     pub head: DeviceNonNull<u64>,
     pub tail: DeviceNonNull<u64>,
-    pub slots_sizes: Option<DeviceNonNull<u32>>,
+    pub slots_size: Option<DeviceNonNull<u32>>,
 }
 
 pub struct PeerConnector {
-    pub conn_index: u32,
     pub conn_info: PeerConnInfo,
     pub transport_agent_engine: Option<TransportEngineId>,
     pub transporter: &'static dyn Transporter,
@@ -36,13 +36,14 @@ pub struct PeerConnector {
 }
 
 pub struct ChannelPeerConn {
-    pub send: Vec<PeerConnector>,
-    pub recv: Vec<PeerConnector>,
-    pub peer_rank: usize,
+    // conn_index -> PeerConnector
+    pub send: HashMap<u32, PeerConnector>,
+    // conn_index -> PeerConnector
+    pub recv: HashMap<u32, PeerConnector>,
 }
 
 pub struct CommChannel {
-    pub id: u32,
-    pub peers: Vec<ChannelPeerConn>,
+    // peer -> ChannelPeerConn
+    pub peers: HashMap<usize, ChannelPeerConn>,
     pub ring: RingPattern,
 }

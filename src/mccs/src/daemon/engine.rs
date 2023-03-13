@@ -12,6 +12,7 @@ use ipc::mccs::command;
 use ipc::mccs::dp;
 use ipc::mccs::handle::{CudaMemHandle, CommunicatorHandle};
 
+use crate::comm::CommunicatorId;
 use crate::proxy::command::{ProxyCommand, ProxyCompletion, InitCommunicator, AllGather};
 
 use super::{Error, DaemonId};
@@ -79,8 +80,7 @@ impl DaemonEngine {
             },
             Command::InitCommunicator(init) => {
                 let proxy_init = InitCommunicator {
-                    daemon_id: self.id,
-                    communicator_id: init.id,
+                    communicator_id: CommunicatorId(init.id),
                     rank: init.rank,
                     num_ranks: init.num_ranks,
                 };
@@ -103,8 +103,7 @@ impl DaemonEngine {
             Command::AllGather(all_gather) => {
                 let comm = self.comm_delegation.get(&all_gather.comm).unwrap();
                 let proxy_all_gather = AllGather {
-                    daemon_id: self.id,
-                    communicator_id: comm.comm_id,
+                    communicator_id: CommunicatorId(comm.comm_id),
                     send_buf_addr: *self.device_mem.get(&0).unwrap(),
                     recv_buf_addr: *self.device_mem.get(&0).unwrap(),
                     size: all_gather.size,
@@ -128,7 +127,7 @@ impl DaemonEngine {
                 match result {
                     Ok(Some(res)) => self.customer.send_comp(command::Completion(Ok(res)))?,
                     Ok(None) => return Ok(Progress(0)),
-                    Err(_e) => todo!(),
+                    Err(_e) => panic!(),
                 }
                 Ok(Progress(1))
             }
