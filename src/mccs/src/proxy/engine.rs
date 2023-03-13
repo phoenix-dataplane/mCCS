@@ -494,6 +494,7 @@ impl ProxyResources {
                 unsafe {
                     let state = cudaEventQuery(comm.event);
                     if state == cudaError::cudaSuccess {
+                        dbg!("Success");
                         self.daemon_tx.get_mut(daemon_id).unwrap().send(ProxyCompletion::AllGather);
                         true
                     } else {
@@ -507,17 +508,20 @@ impl ProxyResources {
 }
 
 pub struct ProxyEngine {
-    resources: ProxyResources,
-    ops: WorkPool<ProxyOp>,
+    pub resources: ProxyResources,
+    pub ops: WorkPool<ProxyOp>,
 }
 
 impl ProxyEngine {
     pub fn mainloop(&mut self) {
-        self.resources.check_proxy_peer_message();
-        self.resources.check_transport_reply();
-        self.resources.check_control_notify();
+        loop {
+            self.check_daemon_command();
+            self.resources.check_proxy_peer_message();
+            self.resources.check_transport_reply();
+            self.resources.check_control_notify();
 
-        self.ops.progress(|op| self.resources.process_op(op));
+            self.ops.progress(|op| self.resources.process_op(op));
+        }
     }
 }
 
@@ -528,6 +532,7 @@ impl ProxyEngine {
                 Ok(msg) => {
                     match msg {
                         ProxyCommand::InitCommunicator(init) => {
+                            dbg!("BANZAI");
                             let profile = CommProfile {
                                 buff_sizes: [8 * 1024 * 1024],
                             };

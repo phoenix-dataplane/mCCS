@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, mem::MaybeUninit};
 use std::ffi::c_void;
 
-use collectives_sys::{mccsDevWork, mccsDevWorkElem, mccsDevWork__bindgen_ty_1, mccsDevWorkHeader, mccsDevWorkType, mccsKernel_AllGather_RING_SIMPLE_Sum_uint8_t, mccsDevComm};
+use collectives_sys::{mccsDevWork, mccsDevWorkElem, mccsDevWork__bindgen_ty_1, mccsDevWorkHeader, mccsDevWorkType, mccsDevComm, mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t};
 use cuda_runtime_sys::{cudaMemcpyKind, cudaMemcpy, cudaLaunchKernel, cudaEventRecord};
 
 use crate::{cuda::{ptr::DeviceNonNull, alloc::DeviceAlloc}, comm::Communicator};
@@ -59,7 +59,7 @@ impl Communicator {
     }
 
     pub fn finalize_plan(&mut self) {
-        let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_uint8_t;
+        let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
         let dev_work = self.upload_work();
         let plan = KernelPlan {
             kernel_fn: ptr as _,
@@ -89,6 +89,7 @@ impl Communicator {
                 dev_work_elem.bid = 0;
                 dev_work_elem.nChannels = work_elem.num_channels;
                 dev_work_elem.nWarps = work_elem.num_warps;
+                dev_work_elem.count = work_elem.count;
                 dev_work_elem.root = work_elem.root;
                 dev_work_elem.recvbuff = work_elem.recv_buf.as_ptr();
                 dev_work_elem.sendbuff = work_elem.send_buf.as_ptr();

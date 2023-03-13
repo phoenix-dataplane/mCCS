@@ -50,6 +50,9 @@ pub struct CommInitState {
     pub await_connections: usize,
 }
 
+// TBD
+unsafe impl Send for CommInitState { }
+
 impl CommInitState {
     pub fn new(
         id: CommunicatorId,

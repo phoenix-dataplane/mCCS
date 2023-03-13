@@ -84,7 +84,7 @@ impl CommDevResources {
             let storage = ChanDevStorage::new(num_ranks);
             let mut dev_chan_peers = vec![MaybeUninit::zeroed(); num_ranks];
             for (peer_rank, peer_conn) in chan.peers.iter() {
-                let dev_chan_peer = unsafe {
+                let mut dev_chan_peer = unsafe {
                     MaybeUninit::<mccsDevChannelPeer>::zeroed().assume_init()
                 };
                 for (conn_index, send_conn) in peer_conn.send.iter() {
@@ -140,7 +140,7 @@ impl CommDevResources {
             buffSizes: buf_sizes,
             abortFlag: std::ptr::null_mut(),
         };
-        let dev_comm_chans = mccsDevCommAndChannels {
+        let mut dev_comm_chans = mccsDevCommAndChannels {
             comm: dev_comm,
             __bindgen_padding_0: 0,
             channels: dev_channels,

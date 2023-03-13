@@ -43,7 +43,7 @@ impl CommunicatorInfo {
 }
 
 pub struct GlobalRegistry {
-    communicators: DashMap<CommunicatorId, CommunicatorInfo>,
+    pub communicators: DashMap<CommunicatorId, CommunicatorInfo>,
     pub transport_delegator: TransportDelegator,
     pub transport_catalog: TransportCatalog
 }
@@ -85,7 +85,7 @@ impl GlobalRegistry {
             let peer = peers_to_query[idx];
             if comm.ranks_info[peer].exchanged {
                 let peer_rank_info = &comm.ranks_info[rank];
-                let intra_host = comm.ranks_info[rank].host != peer_rank_info.host;
+                let intra_host = comm.ranks_info[rank].host == peer_rank_info.host;
                 let peer_type = match intra_host {
                     true => PeerType::IntraNode,
                     false => PeerType::InterNode,

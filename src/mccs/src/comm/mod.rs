@@ -51,6 +51,9 @@ pub struct Communicator {
     pub event: cudaEvent_t,
 }
 
+// TBD
+unsafe impl Send for Communicator {} 
+
 pub struct ChannelCommPattern {
     // channel id
     pub channel: u32,

@@ -13,6 +13,9 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 use crossbeam::channel::Sender;
+use cuda_runtime_sys::cudaMalloc;
+use cuda_runtime_sys::cudaMemcpy;
+use cuda_runtime_sys::cudaMemcpyKind;
 use dashmap::DashMap;
 
 use cuda_runtime_sys::cudaError;
@@ -21,10 +24,15 @@ use cuda_runtime_sys::cudaSetDevice;
 use ipc::customer::ShmCustomer;
 use ipc::unix::DomainSocket;
 
+use crate::comm::CommunicatorId;
 use crate::comm::HostIdent;
 use crate::config::Config;
 use crate::daemon::DaemonId;
 use crate::proxy::DeviceInfo;
+use crate::proxy::command::AllGather;
+use crate::proxy::command::InitCommunicator;
+use crate::proxy::command::ProxyCommand;
+use crate::proxy::command::ProxyCompletion;
 use crate::proxy::engine::ProxyEngine;
 use crate::proxy::engine::ProxyResources;
 use crate::registry::GlobalRegistry;
@@ -65,17 +73,16 @@ impl Control {
         //     transport_setup: transport_setup,
         // };
 
-        // let mut control = Control {
-        //     sock,
-        //     config,
-        //     proxy_cmd_endpoints_tx: Vec::new(),
-        //     global_resources: Arc::new(global_resources),
-        //     daemon_cnt: 0,
-        // };
-        
+        let mut control = Control {
+            sock,
+            config,
+            daemon_cnt: 0,
+        };
+        control.test().unwrap();
+        control
         // control.create_proxies().unwrap();
         // control
-        todo!()
+
     }
 
     pub fn mainloop(&mut self, exit_flag: &AtomicBool) -> anyhow::Result<()> {
@@ -130,7 +137,7 @@ impl Control {
         let (daemon_0_cmd_tx, daemon_0_cmd_rx) = crossbeam::channel::unbounded();
         let (daemon_0_comp_tx, daemon_0_comp_rx) = crossbeam::channel::unbounded();
         let (daemon_1_cmd_tx, daemon_1_cmd_rx) = crossbeam::channel::unbounded();
-        let (daemon_1_comp_tx, daemon_1comp_rx) = crossbeam::channel::unbounded();
+        let (daemon_1_comp_tx, daemon_1_comp_rx) = crossbeam::channel::unbounded();
 
         let sock_addr = std::net::SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -161,7 +168,7 @@ impl Control {
             transport_engines_rx: Vec::new(),
             transport_submission_pool: HashMap::new(),
         };
-        let proxy_0 = ProxyEngine {
+        let mut proxy_0 = ProxyEngine {
             resources: proxy_0_resources,
             ops: WorkPool::new(),
         };
@@ -174,7 +181,7 @@ impl Control {
         let proxy_peer_tx = vec![proxy_0_tx.clone(), proxy_1_tx.clone()];
         let dev_info = DeviceInfo {
             host: HostIdent(sock_addr),
-            cuda_device_idx: 0,
+            cuda_device_idx: 1,
         };
         let proxy_1_resources = ProxyResources {
             device_info: dev_info,
@@ -191,13 +198,13 @@ impl Control {
             transport_engines_rx: Vec::new(),
             transport_submission_pool: HashMap::new(),
         };
-        let proxy_1 = ProxyEngine {
+        let mut proxy_1 = ProxyEngine {
             resources: proxy_1_resources,
             ops: WorkPool::new(),
         };
         std::thread::spawn(move || {
             unsafe {
-                let error = cudaSetDevice(idx as _);
+                let error = cudaSetDevice(0);
                 if error != cudaError::cudaSuccess {
                     panic!("cudaSetDevice");
                 }
@@ -206,15 +213,125 @@ impl Control {
         });
         std::thread::spawn(move || {
             unsafe {
-                let error = cudaSetDevice(idx as _);
+                let error = cudaSetDevice(1);
                 if error != cudaError::cudaSuccess {
                     panic!("cudaSetDevice");
                 }
             }
             proxy_1.mainloop();
         });
+        let cmd = InitCommunicator {
+            communicator_id: CommunicatorId(0),
+            rank: 0,
+            num_ranks: 2,
+        };
+        let cmd = ProxyCommand::InitCommunicator(cmd);
+        daemon_0_cmd_tx.send(cmd).unwrap();
+        let cmd = InitCommunicator {
+            communicator_id: CommunicatorId(0),
+            rank: 1,
+            num_ranks: 2,
+        };
+        let cmd = ProxyCommand::InitCommunicator(cmd);
+        daemon_1_cmd_tx.send(cmd).unwrap();
+        let comp = daemon_0_comp_rx.recv().unwrap();
+        match comp {
+            ProxyCompletion::InitCommunicator => (),
+            ProxyCompletion::AllGather => panic!(),
+        }
+        let comp = daemon_1_comp_rx.recv().unwrap();
+        match comp {
+            ProxyCompletion::InitCommunicator => (),
+            ProxyCompletion::AllGather => panic!(),
+        }
 
+        unsafe {
+            let error = cudaSetDevice(0);
+            if error != cudaError::cudaSuccess {
+                panic!("cudaSetDevice");
+            }
+        }
+        const BUFFER_SIZE: usize = 8192;
+        let dev_buf_0 = unsafe {
+            let mut dev_ptr = std::ptr::null_mut();
+            cudaMalloc(&mut dev_ptr, BUFFER_SIZE);
+            dev_ptr
+        };
+        let mut buf = vec![1883i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
+        buf.extend(vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
+        unsafe { 
+            cudaMemcpy(
+                dev_buf_0, 
+                buf.as_ptr() as *const _, 
+                BUFFER_SIZE,
+                cudaMemcpyKind::cudaMemcpyHostToDevice,
+            )
+        }; 
 
+        unsafe {
+            let error = cudaSetDevice(1);
+            if error != cudaError::cudaSuccess {
+                panic!("cudaSetDevice");
+            }
+        }
+        let dev_buf_1 = unsafe {
+            let mut dev_ptr = std::ptr::null_mut();
+            cudaMalloc(&mut dev_ptr, BUFFER_SIZE);
+            dev_ptr
+        };
+        let mut buf = vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
+        buf.extend(vec![2042i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
+        unsafe { 
+            cudaMemcpy(
+                dev_buf_1, 
+                buf.as_ptr() as *const _, 
+                BUFFER_SIZE,
+                cudaMemcpyKind::cudaMemcpyHostToDevice,
+            )
+        }; 
+        let cmd = AllGather {
+            communicator_id: CommunicatorId(0),
+            send_buf_addr: dev_buf_0 as usize,
+            recv_buf_addr: dev_buf_0 as usize,
+            size: BUFFER_SIZE / 2,
+        };
+        let cmd = ProxyCommand::AllGather(cmd);
+        daemon_0_cmd_tx.send(cmd).unwrap();
+        let cmd = AllGather {
+            communicator_id: CommunicatorId(0),
+            send_buf_addr: dev_buf_1 as usize + BUFFER_SIZE / 2,
+            recv_buf_addr: dev_buf_1 as usize,
+            size: BUFFER_SIZE / 2,
+        };
+        let cmd = ProxyCommand::AllGather(cmd);
+        daemon_1_cmd_tx.send(cmd).unwrap();
+
+        let comp = daemon_0_comp_rx.recv().unwrap();
+        match comp {
+            ProxyCompletion::InitCommunicator => panic!(),
+            ProxyCompletion::AllGather => (),
+        }
+        let comp = daemon_1_comp_rx.recv().unwrap();
+        match comp {
+            ProxyCompletion::InitCommunicator => panic!(),
+            ProxyCompletion::AllGather => (),
+        }
+
+        let mut buf = vec![0; BUFFER_SIZE];
+        unsafe { 
+            let err = cudaMemcpy(
+                buf.as_mut_ptr() as *mut _, 
+                dev_buf_1,
+                BUFFER_SIZE,
+                cudaMemcpyKind::cudaMemcpyDeviceToHost,
+            );
+            if err != cudaError::cudaSuccess {
+                panic!("cudaMemcpy failed");
+            }
+        };
+        assert_eq!(buf[0], 1883);
+        assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 2042);
+        println!("OK");
             // let (endpoint_tx, endpoint_rx) = crossbeam::channel::unbounded();
             // let device_info = DeviceInfo {
             //     cuda_device_idx: idx,

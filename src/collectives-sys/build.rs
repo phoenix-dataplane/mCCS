@@ -2,7 +2,12 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    println!("cargo:rustc-link-search=../collectives/build/device");
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let mut build_dir = PathBuf::from(dir);
+    build_dir.pop();
+    build_dir.push("collectives/build/device");
+
+    println!("cargo:rustc-link-search={}", build_dir.as_os_str().to_str().unwrap());
     println!("cargo:rustc-link-lib=colldevice");
     println!("cargo:rerun-if-changed=wrapper.h");
 
@@ -15,6 +20,7 @@ fn main() {
         .clang_arg("-x")
         .clang_arg("c++")
         .clang_arg("-std=c++11")
+        .clang_arg("-stdlib=libc++")
         .allowlist_type("^mccsDev.*")
         .allowlist_function("^mccsKernel.*")
         .allowlist_var("^MCCS.*")

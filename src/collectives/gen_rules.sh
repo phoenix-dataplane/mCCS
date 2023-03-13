@@ -1,3 +1,5 @@
+#!/bin/bash
+
 dir=$1
 
 datatypes="i8 u8 i32 u32 i64 u64 f16 f32 f64"
