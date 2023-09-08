@@ -101,7 +101,7 @@ impl GlobalRegistry {
                 idx += 1;
             }
         }
-        return count;
+        count
     }
 
     pub fn arbitrate_comm_patterns(

@@ -3,7 +3,7 @@ use cuda_runtime_sys::{cudaError, cudaMemcpyKind};
 
 use libmccs::memory::cuda_malloc;
 
-const BUFFER_SIZE: usize = 1 * 1024 * 1024;
+const BUFFER_SIZE: usize = 1024 * 1024;
 
 fn main() {
     let dev_ptr = cuda_malloc(0, BUFFER_SIZE).unwrap();

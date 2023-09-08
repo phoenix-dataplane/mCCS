@@ -52,11 +52,7 @@ impl TransportDelegator {
         }
         let reusable_indices = self.shutdown_engines.get_mut(&cuda_dev);
         let idx = if let Some(mut indices) = reusable_indices {
-            if let Some(idx) = indices.pop() {
-                Some(idx)
-            } else {
-                None
-            }
+            indices.pop()
         } else {
             None
         };

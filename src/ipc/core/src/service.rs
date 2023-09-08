@@ -71,7 +71,7 @@ where
 
         let sock_path = phoenix_prefix
             .as_ref()
-            .join(format!("phoenix-client-{}_{}.sock", appname, uuid));
+            .join(format!("phoenix-client-{appname}_{uuid}.sock"));
         if sock_path.exists() {
             fs::remove_file(&sock_path).expect("remove_file");
         }
@@ -97,7 +97,7 @@ where
             control::ResponseKind::NewClient(engine_path) => {
                 sock.connect(engine_path)?;
             }
-            _ => panic!("unexpected response: {:?}", res),
+            _ => panic!("unexpected response: {res:?}"),
         }
 
         // connect to the engine, setup a bunch of channels and shared memory queues
@@ -179,7 +179,7 @@ where
                     dp_cq_eventfd,
                 })
             }
-            _ => panic!("unexpected response: {:?}", res),
+            _ => panic!("unexpected response: {res:?}"),
         }
     }
 

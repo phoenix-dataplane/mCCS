@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::fs;
-use std::hash::Hash;
 use std::io;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
-use std::net::SocketAddrV4;
 use std::os::unix::net::{SocketAddr, UCred};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -12,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::anyhow;
-use crossbeam::channel::Sender;
 use cuda_runtime_sys::cudaMalloc;
 use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind;
@@ -21,7 +18,6 @@ use dashmap::DashMap;
 use cuda_runtime_sys::cudaError;
 use cuda_runtime_sys::cudaGetDeviceCount;
 use cuda_runtime_sys::cudaSetDevice;
-use ipc::customer::ShmCustomer;
 use ipc::unix::DomainSocket;
 
 use crate::comm::CommunicatorId;
@@ -58,7 +54,7 @@ impl Control {
             fs::remove_file(&mccs_path).expect("remove_file");
         }
         let sock = DomainSocket::bind(&mccs_path)
-            .unwrap_or_else(|e| panic!("Cannot bind domain socket at {:?}: {}", mccs_path, e));
+            .unwrap_or_else(|e| panic!("Cannot bind domain socket at {mccs_path:?}: {e}"));
 
         sock.set_read_timeout(Some(Duration::from_millis(1)))
             .expect("set_read_timeout");
@@ -173,7 +169,7 @@ impl Control {
         let mut daemon_tx = HashMap::new();
         daemon_tx.insert(0, daemon_1_comp_tx);
         let daemon_rx = vec![(0, daemon_1_cmd_rx)];
-        let proxy_peer_tx = vec![proxy_0_tx.clone(), proxy_1_tx.clone()];
+        let proxy_peer_tx = vec![proxy_0_tx, proxy_1_tx];
         let dev_info = DeviceInfo {
             host: HostIdent(sock_addr),
             cuda_device_idx: 1,

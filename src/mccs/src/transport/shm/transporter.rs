@@ -52,11 +52,10 @@ impl Transporter for ShmTransporter {
         };
         let connect_info = sender_resources.clone();
 
-        let setup = TransportSetup::Setup {
+        TransportSetup::Setup {
             peer_connect_info: Box::new(connect_info),
             setup_resources: Some(Box::new(sender_resources)),
-        };
-        setup
+        }
     }
 
     fn send_connect(
@@ -231,11 +230,10 @@ impl Transporter for ShmTransporter {
         };
         let connect_info = sender_resources.clone();
 
-        let setup = TransportSetup::Setup {
+        TransportSetup::Setup {
             peer_connect_info: Box::new(connect_info),
             setup_resources: Some(Box::new(sender_resources)),
-        };
-        setup
+        }
     }
 
     fn recv_connect(

@@ -28,6 +28,12 @@ impl TransportCatalog {
     }
 }
 
+impl Default for TransportCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransportCatalog {
     pub fn register_config<T>(&self, name: String, config: T)
     where

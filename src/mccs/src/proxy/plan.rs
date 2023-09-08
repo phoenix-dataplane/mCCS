@@ -90,7 +90,7 @@ impl Communicator {
             .unwrap();
         let mut dev_work_content = match work {
             KernelWork::Coll {
-                func_index,
+                func_index: _,
                 mut work_elems,
             } => {
                 let work_elem = work_elems.pop().unwrap();
@@ -123,18 +123,17 @@ impl Communicator {
                     init
                 };
 
-                let dev_work = mccsDevWork {
+                mccsDevWork {
                     header: dev_work_header,
                     __bindgen_anon_1: dev_work_elems,
-                };
-                dev_work
+                }
             }
-            _ => panic!("todo"),
+            _ => todo!(),
         };
 
         let dev_work = DeviceAlloc::new(1);
         let ptr = unsafe { DeviceNonNull::new_unchecked(dev_work.as_ptr()) };
-        let guard = std::mem::ManuallyDrop::new(dev_work);
+        let _guard = std::mem::ManuallyDrop::new(dev_work);
         unsafe {
             cudaMemcpy(
                 ptr.as_ptr() as _,
@@ -183,7 +182,7 @@ impl Communicator {
 pub fn compute_coll_work(task: &CollTask) -> WorkElemColl {
     let schema = get_task_schema(task);
     let num_wraps = schema.num_threads / 32;
-    let work_elem = WorkElemColl {
+    WorkElemColl {
         num_warps: num_wraps as _,
         send_buf: task.send_buf.cast(),
         recv_buf: task.recv_buf.cast(),
@@ -191,8 +190,7 @@ pub fn compute_coll_work(task: &CollTask) -> WorkElemColl {
         root: task.root as _,
         bid: 0,
         num_channels: schema.num_channels as _,
-    };
-    work_elem
+    }
 }
 
 pub fn enqueue_coll_work_to_chans(elem: &WorkElemColl, comm: &mut Communicator) {

@@ -12,7 +12,7 @@ pub fn read_env() -> Vec<PathBuf> {
         } else {
             ":"
         };
-        path.split(split_char).map(|s| PathBuf::from(s)).collect()
+        path.split(split_char).map(PathBuf::from).collect()
     } else {
         vec![]
     }
@@ -22,10 +22,8 @@ pub fn find_cuda() -> Vec<PathBuf> {
     let mut candidates = read_env();
     candidates.push(PathBuf::from("/opt/cuda"));
     candidates.push(PathBuf::from("/usr/local/cuda"));
-    for e in glob("/usr/local/cuda-*").unwrap() {
-        if let Ok(path) = e {
-            candidates.push(path)
-        }
+    for path in glob("/usr/local/cuda-*").unwrap().flatten() {
+        candidates.push(path)
     }
 
     let mut valid_paths = vec![];
@@ -43,7 +41,7 @@ pub fn find_cuda() -> Vec<PathBuf> {
             continue;
         }
     }
-    eprintln!("Found CUDA paths: {:?}", valid_paths);
+    eprintln!("Found CUDA paths: {valid_paths:?}");
     valid_paths
 }
 
@@ -68,22 +66,20 @@ pub fn find_cuda_windows() -> PathBuf {
             .expect("cargo did not set the TARGET environment variable as required.");
 
         // Targets use '-' separators. e.g. x86_64-pc-windows-msvc
-        let target_components: Vec<_> = target.as_str().split("-").collect();
+        let target_components: Vec<_> = target.as_str().split('-').collect();
 
         // We check that we're building for Windows. This code assumes that the layout in
         // CUDA_PATH matches Windows.
         if target_components[2] != "windows" {
             panic!(
-                "The CUDA_PATH variable is only used by cuda-sys on Windows. Your target is {}.",
-                target
+                "The CUDA_PATH variable is only used by cuda-sys on Windows. Your target is {target}."
             );
         }
 
         // Sanity check that the second component of 'target' is "pc"
         debug_assert_eq!(
             "pc", target_components[1],
-            "Expected a Windows target to have the second component be 'pc'. Target: {}",
-            target
+            "Expected a Windows target to have the second component be 'pc'. Target: {target}",
         );
 
         // x86_64 should use the libs in the "lib/x64" directory. If we ever support i686 (which

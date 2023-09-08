@@ -42,8 +42,8 @@ fn conn_info_to_dev(conn_info: &PeerConnInfo) -> mccsDevConnInfo {
     };
     mccsDevConnInfo {
         buffs: bufs,
-        tail: tail,
-        head: head,
+        tail,
+        head,
         sizesFifo: sizes,
         offsFifo: std::ptr::null_mut(),
         step: 0,

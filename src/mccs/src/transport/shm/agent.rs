@@ -126,7 +126,7 @@ pub fn shm_agent_send_progress(resources: &mut AnyResources, op: &mut TransportO
             }
             if op.done == op.num_steps as u64 {
                 resources.step = op.base + op.num_steps as u64;
-                op.state == TransportOpState::Completed;
+                op.state = TransportOpState::Completed;
             }
         }
     }
@@ -139,7 +139,7 @@ pub fn shm_agent_recv_progress(resources: &mut AnyResources, op: &mut TransportO
         op.posted = 0;
         op.transmitted = 0;
         op.done = 0;
-        op.state == TransportOpState::InProgress;
+        op.state = TransportOpState::InProgress;
         if op.protocol == PROTOCOL_SIMPLE {
             resources.step = op.base + op.num_steps as u64;
             op.state = TransportOpState::Completed;
