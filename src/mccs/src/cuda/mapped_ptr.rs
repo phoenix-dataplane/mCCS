@@ -1,5 +1,5 @@
-use std::num::NonZeroUsize;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 pub struct DeviceHostPtr<T> {
     host_ptr: *const T,
@@ -52,7 +52,7 @@ impl<T> DeviceHostPtr<T> {
     pub fn cast<U>(self) -> DeviceHostPtr<U> {
         unsafe {
             let ptr = DeviceHostPtr::new_unchecked(
-                self.as_ptr_host() as *mut U, 
+                self.as_ptr_host() as *mut U,
                 self.as_ptr_dev() as *mut U,
             );
             ptr
@@ -68,7 +68,6 @@ impl<T> Clone for DeviceHostPtr<T> {
 }
 
 impl<T> Copy for DeviceHostPtr<T> {}
-
 
 impl<T> fmt::Debug for DeviceHostPtr<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -86,4 +85,4 @@ impl<T> fmt::Pointer for DeviceHostPtr<T> {
             .field(&self.as_ptr_dev())
             .finish()
     }
-} 
+}

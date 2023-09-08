@@ -1,10 +1,10 @@
-use crossbeam::channel::{Sender, Receiver};
+use crossbeam::channel::{Receiver, Sender};
 
 use crate::transport::engine::TransportEngineId;
-use crate::transport::message::{TransportEngineRequest, TransportEngineReply};
+use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
 
 pub enum ControlRequest {
-    NewTransportEngine(TransportEngineId)
+    NewTransportEngine(TransportEngineId),
 }
 
 pub enum ControlNotification {

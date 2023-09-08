@@ -1,8 +1,10 @@
 use std::mem::size_of;
-use std::{ffi::c_void, io::Write};
 use std::net::TcpListener;
+use std::{ffi::c_void, io::Write};
 
-use cuda_runtime_sys::{cudaMalloc, cudaError, cudaIpcMemHandle_t, cudaIpcGetMemHandle, cudaMemcpy, cudaMemcpyKind};
+use cuda_runtime_sys::{
+    cudaError, cudaIpcGetMemHandle, cudaIpcMemHandle_t, cudaMalloc, cudaMemcpy, cudaMemcpyKind,
+};
 
 const BUFFER_SIZE: usize = 1 * 1024 * 1024;
 
@@ -14,10 +16,10 @@ fn main() {
     }
 
     let buf = vec![42i32; BUFFER_SIZE / size_of::<i32>()];
-    let err = unsafe { 
+    let err = unsafe {
         cudaMemcpy(
-            dev_ptr, 
-            buf.as_ptr() as *const _, 
+            dev_ptr,
+            buf.as_ptr() as *const _,
             BUFFER_SIZE,
             cudaMemcpyKind::cudaMemcpyHostToDevice,
         )
@@ -35,16 +37,16 @@ fn main() {
     let listener = TcpListener::bind("localhost:2042").unwrap();
     match listener.accept() {
         Ok((mut socket, addr)) => {
-            socket.write_all(
-                unsafe {
-                        std::slice::from_raw_parts(
-                        &handle as *const _ as *const u8, 
+            socket
+                .write_all(unsafe {
+                    std::slice::from_raw_parts(
+                        &handle as *const _ as *const u8,
                         size_of::<cudaIpcMemHandle_t>(),
-                        )
-                    }
-            ).unwrap();
+                    )
+                })
+                .unwrap();
             println!("new client: {addr:?}")
-        },
+        }
         Err(e) => println!("couldn't get client: {e:?}"),
     }
     std::thread::sleep(std::time::Duration::from_secs(2));

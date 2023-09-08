@@ -1,6 +1,6 @@
 use std::os::raw::c_char;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use serde_big_array::BigArray;
 
 #[repr(C)]

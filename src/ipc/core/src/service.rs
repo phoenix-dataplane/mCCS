@@ -64,10 +64,7 @@ where
         }
     }
 
-    pub fn register<P: AsRef<Path>>(
-        phoenix_prefix: P,
-        control_path: P,
-    ) -> Result<Self, Error> {
+    pub fn register<P: AsRef<Path>>(phoenix_prefix: P, control_path: P) -> Result<Self, Error> {
         let uuid = Uuid::new_v4();
         let arg0 = env::args().next().unwrap();
         let appname = Path::new(&arg0).file_name().unwrap().to_string_lossy();

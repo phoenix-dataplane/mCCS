@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use cuda_runtime_sys::{cudaStream_t, cudaEvent_t};
+use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 
-use crate::cuda::ptr::DeviceNonNull;
-use crate::transport::{NUM_BUFFER_SLOTS, NUM_PROTOCOLS};
-use crate::transport::meta::{SendBufMeta, RecvBufMeta};
-use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
 use super::buffer::TransportBuffer;
 use super::config::ShmLocality;
+use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
+use crate::cuda::ptr::DeviceNonNull;
+use crate::transport::meta::{RecvBufMeta, SendBufMeta};
+use crate::transport::{NUM_BUFFER_SLOTS, NUM_PROTOCOLS};
 
 #[derive(Clone)]
 pub struct ShmSendSetupResources {
@@ -36,7 +36,7 @@ pub struct ShmConnectedResources {
     pub locality: ShmLocality,
 }
 
-unsafe impl Send for ShmConnectedResources { }
+unsafe impl Send for ShmConnectedResources {}
 
 pub struct ShmAgentRequest {
     pub locality: ShmLocality,
@@ -50,8 +50,8 @@ pub struct ShmAgentReply {
     pub device_buf: DeviceNonNull<u8>,
 }
 
-unsafe impl Send for ShmAgentRequest { }
-unsafe impl Send for ShmAgentReply { }
+unsafe impl Send for ShmAgentRequest {}
+unsafe impl Send for ShmAgentReply {}
 
 pub struct ShmAgentResources {
     // shared between the agent and GPU kernels
@@ -78,4 +78,4 @@ pub struct ShmAgentResources {
     pub events: [cudaEvent_t; NUM_BUFFER_SLOTS],
 }
 
-unsafe impl Send for ShmAgentResources { }
+unsafe impl Send for ShmAgentResources {}

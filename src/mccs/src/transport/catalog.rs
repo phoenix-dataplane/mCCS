@@ -1,8 +1,8 @@
 use std::any::Any;
 
-use thiserror::Error;
-use dashmap::DashMap;
 use dashmap::mapref::one::{MappedRef, MappedRefMut};
+use dashmap::DashMap;
+use thiserror::Error;
 
 pub type AnyConfig = Box<dyn Any + Send + Sync>;
 pub type ConfigRef<'a, T> = MappedRef<'a, String, AnyConfig, T>;
@@ -22,15 +22,15 @@ pub struct TransportCatalog {
 
 impl TransportCatalog {
     pub fn new() -> Self {
-        TransportCatalog { 
+        TransportCatalog {
             config: DashMap::new(),
         }
     }
 }
 
 impl TransportCatalog {
-    pub fn register_config<T>(&self, name: String, config: T) 
-    where 
+    pub fn register_config<T>(&self, name: String, config: T)
+    where
         T: Any + Send + Sync,
     {
         let boxed = Box::new(config);
@@ -41,7 +41,7 @@ impl TransportCatalog {
         self.config.remove(name);
     }
 
-    pub fn get_config<T>(&self, name: &str) -> Result<ConfigRef<T>, Error> 
+    pub fn get_config<T>(&self, name: &str) -> Result<ConfigRef<T>, Error>
     where
         T: Any + Send + Sync,
     {
@@ -56,7 +56,7 @@ impl TransportCatalog {
         }
     }
 
-    pub fn get_config_mut<T>(&self, name: &str) -> Result<ConfigRefMut<T>, Error> 
+    pub fn get_config_mut<T>(&self, name: &str) -> Result<ConfigRefMut<T>, Error>
     where
         T: Any + Send + Sync,
     {

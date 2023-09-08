@@ -1,7 +1,10 @@
 use std::ffi::c_void;
 use std::num::NonZeroUsize;
 
-use cuda_runtime_sys::{cudaHostRegister, cudaHostAlloc, cudaHostGetDevicePointer, cudaFreeHost, cudaHostUnregister, cudaMalloc, cudaFree};
+use cuda_runtime_sys::{
+    cudaFree, cudaFreeHost, cudaHostAlloc, cudaHostGetDevicePointer, cudaHostRegister,
+    cudaHostUnregister, cudaMalloc,
+};
 use cuda_runtime_sys::{cudaGetDevice, cudaSetDevice};
 use cuda_runtime_sys::{cudaHostAllocMapped, cudaHostRegisterMapped};
 
@@ -11,7 +14,7 @@ use super::ptr::DeviceNonNull;
 #[derive(Clone, Copy, Debug)]
 enum MappedType {
     Alloc,
-    Register
+    Register,
 }
 
 pub struct DeviceHostMapped<T> {
@@ -32,9 +35,7 @@ impl<T> DeviceHostMapped<T> {
             cudaHostAlloc(&mut ptr_host, size, cudaHostAllocMapped);
             cudaHostGetDevicePointer(&mut ptr_dev, ptr_host, 0);
         }
-        let ptr = unsafe {
-            DeviceHostPtr::new_unchecked(ptr_host as *mut T, ptr_dev as *mut T)
-        };
+        let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host as *mut T, ptr_dev as *mut T) };
         DeviceHostMapped {
             ptr,
             size,
@@ -53,9 +54,7 @@ impl<T> DeviceHostMapped<T> {
                 cudaHostRegister(ptr_host as *mut _, size, cudaHostRegisterMapped);
                 cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0);
             }
-            let ptr = unsafe {
-                DeviceHostPtr::new_unchecked(ptr_host, ptr_dev as *mut T)
-            };
+            let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host, ptr_dev as *mut T) };
             let mapped = DeviceHostMapped {
                 ptr,
                 size,
@@ -122,15 +121,11 @@ impl<T> Drop for DeviceHostMapped<T> {
             }
         }
         match self.ty {
-            MappedType::Alloc => {
-                unsafe {
-                    cudaFreeHost(self.as_ptr_host() as *mut _);
-                }
+            MappedType::Alloc => unsafe {
+                cudaFreeHost(self.as_ptr_host() as *mut _);
             },
-            MappedType::Register => {
-                unsafe {
-                    cudaHostUnregister(self.as_ptr_host() as *mut _);
-                }
+            MappedType::Register => unsafe {
+                cudaHostUnregister(self.as_ptr_host() as *mut _);
             },
         }
     }
@@ -147,16 +142,12 @@ impl<T> DeviceAlloc<T> {
         let size = count * std::mem::size_of::<T>();
         let mut device = 0;
         let mut dev_ptr: *mut c_void = std::ptr::null_mut();
-        unsafe { 
+        unsafe {
             cudaGetDevice(&mut device);
             cudaMalloc(&mut dev_ptr, size);
         }
         let ptr = unsafe { DeviceNonNull::new_unchecked(dev_ptr as *mut T) };
-        DeviceAlloc {
-            ptr,
-            size,
-            device,
-        }
+        DeviceAlloc { ptr, size, device }
     }
 
     #[must_use]
@@ -170,7 +161,7 @@ impl<T> DeviceAlloc<T> {
     pub fn as_ptr(&self) -> *mut T {
         self.ptr.as_ptr()
     }
-    
+
     #[must_use]
     #[inline]
     pub fn size(&self) -> usize {

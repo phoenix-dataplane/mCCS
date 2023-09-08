@@ -4,10 +4,12 @@ use std::mem::MaybeUninit;
 use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
 
 use crate::comm::device::CommDevResources;
+use crate::comm::{ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo};
+use crate::transport::channel::{
+    ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
+};
 use crate::transport::engine::TransportEngineId;
-use crate::transport::transporter::{Transporter, AgentMessage, AnyResources, ConnectInfo}; 
-use crate::transport::channel::{PeerConnId, PeerConnector, ConnType, CommChannel, ChannelPeerConn};
-use crate::comm::{CommunicatorId, PeerInfo, ChannelCommPattern, Communicator, CommProfile};
+use crate::transport::transporter::{AgentMessage, AnyResources, ConnectInfo, Transporter};
 
 use super::plan::ChanWorkSchedule;
 use super::task::TaskQueue;
@@ -51,7 +53,7 @@ pub struct CommInitState {
 }
 
 // TBD
-unsafe impl Send for CommInitState { }
+unsafe impl Send for CommInitState {}
 
 impl CommInitState {
     pub fn new(
@@ -60,25 +62,25 @@ impl CommInitState {
         num_ranks: usize,
         comm_profile: CommProfile,
     ) -> Self {
-        CommInitState { 
-            id, 
-            stage: CommInitStage::RegisterRank, 
-            rank, 
-            num_ranks, 
-            profile: comm_profile, 
-            peers_info: HashMap::new(), 
-            peers_await_exchange: Vec::new(), 
-            comm_patterns: Vec::new(), 
-            to_setup: VecDeque::new(), 
-            to_setup_agent_cb: VecDeque::new(), 
+        CommInitState {
+            id,
+            stage: CommInitStage::RegisterRank,
+            rank,
+            num_ranks,
+            profile: comm_profile,
+            peers_info: HashMap::new(),
+            peers_await_exchange: Vec::new(),
+            comm_patterns: Vec::new(),
+            to_setup: VecDeque::new(),
+            to_setup_agent_cb: VecDeque::new(),
             to_connect: VecDeque::new(),
-            to_connect_agent_cb: VecDeque::new(), 
-            peer_transport_assigned: HashMap::new(), 
-            peer_setup_pre_agent: HashMap::new(), 
-            peer_setup: HashMap::new(), 
-            peer_connect_pre_agent: HashMap::new(), 
-            peer_connected: HashMap::new(), 
-            await_connections: 0, 
+            to_connect_agent_cb: VecDeque::new(),
+            peer_transport_assigned: HashMap::new(),
+            peer_setup_pre_agent: HashMap::new(),
+            peer_setup: HashMap::new(),
+            peer_connect_pre_agent: HashMap::new(),
+            peer_connected: HashMap::new(),
+            await_connections: 0,
         }
     }
 }
@@ -121,23 +123,20 @@ impl CommInitState {
         }
         for (peer_conn, peer_connector) in self.peer_connected {
             let channel = channels.get_mut(&peer_conn.channel).unwrap();
-            let peer = channel.peers
+            let peer = channel
+                .peers
                 .entry(peer_conn.peer_rank)
                 .or_insert_with(new_chan_peer_conn);
-            let peer_conns= match peer_conn.conn_type {
+            let peer_conns = match peer_conn.conn_type {
                 ConnType::Send => &mut peer.send,
                 ConnType::Recv => &mut peer.recv,
             };
             peer_conns.insert(peer_conn.conn_index, peer_connector);
         }
 
-        let dev_resources = CommDevResources::new(
-            self.rank, 
-            self.num_ranks, 
-            &self.profile, 
-            &channels
-        );
-        
+        let dev_resources =
+            CommDevResources::new(self.rank, self.num_ranks, &self.profile, &channels);
+
         let mut plan_schedule = HashMap::new();
         for chan in channels.keys() {
             let schedule = ChanWorkSchedule {
@@ -168,11 +167,10 @@ impl CommInitState {
             peers_info[peer_rank].write(peer_info);
         }
 
-        let peers_info = peers_info.into_iter().map(|x| {
-            unsafe {
-                x.assume_init()
-            }
-        }).collect();
+        let peers_info = peers_info
+            .into_iter()
+            .map(|x| unsafe { x.assume_init() })
+            .collect();
         Communicator {
             id: self.id,
             rank: self.rank,

@@ -1,9 +1,12 @@
+use std::ffi::c_void;
 use std::io::Read;
 use std::mem::size_of;
-use std::ffi::c_void;
 use std::net::TcpStream;
 
-use cuda_runtime_sys::{cudaError, cudaIpcMemHandle_t, cudaMemcpy, cudaMemcpyKind, cudaIpcOpenMemHandle, cudaIpcMemLazyEnablePeerAccess};
+use cuda_runtime_sys::{
+    cudaError, cudaIpcMemHandle_t, cudaIpcMemLazyEnablePeerAccess, cudaIpcOpenMemHandle,
+    cudaMemcpy, cudaMemcpyKind,
+};
 
 const BUFFER_SIZE: usize = 1 * 1024 * 1024;
 
@@ -17,25 +20,29 @@ fn main() {
         let mut stream = TcpStream::connect("localhost:2042").unwrap();
         stream.set_nonblocking(false).unwrap();
         stream.set_nodelay(true).unwrap();
-        stream.read_exact( unsafe {
-            std::slice::from_raw_parts_mut(
-                &mut handle as *mut _ as *mut u8, 
-                size_of::<cudaIpcMemHandle_t>(),
-            )
-        }).unwrap();
+        stream
+            .read_exact(unsafe {
+                std::slice::from_raw_parts_mut(
+                    &mut handle as *mut _ as *mut u8,
+                    size_of::<cudaIpcMemHandle_t>(),
+                )
+            })
+            .unwrap();
     }
     let mut dev_ptr: *mut c_void = std::ptr::null_mut();
-    let err = unsafe { cudaIpcOpenMemHandle(
-        &mut dev_ptr as *mut _, 
-        handle, 
-        cudaIpcMemLazyEnablePeerAccess) 
+    let err = unsafe {
+        cudaIpcOpenMemHandle(
+            &mut dev_ptr as *mut _,
+            handle,
+            cudaIpcMemLazyEnablePeerAccess,
+        )
     };
     if err != cudaError::cudaSuccess {
         panic!("cudaIpcOpenMemHandle failed")
     }
-    let err = unsafe { 
+    let err = unsafe {
         cudaMemcpy(
-            buf.as_mut_ptr() as *mut _, 
+            buf.as_mut_ptr() as *mut _,
             dev_ptr,
             BUFFER_SIZE,
             cudaMemcpyKind::cudaMemcpyDeviceToHost,

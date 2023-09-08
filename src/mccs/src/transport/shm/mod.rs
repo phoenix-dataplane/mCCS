@@ -1,5 +1,5 @@
-pub mod resources;
-pub mod transporter;
+pub mod agent;
 pub mod buffer;
 pub mod config;
-pub mod agent;
+pub mod resources;
+pub mod transporter;

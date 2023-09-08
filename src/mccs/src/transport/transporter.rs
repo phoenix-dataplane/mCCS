@@ -1,10 +1,10 @@
-use std::any::Any;
 use async_trait::async_trait;
+use std::any::Any;
 
-use crate::comm::{CommunicatorId, CommProfile};
+use super::catalog::TransportCatalog;
 use super::channel::{PeerConnId, PeerConnInfo};
 use super::op::TransportOp;
-use super::catalog::TransportCatalog;
+use crate::comm::{CommProfile, CommunicatorId};
 
 pub type AgentMessage = Option<Box<dyn Any + Send>>;
 pub type AnyResources = Box<dyn Any + Send>;
@@ -29,7 +29,7 @@ pub enum TransportConnect {
     Connect {
         conn_info: PeerConnInfo,
         transport_resources: AnyResources,
-    }
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -48,7 +48,7 @@ pub trait Transporter: Send + Sync {
     // if transport agent setup is required,
     // otherwise, returns Setup variant
     fn send_setup(
-        &self, 
+        &self,
         profile: &CommProfile,
         conn_id: &PeerConnId,
         catalog: &TransportCatalog,
@@ -59,9 +59,9 @@ pub trait Transporter: Send + Sync {
     // optional `setup_resources` setup during `send_setup` will be passed in,
     // must return Setup variant of TransportSetup
     fn send_setup_agent_callback(
-        &self, 
-        _conn_id: &PeerConnId, 
-        _agent_reply: AgentMessage, 
+        &self,
+        _conn_id: &PeerConnId,
+        _agent_reply: AgentMessage,
         _setup_resources: Option<AnyResources>,
     ) -> TransportSetup {
         unimplemented!("Transport agent is not implemented for this transport");
@@ -93,7 +93,7 @@ pub trait Transporter: Send + Sync {
 
     // Setup receiver transport
     fn recv_setup(
-        &self, 
+        &self,
         profile: &CommProfile,
         conn_id: &PeerConnId,
         catalog: &TransportCatalog,
@@ -102,10 +102,10 @@ pub trait Transporter: Send + Sync {
     // Complete receiver transport setup with transport agent,
     // after agent completes setup and replies
     fn recv_setup_agent_callback(
-        &self, 
-        _conn_id: &PeerConnId, 
-        _agent_reply: AgentMessage, 
-        _setup_resources: Option<AnyResources>
+        &self,
+        _conn_id: &PeerConnId,
+        _agent_reply: AgentMessage,
+        _setup_resources: Option<AnyResources>,
     ) -> TransportSetup {
         unimplemented!("Transport agent is not implemented for this transport");
     }
@@ -168,20 +168,12 @@ pub trait Transporter: Send + Sync {
     }
 
     // Progress transport op for send connection
-    fn agent_send_progress_op(
-        &self,
-        _op: &mut TransportOp,
-        _resources: &mut AnyResources,
-    ) {
+    fn agent_send_progress_op(&self, _op: &mut TransportOp, _resources: &mut AnyResources) {
         unimplemented!("Transport agent is not implemented for this transport");
     }
 
     // Progress transport op for recv connection
-    fn agent_recv_progress_op(
-        &self,
-        _op: &mut TransportOp,
-        _resources: &mut AnyResources,
-    ) {
+    fn agent_recv_progress_op(&self, _op: &mut TransportOp, _resources: &mut AnyResources) {
         unimplemented!("Transport agent is not implemented for this transport");
     }
 }

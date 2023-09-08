@@ -7,7 +7,10 @@ fn main() {
     build_dir.pop();
     build_dir.push("collectives/build/device");
 
-    println!("cargo:rustc-link-search={}", build_dir.as_os_str().to_str().unwrap());
+    println!(
+        "cargo:rustc-link-search={}",
+        build_dir.as_os_str().to_str().unwrap()
+    );
     println!("cargo:rustc-link-lib=colldevice");
     println!("cargo:rerun-if-changed=wrapper.h");
 
@@ -25,7 +28,9 @@ fn main() {
         .allowlist_type("^mccsDev.*")
         .allowlist_function("^mccsKernel.*")
         .allowlist_var("^MCCS.*")
-        .default_enum_style(bindgen::EnumVariation::Rust { non_exhaustive: false })
+        .default_enum_style(bindgen::EnumVariation::Rust {
+            non_exhaustive: false,
+        })
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))

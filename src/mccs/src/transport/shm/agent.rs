@@ -1,26 +1,25 @@
 use std::mem::MaybeUninit;
 use std::sync::atomic::Ordering;
 
-use cuda_runtime_sys::{cudaEventCreate, cudaEventRecord, cudaEventQuery};
-use cuda_runtime_sys::cudaStreamCreateWithFlags;
-use cuda_runtime_sys::cudaMemcpyAsync;
 use cuda_runtime_sys::cudaError;
+use cuda_runtime_sys::cudaMemcpyAsync;
+use cuda_runtime_sys::cudaMemcpyKind::{cudaMemcpyDeviceToHost, cudaMemcpyHostToDevice};
+use cuda_runtime_sys::cudaStreamCreateWithFlags;
 use cuda_runtime_sys::cudaStreamNonBlocking;
-use cuda_runtime_sys::cudaMemcpyKind::{cudaMemcpyHostToDevice, cudaMemcpyDeviceToHost};
+use cuda_runtime_sys::{cudaEventCreate, cudaEventQuery, cudaEventRecord};
 
-use crate::cuda::alloc::{DeviceHostMapped, DeviceAlloc};
+use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
 use crate::cuda::ptr::DeviceNonNull;
-use crate::transport::{PROTOCOL_SIMPLE, NUM_BUFFER_SLOTS};
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::transporter::{AgentMessage, AnyResources};
+use crate::transport::{NUM_BUFFER_SLOTS, PROTOCOL_SIMPLE};
 
 use super::config::ShmLocality;
-use super::resources::{ShmAgentRequest, ShmAgentReply, ShmAgentResources};
+use super::resources::{ShmAgentReply, ShmAgentRequest, ShmAgentResources};
 
-pub async fn shm_agent_connect(
-    agent_request: AgentMessage,
-) -> (AnyResources, AgentMessage) {
-    let request = *agent_request.unwrap()
+pub async fn shm_agent_connect(agent_request: AgentMessage) -> (AnyResources, AgentMessage) {
+    let request = *agent_request
+        .unwrap()
         .downcast::<ShmAgentRequest>()
         .unwrap();
 
@@ -29,22 +28,15 @@ pub async fn shm_agent_connect(
         ShmLocality::Receiver => request.receiver_meta.buf_mut_ptr(),
     };
     let buf_size = request.buf_sizes[PROTOCOL_SIMPLE];
-    let buf_offset = request.buf_sizes[0..PROTOCOL_SIMPLE]
-        .iter()
-        .copied()
-        .sum();
+    let buf_offset = request.buf_sizes[0..PROTOCOL_SIMPLE].iter().copied().sum();
     let host_buf = unsafe { buf.add(buf_offset) };
 
     let meta_sync = DeviceHostMapped::alloc(1);
-    let meta_sync_ptr = unsafe {
-        DeviceNonNull::new_unchecked(meta_sync.as_ptr_dev())
-    };
+    let meta_sync_ptr = unsafe { DeviceNonNull::new_unchecked(meta_sync.as_ptr_dev()) };
     let device_buf = DeviceAlloc::new(buf_size);
-    let dev_buf_ptr = unsafe { 
-        DeviceNonNull::new_unchecked(device_buf.as_ptr()) 
-    };
-    
-    let mut stream =  MaybeUninit::uninit();
+    let dev_buf_ptr = unsafe { DeviceNonNull::new_unchecked(device_buf.as_ptr()) };
+
+    let mut stream = MaybeUninit::uninit();
     unsafe {
         cudaStreamCreateWithFlags(stream.as_mut_ptr(), cudaStreamNonBlocking);
     };
@@ -78,10 +70,7 @@ pub async fn shm_agent_connect(
     (boxed_resources, Some(boxed_reply))
 }
 
-pub fn shm_agent_send_progress(
-    resources: &mut AnyResources, 
-    op: &mut TransportOp,
-) {
+pub fn shm_agent_send_progress(resources: &mut AnyResources, op: &mut TransportOp) {
     let resources = resources.downcast_mut::<ShmAgentResources>().unwrap();
     if op.state == TransportOpState::Init {
         op.base = resources.step.div_ceil(op.chunk_steps as u64);
@@ -97,14 +86,16 @@ pub fn shm_agent_send_progress(
     }
 
     let step_size = resources.buf_size / NUM_BUFFER_SLOTS;
-    if (op.transmitted < op.done + NUM_BUFFER_SLOTS as u64) && (op.transmitted < op.num_steps as u64) {
+    if (op.transmitted < op.done + NUM_BUFFER_SLOTS as u64)
+        && (op.transmitted < op.num_steps as u64)
+    {
         let buf_slot = ((op.base + op.transmitted) % NUM_BUFFER_SLOTS as u64) as usize;
         let meta = resources.meta_sync.as_ptr_host();
         let tail = unsafe { (&*meta).tail };
         if tail > op.base + op.transmitted {
             let size = unsafe { (&*meta).slots_sizes[buf_slot as usize] };
             let offset = buf_slot * step_size;
-            unsafe { 
+            unsafe {
                 let device_buf = resources.device_buf.as_ptr().add(offset);
                 let host_buf = resources.host_buf.add(offset);
                 cudaMemcpyAsync(
@@ -114,13 +105,10 @@ pub fn shm_agent_send_progress(
                     cudaMemcpyDeviceToHost,
                     resources.stream,
                 );
-                cudaEventRecord(
-                    resources.events[buf_slot],
-                    resources.stream,
-                );
+                cudaEventRecord(resources.events[buf_slot], resources.stream);
                 let receiver_meta = resources.receiver_meta.get_meta_mut();
                 receiver_meta.slots_sizes[buf_slot] = size;
-                // TODO: check whether it is equivalent to 
+                // TODO: check whether it is equivalent to
                 // GCC's __sync_synchronize
                 std::sync::atomic::fence(Ordering::SeqCst);
                 op.transmitted += op.slice_steps as u64;
@@ -136,7 +124,7 @@ pub fn shm_agent_send_progress(
                 let receiver_meta = resources.receiver_meta.get_meta_mut();
                 receiver_meta.tail = op.base + op.done;
             }
-            if op.done == op.num_steps as u64  {
+            if op.done == op.num_steps as u64 {
                 resources.step = op.base + op.num_steps as u64;
                 op.state == TransportOpState::Completed;
             }
@@ -144,10 +132,7 @@ pub fn shm_agent_send_progress(
     }
 }
 
-pub fn shm_agent_recv_progress(
-    resources: &mut AnyResources, 
-    op: &mut TransportOp,
-) {
+pub fn shm_agent_recv_progress(resources: &mut AnyResources, op: &mut TransportOp) {
     let resources = resources.downcast_mut::<ShmAgentResources>().unwrap();
     if op.state == TransportOpState::Init {
         op.base = resources.step.div_ceil(op.chunk_steps as u64);
@@ -161,9 +146,11 @@ pub fn shm_agent_recv_progress(
             return;
         }
     }
-    
+
     let step_size = resources.buf_size / NUM_BUFFER_SLOTS;
-    if (op.transmitted < op.done + NUM_BUFFER_SLOTS as u64) && (op.transmitted < op.num_steps as u64) {
+    if (op.transmitted < op.done + NUM_BUFFER_SLOTS as u64)
+        && (op.transmitted < op.num_steps as u64)
+    {
         let buf_slot = ((op.base + op.transmitted) % NUM_BUFFER_SLOTS as u64) as usize;
         let tail = unsafe { resources.receiver_meta.get_meta_mut().tail };
         if tail > op.base + op.transmitted {
@@ -179,10 +166,7 @@ pub fn shm_agent_recv_progress(
                     cudaMemcpyHostToDevice,
                     resources.stream,
                 );
-                cudaEventRecord(
-                    resources.events[buf_slot],
-                    resources.stream,
-                );
+                cudaEventRecord(resources.events[buf_slot], resources.stream);
                 op.transmitted += op.slice_steps as u64;
             }
         }
@@ -194,7 +178,7 @@ pub fn shm_agent_recv_progress(
             if res == cudaError::cudaSuccess {
                 op.done += op.slice_steps as u64;
                 let meta = resources.meta_sync.as_ptr_host();
-                (&mut *meta).tail = op.base + op.done; 
+                (&mut *meta).tail = op.base + op.done;
                 if op.done == op.num_steps as u64 {
                     resources.step = op.base + op.num_steps as u64;
                     op.state = TransportOpState::Completed;

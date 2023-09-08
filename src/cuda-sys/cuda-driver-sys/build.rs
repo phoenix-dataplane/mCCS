@@ -14,7 +14,9 @@ fn main() {
         .allowlist_type("^libraryPropertyType.*")
         .allowlist_var("^CU.*")
         .allowlist_function("^cu.*")
-        .default_enum_style(bindgen::EnumVariation::Rust { non_exhaustive: false })
+        .default_enum_style(bindgen::EnumVariation::Rust {
+            non_exhaustive: false,
+        })
         .generate_comments(false)
         .derive_default(true)
         .derive_eq(true)
@@ -23,7 +25,7 @@ fn main() {
         .clang_arg("-I/usr/local/cuda/include")
         .generate()
         .expect("Unable to generate bindings");
-    
+
     // Write the bindings to the $OUT_DIR/bindings.rs file.
     let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings

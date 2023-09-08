@@ -1,4 +1,1 @@
-
-pub struct TransportTask {
-
-}
+pub struct TransportTask {}

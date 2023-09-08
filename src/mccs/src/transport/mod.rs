@@ -1,16 +1,16 @@
 use self::shm::transporter::ShmTransporter;
 
-pub mod shm;
-pub mod meta;
+pub mod catalog;
 pub mod channel;
-pub mod transporter;
+pub mod delegator;
 pub mod engine;
 pub mod message;
-pub mod task;
+pub mod meta;
 pub mod op;
 pub mod queue;
-pub mod delegator;
-pub mod catalog;
+pub mod shm;
+pub mod task;
+pub mod transporter;
 
 pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 

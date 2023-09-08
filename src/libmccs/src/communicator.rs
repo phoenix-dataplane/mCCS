@@ -1,10 +1,9 @@
-use ipc::mccs::command::{Command, CompletionKind, CommunicatorInit};
+use ipc::mccs::command::{Command, CommunicatorInit, CompletionKind};
 use ipc::mccs::handle::CommunicatorHandle;
 
-use crate::MCCS_CTX;
 use crate::rx_recv_impl;
 use crate::Error;
-
+use crate::MCCS_CTX;
 
 pub fn init_communicator_rank(
     unique_id: u32,

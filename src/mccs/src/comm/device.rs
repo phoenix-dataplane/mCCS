@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
-use collectives_sys::{mccsDevChannelPeer, mccsDevCommAndChannels, mccsDevComm, mccsDevConnInfo, mccsDevRing, mccsDevChannel};
 use collectives_sys::MCCS_MAX_NCHANNELS;
+use collectives_sys::{
+    mccsDevChannel, mccsDevChannelPeer, mccsDevComm, mccsDevCommAndChannels, mccsDevConnInfo,
+    mccsDevRing,
+};
 use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyHostToDevice;
 
@@ -28,7 +31,7 @@ impl ChanDevStorage {
     }
 }
 
-fn conn_info_to_dev(conn_info: &PeerConnInfo) -> mccsDevConnInfo { 
+fn conn_info_to_dev(conn_info: &PeerConnInfo) -> mccsDevConnInfo {
     let bufs = conn_info.bufs.map(|x| x.as_ptr() as *mut _);
     let tail = conn_info.tail.as_ptr();
     let head = conn_info.head.as_ptr();
@@ -37,13 +40,13 @@ fn conn_info_to_dev(conn_info: &PeerConnInfo) -> mccsDevConnInfo {
     } else {
         std::ptr::null_mut()
     };
-    mccsDevConnInfo { 
-        buffs: bufs, 
-        tail: tail, 
-        head: head, 
-        sizesFifo: sizes, 
-        offsFifo: std::ptr::null_mut(), 
-        step: 0 
+    mccsDevConnInfo {
+        buffs: bufs,
+        tail: tail,
+        head: head,
+        sizesFifo: sizes,
+        offsFifo: std::ptr::null_mut(),
+        step: 0,
     }
 }
 
@@ -74,7 +77,7 @@ impl CommDevResources {
         rank: usize,
         num_ranks: usize,
         profile: &CommProfile,
-        channels: &HashMap<u32, CommChannel>
+        channels: &HashMap<u32, CommChannel>,
     ) -> Self {
         let buf_sizes = profile.buff_sizes.map(|x| x as _);
         let mut dev_host_sync = DevHostSyncResources::new(channels.len());
@@ -84,9 +87,8 @@ impl CommDevResources {
             let storage = ChanDevStorage::new(num_ranks);
             let mut dev_chan_peers = vec![MaybeUninit::zeroed(); num_ranks];
             for (peer_rank, peer_conn) in chan.peers.iter() {
-                let mut dev_chan_peer = unsafe {
-                    MaybeUninit::<mccsDevChannelPeer>::zeroed().assume_init()
-                };
+                let mut dev_chan_peer =
+                    unsafe { MaybeUninit::<mccsDevChannelPeer>::zeroed().assume_init() };
                 for (conn_index, send_conn) in peer_conn.send.iter() {
                     let conn_info = conn_info_to_dev(&send_conn.conn_info);
                     dev_chan_peer.send[*conn_index as usize] = conn_info;
@@ -97,18 +99,23 @@ impl CommDevResources {
                 }
                 dev_chan_peers[*peer_rank] = MaybeUninit::new(dev_chan_peer);
             }
-            let user_ranks = chan.ring.user_ranks.iter().map(|x| *x as i32).collect::<Vec<_>>();            
+            let user_ranks = chan
+                .ring
+                .user_ranks
+                .iter()
+                .map(|x| *x as i32)
+                .collect::<Vec<_>>();
             unsafe {
                 cudaMemcpy(
                     storage.ring_user_ranks.as_ptr() as _,
-                    user_ranks.as_ptr() as _, 
-                    num_ranks * std::mem::size_of::<i32>(), 
+                    user_ranks.as_ptr() as _,
+                    num_ranks * std::mem::size_of::<i32>(),
                     cudaMemcpyHostToDevice,
                 );
                 cudaMemcpy(
-                    storage.peers.as_ptr() as _, 
-                    dev_chan_peers.as_ptr() as _, 
-                    num_ranks * std::mem::size_of::<mccsDevChannelPeer>(), 
+                    storage.peers.as_ptr() as _,
+                    dev_chan_peers.as_ptr() as _,
+                    num_ranks * std::mem::size_of::<mccsDevChannelPeer>(),
                     cudaMemcpyHostToDevice,
                 );
             }
@@ -118,9 +125,7 @@ impl CommDevResources {
                 userRanks: storage.ring_user_ranks.as_ptr(),
                 index: chan.ring.index as _,
             };
-            let work_done = unsafe {
-                dev_host_sync.work_queue_done.as_ptr_dev().add(idx)
-            };
+            let work_done = unsafe { dev_host_sync.work_queue_done.as_ptr_dev().add(idx) };
             dev_host_sync.chan_mapping.push(*chan_id);
             let dev_chan = mccsDevChannel {
                 peers: storage.peers.as_ptr(),
@@ -131,9 +136,7 @@ impl CommDevResources {
             dev_chan_stroage.push(storage);
         }
 
-        let dev_channels = unsafe { 
-            MaybeUninit::array_assume_init(dev_channels)
-        };
+        let dev_channels = unsafe { MaybeUninit::array_assume_init(dev_channels) };
         let dev_comm = mccsDevComm {
             rank: rank as _,
             nRanks: num_ranks as _,
@@ -164,8 +167,6 @@ impl CommDevResources {
 
     pub fn get_dev_comm_ptr(&self) -> DeviceNonNull<mccsDevComm> {
         let ptr = self.comm_dev.as_ptr() as *mut mccsDevComm;
-        unsafe {
-            DeviceNonNull::new_unchecked(ptr)
-        }
+        unsafe { DeviceNonNull::new_unchecked(ptr) }
     }
 }

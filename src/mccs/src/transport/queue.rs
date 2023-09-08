@@ -1,5 +1,5 @@
-use std::collections::{VecDeque, HashMap};
 use std::collections::hash_map::Entry;
+use std::collections::{HashMap, VecDeque};
 
 use super::op::TransportOp;
 use super::transporter::TransportAgentId;
@@ -18,21 +18,19 @@ impl TransrportOpQueue {
             Entry::Occupied(entry) => {
                 let index = *entry.get();
                 self.queue[index].1.push_back(op);
-            },
+            }
             Entry::Vacant(entry) => {
                 if self.active_connections < self.queue.len() {
                     debug_assert!(self.queue[self.active_connections].1.is_empty());
                     self.queue[self.active_connections].0 = agent;
                     self.queue[self.active_connections].1.push_back(op);
                 } else {
-                    self.queue.push((
-                        agent,
-                        VecDeque::with_capacity(PER_CONN_QUEUE_INIT_CAPACITY)
-                    ));
+                    self.queue
+                        .push((agent, VecDeque::with_capacity(PER_CONN_QUEUE_INIT_CAPACITY)));
                 }
                 entry.insert(self.active_connections);
                 self.active_connections += 1;
-            },
+            }
         }
     }
 

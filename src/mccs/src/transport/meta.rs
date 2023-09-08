@@ -9,7 +9,8 @@ pub struct SendBufMeta {
     _pad1: [u8; CACHE_LINE_SIZE - std::mem::size_of::<u64>()],
     _ptr_exchange: *mut c_void,
     _reduce_op_arg_exchange: [u64; 2],
-    _pad2: [u8; CACHE_LINE_SIZE - std::mem::size_of::<*mut c_void>() - 2 * std::mem::size_of::<u64>()],
+    _pad2:
+        [u8; CACHE_LINE_SIZE - std::mem::size_of::<*mut c_void>() - 2 * std::mem::size_of::<u64>()],
     _slots_offsets: [u32; NUM_BUFFER_SLOTS],
 }
 
@@ -20,7 +21,9 @@ impl SendBufMeta {
             _pad1: [0; CACHE_LINE_SIZE - std::mem::size_of::<u64>()],
             _ptr_exchange: std::ptr::null_mut(),
             _reduce_op_arg_exchange: [0; 2],
-            _pad2: [0; CACHE_LINE_SIZE - std::mem::size_of::<*mut c_void>() - 2 * std::mem::size_of::<u64>()],
+            _pad2: [0; CACHE_LINE_SIZE
+                - std::mem::size_of::<*mut c_void>()
+                - 2 * std::mem::size_of::<u64>()],
             _slots_offsets: [0; NUM_BUFFER_SLOTS],
         }
     }

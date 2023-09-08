@@ -74,4 +74,3 @@ pub struct TaskSchema {
 pub struct TaskQueue {
     pub coll_queue: VecDeque<CollTask>,
 }
-

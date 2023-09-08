@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use dashmap::DashMap;
 
-use crate::comm::{CommunicatorId, PeerInfo, HostIdent, PeerType, ChannelCommPattern};
+use crate::comm::{ChannelCommPattern, CommunicatorId, HostIdent, PeerInfo, PeerType};
 use crate::pattern;
-use crate::transport::SHM_TRANSPORTER;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::channel::PeerConnId;
-use crate::transport::transporter::Transporter;
 use crate::transport::delegator::TransportDelegator;
+use crate::transport::transporter::Transporter;
+use crate::transport::SHM_TRANSPORTER;
 
 #[derive(Clone)]
 pub struct RankInfo {
@@ -24,10 +24,8 @@ pub struct CommunicatorInfo {
 
 impl CommunicatorInfo {
     pub fn new(num_ranks: usize) -> Self {
-        let sock_addr = std::net::SocketAddr::new(
-            std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)),
-            0,
-        );
+        let sock_addr =
+            std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)), 0);
         let host_ident = HostIdent(sock_addr);
         let rank_info = RankInfo {
             exchanged: false,
@@ -35,8 +33,8 @@ impl CommunicatorInfo {
             cuda_device_idx: 0,
         };
         let ranks_info = vec![rank_info; num_ranks];
-        CommunicatorInfo { 
-            num_ranks, 
+        CommunicatorInfo {
+            num_ranks,
             ranks_info,
         }
     }
@@ -45,18 +43,19 @@ impl CommunicatorInfo {
 pub struct GlobalRegistry {
     pub communicators: DashMap<CommunicatorId, CommunicatorInfo>,
     pub transport_delegator: TransportDelegator,
-    pub transport_catalog: TransportCatalog
+    pub transport_catalog: TransportCatalog,
 }
 
 impl GlobalRegistry {
     pub fn register_communicator_rank(
-        &self, 
-        comm_id: CommunicatorId, 
+        &self,
+        comm_id: CommunicatorId,
         rank: usize,
-        num_ranks: usize, 
+        num_ranks: usize,
         info: &PeerInfo,
     ) {
-        let mut comm = self.communicators
+        let mut comm = self
+            .communicators
             .entry(comm_id)
             .or_insert_with(|| CommunicatorInfo::new(num_ranks));
         let peer_info = &mut comm.ranks_info[rank];
@@ -66,11 +65,11 @@ impl GlobalRegistry {
     }
 
     pub fn query_communicator_peers(
-        &self, 
-        comm_id: CommunicatorId, 
-        rank: usize, 
+        &self,
+        comm_id: CommunicatorId,
+        rank: usize,
         peers_to_query: &mut Vec<usize>,
-        peers_info: &mut HashMap<usize, PeerInfo>
+        peers_info: &mut HashMap<usize, PeerInfo>,
     ) -> usize {
         use dashmap::try_result::TryResult;
 
@@ -106,7 +105,7 @@ impl GlobalRegistry {
     }
 
     pub fn arbitrate_comm_patterns(
-        &self, 
+        &self,
         comm_id: CommunicatorId,
         rank: usize,
     ) -> Option<Vec<ChannelCommPattern>> {

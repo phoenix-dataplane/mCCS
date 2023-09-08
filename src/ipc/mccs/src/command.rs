@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::handle::{CudaMemHandle, CommunicatorHandle};
+use crate::handle::{CommunicatorHandle, CudaMemHandle};
 
 type IResult<T> = Result<T, ipc_core::control::Error>;
 
@@ -12,11 +12,10 @@ pub struct CommunicatorInit {
     pub cuda_device_idx: usize,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllGather {
     pub comm: CommunicatorHandle,
-    // TBD, use some handles 
+    // TBD, use some handles
     pub send_buf: (),
     pub recv_buf: (),
     pub size: usize,
@@ -27,7 +26,7 @@ pub enum Command {
     // device, size
     CudaMalloc(usize, usize),
     InitCommunicator(CommunicatorInit),
-    AllGather(AllGather)
+    AllGather(AllGather),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

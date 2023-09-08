@@ -28,13 +28,13 @@ use crate::comm::CommunicatorId;
 use crate::comm::HostIdent;
 use crate::config::Config;
 use crate::daemon::DaemonId;
-use crate::proxy::DeviceInfo;
 use crate::proxy::command::AllGather;
 use crate::proxy::command::InitCommunicator;
 use crate::proxy::command::ProxyCommand;
 use crate::proxy::command::ProxyCompletion;
 use crate::proxy::engine::ProxyEngine;
 use crate::proxy::engine::ProxyResources;
+use crate::proxy::DeviceInfo;
 use crate::registry::GlobalRegistry;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::delegator::TransportDelegator;
@@ -50,9 +50,8 @@ pub struct Control {
 impl Control {
     pub fn new(config: Config) -> Self {
         let mccs_prefix = &config.control.prefix;
-        fs::create_dir_all(mccs_prefix).unwrap_or_else(|e| {
-            panic!("Failed to create directory for {:?}: {}", mccs_prefix, e)
-        });
+        fs::create_dir_all(mccs_prefix)
+            .unwrap_or_else(|e| panic!("Failed to create directory for {:?}: {}", mccs_prefix, e));
 
         let mccs_path = mccs_prefix.join(&config.control.path);
         if mccs_path.exists() {
@@ -82,7 +81,6 @@ impl Control {
         control
         // control.create_proxies().unwrap();
         // control
-
     }
 
     pub fn mainloop(&mut self, exit_flag: &AtomicBool) -> anyhow::Result<()> {
@@ -139,10 +137,7 @@ impl Control {
         let (daemon_1_cmd_tx, daemon_1_cmd_rx) = crossbeam::channel::unbounded();
         let (daemon_1_comp_tx, daemon_1_comp_rx) = crossbeam::channel::unbounded();
 
-        let sock_addr = std::net::SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
-            8000
-        );
+        let sock_addr = std::net::SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8000);
         let dev_info = DeviceInfo {
             host: HostIdent(sock_addr),
             cuda_device_idx: 0,
@@ -259,14 +254,14 @@ impl Control {
         };
         let mut buf = vec![1883i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
         buf.extend(vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
-        unsafe { 
+        unsafe {
             cudaMemcpy(
-                dev_buf_0, 
-                buf.as_ptr() as *const _, 
+                dev_buf_0,
+                buf.as_ptr() as *const _,
                 BUFFER_SIZE,
                 cudaMemcpyKind::cudaMemcpyHostToDevice,
             )
-        }; 
+        };
 
         unsafe {
             let error = cudaSetDevice(1);
@@ -281,14 +276,14 @@ impl Control {
         };
         let mut buf = vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
         buf.extend(vec![2042i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
-        unsafe { 
+        unsafe {
             cudaMemcpy(
-                dev_buf_1, 
-                buf.as_ptr() as *const _, 
+                dev_buf_1,
+                buf.as_ptr() as *const _,
                 BUFFER_SIZE,
                 cudaMemcpyKind::cudaMemcpyHostToDevice,
             )
-        }; 
+        };
         let cmd = AllGather {
             communicator_id: CommunicatorId(0),
             send_buf_addr: dev_buf_0 as usize,
@@ -318,9 +313,9 @@ impl Control {
         }
 
         let mut buf = vec![0; BUFFER_SIZE];
-        unsafe { 
+        unsafe {
             let err = cudaMemcpy(
-                buf.as_mut_ptr() as *mut _, 
+                buf.as_mut_ptr() as *mut _,
                 dev_buf_1,
                 BUFFER_SIZE,
                 cudaMemcpyKind::cudaMemcpyDeviceToHost,
@@ -332,33 +327,33 @@ impl Control {
         assert_eq!(buf[0], 1883);
         assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 2042);
         println!("OK");
-            // let (endpoint_tx, endpoint_rx) = crossbeam::channel::unbounded();
-            // let device_info = DeviceInfo {
-            //     cuda_device_idx: idx,
-            //     cuda_comp_cap: 0,
-            // };
-            // let mut proxy_engine = ProxyEngine {
-            //     device_info,
-            //     outstanding_ops: std::collections::LinkedList::new(),
-            //     enqueue_ops: std::collections::LinkedList::new(),
-            //     daemon_endpoint_rx: endpoint_rx,
-            //     daemon_command_rx: Vec::new(),
-            //     daemon_completion_tx: Vec::new(),
-            //     communicators: HashMap::new(),
-            //     global_resources: self.global_resources.clone(),
-            //     hmem_senders: HashMap::new(),
-            //     hmem_receivers: HashMap::new(),
-            // };
-            // self.proxy_cmd_endpoints_tx.push(endpoint_tx);
-            // std::thread::spawn(move || {
-            //     unsafe {
-            //         let error = cudaSetDevice(idx as _);
-            //         if error != cudaError::cudaSuccess {
-            //             panic!("cudaSetDevice");
-            //         }
-            //     }
-            //     proxy_engine.mainloop();
-            // });
+        // let (endpoint_tx, endpoint_rx) = crossbeam::channel::unbounded();
+        // let device_info = DeviceInfo {
+        //     cuda_device_idx: idx,
+        //     cuda_comp_cap: 0,
+        // };
+        // let mut proxy_engine = ProxyEngine {
+        //     device_info,
+        //     outstanding_ops: std::collections::LinkedList::new(),
+        //     enqueue_ops: std::collections::LinkedList::new(),
+        //     daemon_endpoint_rx: endpoint_rx,
+        //     daemon_command_rx: Vec::new(),
+        //     daemon_completion_tx: Vec::new(),
+        //     communicators: HashMap::new(),
+        //     global_resources: self.global_resources.clone(),
+        //     hmem_senders: HashMap::new(),
+        //     hmem_receivers: HashMap::new(),
+        // };
+        // self.proxy_cmd_endpoints_tx.push(endpoint_tx);
+        // std::thread::spawn(move || {
+        //     unsafe {
+        //         let error = cudaSetDevice(idx as _);
+        //         if error != cudaError::cudaSuccess {
+        //             panic!("cudaSetDevice");
+        //         }
+        //     }
+        //     proxy_engine.mainloop();
+        // });
         Ok(())
     }
 
@@ -414,10 +409,9 @@ impl Control {
                 //     engine.mainloop();
                 // });
                 self.daemon_cnt += 1;
-                
+
                 Ok(())
             }
         }
     }
-
 }

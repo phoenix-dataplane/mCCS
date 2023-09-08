@@ -5,15 +5,14 @@
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
 
-
+pub mod comm;
 pub mod config;
 pub mod control;
-pub mod daemon;
 pub mod cuda;
-pub mod transport;
-pub mod comm;
-pub mod proxy;
-pub mod pattern;
-pub mod registry;
+pub mod daemon;
 pub mod message;
+pub mod pattern;
+pub mod proxy;
+pub mod registry;
+pub mod transport;
 pub mod utils;

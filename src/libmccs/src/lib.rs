@@ -3,13 +3,13 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use ipc::service::ShmService;
 use ipc::mccs::command;
 use ipc::mccs::dp;
+use ipc::service::ShmService;
 
-pub mod memory;
 pub mod collectives;
 pub mod communicator;
+pub mod memory;
 
 const DEFAULT_MCCS_PREFIX: &str = "/tmp/mccs";
 const DEFAULT_MCCS_CONTROL: &str = "control.sock";
@@ -68,21 +68,18 @@ macro_rules! _rx_recv_impl {
 #[doc(hidden)]
 pub(crate) use _rx_recv_impl as rx_recv_impl;
 
-
 thread_local! {
     pub(crate) static MCCS_CTX: Context = Context::register().expect("mCCS register failed");
 }
 
 pub(crate) struct Context {
-    service: ShmService<command::Command, command::Completion, dp::WorkRequestSlot, dp::CompletionSlot>,
+    service:
+        ShmService<command::Command, command::Completion, dp::WorkRequestSlot, dp::CompletionSlot>,
 }
 
 impl Context {
     fn register() -> Result<Context, Error> {
-        let service = ShmService::register(
-            &*MCCS_PREFIX,
-            &*MCCS_CONTROL_SOCK,
-        )?;
+        let service = ShmService::register(&*MCCS_PREFIX, &*MCCS_CONTROL_SOCK)?;
         Ok(Self { service })
     }
 }
@@ -96,5 +93,5 @@ pub enum Error {
     #[error("mCCS control plane: {0}")]
     Control(&'static str, ipc::control::Error),
     #[error("CUDA")]
-    Cuda(cuda_runtime_sys::cudaError)
+    Cuda(cuda_runtime_sys::cudaError),
 }

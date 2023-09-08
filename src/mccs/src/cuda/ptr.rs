@@ -1,16 +1,14 @@
-use std::num::NonZeroUsize;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 #[repr(transparent)]
 pub struct DeviceNonNull<T> {
-    pointer: *const T
+    pointer: *const T,
 }
 
 impl<T> DeviceNonNull<T> {
     pub const unsafe fn new_unchecked(ptr: *mut T) -> Self {
-        DeviceNonNull { 
-            pointer: ptr as _
-        }
+        DeviceNonNull { pointer: ptr as _ }
     }
 
     #[inline]
@@ -71,4 +69,4 @@ impl<T> fmt::Pointer for DeviceNonNull<T> {
             .field(&self.as_ptr())
             .finish()
     }
-} 
+}

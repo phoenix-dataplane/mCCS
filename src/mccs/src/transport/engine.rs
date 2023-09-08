@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 use std::task::{Context, Poll};
 
-use crossbeam::channel::{Sender, Receiver, TryRecvError};
-use futures::FutureExt;
+use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use futures::future::BoxFuture;
+use futures::FutureExt;
 
 use crate::utils::pool::WorkPool;
 
-use super::message::{TransportEngineRequest, TransportEngineReply};
-use super::queue::TransrportOpQueue;
-use super::op::TransportOp;
-use super::transporter::{TransportAgentId, AnyResources, Transporter, AgentMessage};
 use super::channel::ConnType;
+use super::message::{TransportEngineReply, TransportEngineRequest};
+use super::op::TransportOp;
+use super::queue::TransrportOpQueue;
+use super::transporter::{AgentMessage, AnyResources, TransportAgentId, Transporter};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TransportEngineId {
@@ -20,7 +20,7 @@ pub struct TransportEngineId {
 }
 
 struct TransportAgent {
-    transporter: &'static dyn Transporter, 
+    transporter: &'static dyn Transporter,
     agent_resources: AnyResources,
 }
 
@@ -31,7 +31,7 @@ enum AsyncTaskResult {
     },
     Connect {
         agent_resources: AnyResources,
-        reply: AgentMessage
+        reply: AgentMessage,
     },
 }
 
@@ -42,23 +42,17 @@ struct AsyncTask {
 }
 
 fn new_setup_task(
-    transporter: &'static dyn Transporter, 
-    id: TransportAgentId, 
-    request: AgentMessage
+    transporter: &'static dyn Transporter,
+    id: TransportAgentId,
+    request: AgentMessage,
 ) -> AsyncTask {
     let setup = match id.peer_conn.conn_type {
-        ConnType::Send => {
-            transporter.agent_send_setup(id, request)
-        },
-        ConnType::Recv => {
-            transporter.agent_recv_setup(id, request)
-        },
+        ConnType::Send => transporter.agent_send_setup(id, request),
+        ConnType::Recv => transporter.agent_recv_setup(id, request),
     };
-    let task = setup.map(|(resources, reply)| {
-        AsyncTaskResult::Setup { 
-            setup_resources: resources,
-            reply,
-        }
+    let task = setup.map(|(resources, reply)| AsyncTaskResult::Setup {
+        setup_resources: resources,
+        reply,
     });
     let pinned = Box::pin(task);
     AsyncTask {
@@ -75,26 +69,12 @@ fn new_connect_task(
     setup_resources: Option<AnyResources>,
 ) -> AsyncTask {
     let connect = match id.peer_conn.conn_type {
-        ConnType::Send => {
-            transporter.agent_send_connect(
-                id,
-                request,
-                setup_resources
-            )
-        },
-        ConnType::Recv => {
-            transporter.agent_recv_connect(
-                id,
-                request,
-                setup_resources
-            )
-        }
+        ConnType::Send => transporter.agent_send_connect(id, request, setup_resources),
+        ConnType::Recv => transporter.agent_recv_connect(id, request, setup_resources),
     };
-    let task = connect.map(|(resources,  reply)| {
-        AsyncTaskResult::Connect {
-            agent_resources: resources,
-            reply,
-        }
+    let task = connect.map(|(resources, reply)| AsyncTaskResult::Connect {
+        agent_resources: resources,
+        reply,
     });
     let pinned = Box::pin(task);
     AsyncTask {
@@ -103,7 +83,7 @@ fn new_connect_task(
         task: pinned,
     }
 }
-    
+
 struct TrasnportEngineResources {
     agent_setup: HashMap<TransportAgentId, AnyResources>,
     agent_connected: HashMap<TransportAgentId, TransportAgent>,
@@ -116,7 +96,7 @@ impl TrasnportEngineResources {
         // TODO
         true
     }
-    
+
     fn progress_async_task(&mut self, task: &mut AsyncTask) -> bool {
         let waker = futures::task::noop_waker_ref();
         let mut cx = Context::from_waker(&waker);
@@ -124,40 +104,37 @@ impl TrasnportEngineResources {
         match poll {
             Poll::Ready(result) => {
                 match result {
-                    AsyncTaskResult::Setup { 
-                        setup_resources, 
-                        reply 
+                    AsyncTaskResult::Setup {
+                        setup_resources,
+                        reply,
                     } => {
-                        let reply = TransportEngineReply::AgentSetup(
-                            task.agent_id,
-                            reply
-                        );
-                        self.proxy_tx[task.agent_id.client_cuda_dev as usize].send(reply).unwrap();
+                        let reply = TransportEngineReply::AgentSetup(task.agent_id, reply);
+                        self.proxy_tx[task.agent_id.client_cuda_dev as usize]
+                            .send(reply)
+                            .unwrap();
                         self.agent_setup.insert(task.agent_id, setup_resources);
-                    },
-                    AsyncTaskResult::Connect { 
-                        agent_resources, 
-                        reply
+                    }
+                    AsyncTaskResult::Connect {
+                        agent_resources,
+                        reply,
                     } => {
                         let connected = TransportAgent {
                             transporter: task.transporter,
                             agent_resources,
                         };
-                        let reply = TransportEngineReply::AgentConnect(
-                            task.agent_id,
-                            reply
-                        );
-                        self.proxy_tx[task.agent_id.client_cuda_dev as usize].send(reply).unwrap();
+                        let reply = TransportEngineReply::AgentConnect(task.agent_id, reply);
+                        self.proxy_tx[task.agent_id.client_cuda_dev as usize]
+                            .send(reply)
+                            .unwrap();
                         self.agent_connected.insert(task.agent_id, connected);
-                    },
+                    }
                 }
                 true
-            },
+            }
             Poll::Pending => false,
         }
     }
 }
-
 
 pub struct TransportEngine {
     id: TransportEngineId,
@@ -168,11 +145,13 @@ pub struct TransportEngine {
 
 impl TransportEngine {
     fn progress_ops(&mut self) {
-        self.op_queue.progress_ops(|op| self.resources.progress_op(op));
+        self.op_queue
+            .progress_ops(|op| self.resources.progress_op(op));
     }
 
     fn progress_async_tasks(&mut self) {
-        self.async_tasks.progress(|x| self.resources.progress_async_task(x));
+        self.async_tasks
+            .progress(|x| self.resources.progress_async_task(x));
     }
 
     fn check_proxy_requests(&mut self) {
@@ -180,29 +159,16 @@ impl TransportEngine {
             match rx.try_recv() {
                 Ok(request) => {
                     let task = match request {
-                        TransportEngineRequest::AgentSetup(
-                            transporter, 
-                            agent_id, 
-                            request,
-                        ) => {
+                        TransportEngineRequest::AgentSetup(transporter, agent_id, request) => {
                             new_setup_task(transporter, agent_id, request)
-                        },
-                        TransportEngineRequest::AgentConnect(
-                            transporter,
-                            agent_id,
-                            request,
-                        ) => {
+                        }
+                        TransportEngineRequest::AgentConnect(transporter, agent_id, request) => {
                             let setup_resources = self.resources.agent_setup.remove(&agent_id);
-                            new_connect_task(
-                                transporter,
-                                agent_id,
-                                request,
-                                setup_resources
-                            )
-                        },
+                            new_connect_task(transporter, agent_id, request, setup_resources)
+                        }
                     };
                     self.async_tasks.enqueue(task);
-                },
+                }
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => {
                     unreachable!("Proxy engines shall never shutdown")

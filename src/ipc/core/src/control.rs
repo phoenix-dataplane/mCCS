@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
 pub use libc::pid_t;
-use thiserror::Error;
 use serde::{Deserialize, Serialize};
-
+use thiserror::Error;
 
 #[derive(Debug, Clone, Error, Serialize, Deserialize)]
 pub enum Error {

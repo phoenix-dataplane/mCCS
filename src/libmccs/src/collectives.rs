@@ -1,10 +1,9 @@
-use ipc::mccs::command::{Command, CompletionKind, AllGather};
+use ipc::mccs::command::{AllGather, Command, CompletionKind};
 use ipc::mccs::handle::CommunicatorHandle;
 
-use crate::MCCS_CTX;
 use crate::rx_recv_impl;
 use crate::Error;
-
+use crate::MCCS_CTX;
 
 pub fn all_gather(
     comm: CommunicatorHandle,

@@ -3,13 +3,13 @@ pub mod device;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 
+use crate::pattern::RingPattern;
 use crate::proxy::plan::{ChanWorkSchedule, KernelPlan};
 use crate::proxy::task::TaskQueue;
-use crate::transport::NUM_PROTOCOLS;
 use crate::transport::channel::CommChannel;
-use crate::pattern::RingPattern;
+use crate::transport::NUM_PROTOCOLS;
 
-use cuda_runtime_sys::{cudaStream_t, cudaEvent_t};
+use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use device::CommDevResources;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -52,7 +52,7 @@ pub struct Communicator {
 }
 
 // TBD
-unsafe impl Send for Communicator {} 
+unsafe impl Send for Communicator {}
 
 pub struct ChannelCommPattern {
     // channel id

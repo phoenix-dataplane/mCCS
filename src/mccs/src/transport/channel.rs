@@ -1,9 +1,9 @@
 use std::any::Any;
 use std::collections::HashMap;
 
-use super::NUM_PROTOCOLS;
 use super::engine::TransportEngineId;
 use super::transporter::Transporter;
+use super::NUM_PROTOCOLS;
 use crate::cuda::ptr::DeviceNonNull;
 use crate::pattern::RingPattern;
 

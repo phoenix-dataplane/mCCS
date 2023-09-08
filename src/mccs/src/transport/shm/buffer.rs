@@ -1,4 +1,4 @@
-use std::alloc::{Layout, System, GlobalAlloc};
+use std::alloc::{GlobalAlloc, Layout, System};
 use std::ops::{Deref, DerefMut};
 
 // Transport buffer is designed to be a host registerd buffer
@@ -10,8 +10,8 @@ pub struct TransportBuffer<T> {
     align: usize,
 }
 
-unsafe impl<T> Send for TransportBuffer<T> { }
-unsafe impl<T> Sync for TransportBuffer<T> { }
+unsafe impl<T> Send for TransportBuffer<T> {}
+unsafe impl<T> Sync for TransportBuffer<T> {}
 
 impl<T> TransportBuffer<T> {
     pub fn new(meta: T, size: usize, align: usize) -> TransportBuffer<T> {
@@ -19,11 +19,7 @@ impl<T> TransportBuffer<T> {
         let ptr = unsafe { System.alloc(layout) } as *mut T;
         assert_eq!(ptr.align_offset(std::mem::align_of::<T>()), 0);
         unsafe { *ptr = meta };
-        TransportBuffer {
-            ptr, 
-            size,
-            align,
-        }
+        TransportBuffer { ptr, size, align }
     }
 
     #[inline]
@@ -40,7 +36,7 @@ impl<T> TransportBuffer<T> {
     pub fn meta_ptr(&self) -> *const T {
         self.ptr as *const _
     }
-    
+
     #[inline]
     pub fn meta_mut_ptr(&self) -> *mut T {
         self.ptr
@@ -63,7 +59,7 @@ impl<T> TransportBuffer<T> {
 
     #[inline]
     pub fn buf_slice(&self) -> *const [u8] {
-        unsafe { 
+        unsafe {
             let buf_ptr = self.ptr.add(1) as *const _;
             let buf_size = self.size - std::mem::size_of::<T>();
             std::ptr::slice_from_raw_parts(buf_ptr, buf_size)
@@ -72,7 +68,7 @@ impl<T> TransportBuffer<T> {
 
     #[inline]
     pub fn buf_mut_slice(&self) -> *mut [u8] {
-        unsafe { 
+        unsafe {
             let buf_ptr = self.ptr.add(1) as *mut _;
             let buf_size = self.size - std::mem::size_of::<T>();
             std::ptr::slice_from_raw_parts_mut(buf_ptr, buf_size)
@@ -90,7 +86,7 @@ impl<T> Deref for TransportBuffer<T> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        unsafe { 
+        unsafe {
             let buf_ptr = self.ptr.add(1) as *const _;
             let buf_size = self.size - std::mem::size_of::<T>();
             std::slice::from_raw_parts(buf_ptr, buf_size)

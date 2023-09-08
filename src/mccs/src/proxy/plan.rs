@@ -1,11 +1,17 @@
-use std::{collections::VecDeque, mem::MaybeUninit};
 use std::ffi::c_void;
+use std::{collections::VecDeque, mem::MaybeUninit};
 
-use collectives_sys::{mccsDevWork, mccsDevWorkElem, mccsDevWork__bindgen_ty_1, mccsDevWorkHeader, mccsDevWorkType, mccsDevComm, mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t};
-use cuda_runtime_sys::{cudaMemcpyKind, cudaMemcpy, cudaLaunchKernel, cudaEventRecord};
+use collectives_sys::{
+    mccsDevComm, mccsDevWork, mccsDevWorkElem, mccsDevWorkHeader, mccsDevWorkType,
+    mccsDevWork__bindgen_ty_1, mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t,
+};
+use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpyKind};
 
-use crate::{cuda::{ptr::DeviceNonNull, alloc::DeviceAlloc}, comm::Communicator};
-use super::task::{CollTask, TaskSchema, TaskAlgorithm, TaskProtocol};
+use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
+use crate::{
+    comm::Communicator,
+    cuda::{alloc::DeviceAlloc, ptr::DeviceNonNull},
+};
 
 #[derive(Clone)]
 pub struct WorkElemColl {
@@ -75,7 +81,13 @@ impl Communicator {
     }
 
     pub fn upload_work(&mut self) -> DeviceNonNull<mccsDevWork> {
-        let work = self.plan_schedule.get_mut(&0).unwrap().work_queue.pop_front().unwrap();
+        let work = self
+            .plan_schedule
+            .get_mut(&0)
+            .unwrap()
+            .work_queue
+            .pop_front()
+            .unwrap();
         let mut dev_work_content = match work {
             KernelWork::Coll {
                 func_index,
@@ -101,9 +113,7 @@ impl Communicator {
                     elems[0] = dev_work_elem;
                     elems
                 };
-                let dev_work_elems = mccsDevWork__bindgen_ty_1 {
-                    elems,
-                };
+                let dev_work_elems = mccsDevWork__bindgen_ty_1 { elems };
                 let dev_work_header = unsafe {
                     let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
                     let mut init = uninit.assume_init();
@@ -121,7 +131,7 @@ impl Communicator {
             }
             _ => panic!("todo"),
         };
-        
+
         let dev_work = DeviceAlloc::new(1);
         let ptr = unsafe { DeviceNonNull::new_unchecked(dev_work.as_ptr()) };
         let guard = std::mem::ManuallyDrop::new(dev_work);
@@ -156,13 +166,13 @@ impl Communicator {
             y: 1,
             z: 1,
         };
-        unsafe { 
+        unsafe {
             cudaLaunchKernel(
                 plan.kernel_fn,
-                grid, 
-                block, 
-                args.as_mut_ptr(), 
-                0, 
+                grid,
+                block,
+                args.as_mut_ptr(),
+                0,
                 self.stream,
             );
             cudaEventRecord(self.event, self.stream);
@@ -187,16 +197,16 @@ pub fn compute_coll_work(task: &CollTask) -> WorkElemColl {
 
 pub fn enqueue_coll_work_to_chans(elem: &WorkElemColl, comm: &mut Communicator) {
     let schedule = comm.plan_schedule.get_mut(&0).unwrap();
-    let work = KernelWork::Coll { 
-        func_index: 0, 
-        work_elems: vec![elem.clone()]
+    let work = KernelWork::Coll {
+        func_index: 0,
+        work_elems: vec![elem.clone()],
     };
     schedule.work_queue.push_back(work);
 }
 
 pub fn get_task_schema(task: &CollTask) -> TaskSchema {
     use super::task::TaskDataType;
-    
+
     let algorithm = TaskAlgorithm::Ring;
     let protocol = TaskProtocol::Simple;
     assert_eq!(task.data_type, TaskDataType::Uint8);
@@ -204,9 +214,13 @@ pub fn get_task_schema(task: &CollTask) -> TaskSchema {
     let mut nt = 512;
     let thread_th = 64;
     while task.count < nc * nt * thread_th {
-        if nc >= 2 { nc -= 1; }
-        else if (nt % 128) == 0  { nt /= 2; }
-        else { break }
+        if nc >= 2 {
+            nc -= 1;
+        } else if (nt % 128) == 0 {
+            nt /= 2;
+        } else {
+            break;
+        }
     }
     nt += 32;
     TaskSchema {
