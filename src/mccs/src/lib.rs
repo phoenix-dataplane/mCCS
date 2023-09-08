@@ -5,6 +5,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
 
+#[allow(dead_code)]
 pub mod comm;
 pub mod config;
 pub mod control;

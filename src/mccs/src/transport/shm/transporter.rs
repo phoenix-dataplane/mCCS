@@ -130,10 +130,10 @@ impl Transporter for ShmTransporter {
                     shm_resources.receiver_buf_dev.as_ptr_dev().add(1) as *mut u8
                 },
             };
-            for proto in 0..NUM_PROTOCOLS {
+            for (proto, buf) in bufs.iter_mut().enumerate().take(NUM_PROTOCOLS) {
                 unsafe {
                     let dev_ptr = DeviceNonNull::new_unchecked(buf_curr);
-                    bufs[proto].write(dev_ptr);
+                    buf.write(dev_ptr);
                     buf_curr = buf_curr.add(sender.buf_sizes[proto]);
                 }
             }
@@ -185,10 +185,10 @@ impl Transporter for ShmTransporter {
                 resources.receiver_buf_dev.as_ptr_dev().add(1) as *mut u8
             },
         };
-        for proto in 0..NUM_PROTOCOLS {
+        for (proto, buf) in bufs.iter_mut().enumerate().take(NUM_PROTOCOLS) {
             unsafe {
                 let dev_ptr = DeviceNonNull::new_unchecked(buf_curr);
-                bufs[proto].write(dev_ptr);
+                buf.write(dev_ptr);
                 buf_curr = buf_curr.add(resources.buf_sizes[proto]);
             }
         }
@@ -299,10 +299,10 @@ impl Transporter for ShmTransporter {
                     shm_resources.receiver_buf_dev.as_ptr_dev().add(1) as *mut u8
                 },
             };
-            for proto in 0..NUM_PROTOCOLS {
+            for (proto, buf) in bufs.iter_mut().enumerate().take(NUM_PROTOCOLS) {
                 unsafe {
                     let dev_ptr = DeviceNonNull::new_unchecked(buf_curr);
-                    bufs[proto].write(dev_ptr);
+                    buf.write(dev_ptr);
                     buf_curr = buf_curr.add(sender.buf_sizes[proto]);
                 }
             }
@@ -352,10 +352,10 @@ impl Transporter for ShmTransporter {
                 resources.receiver_buf_dev.as_ptr_dev().add(1) as *mut u8
             },
         };
-        for proto in 0..NUM_PROTOCOLS {
+        for (proto, buf) in bufs.iter_mut().enumerate().take(NUM_PROTOCOLS) {
             unsafe {
                 let dev_ptr = DeviceNonNull::new_unchecked(buf_curr);
-                bufs[proto].write(dev_ptr);
+                buf.write(dev_ptr);
                 buf_curr = buf_curr.add(resources.buf_sizes[proto]);
             }
         }

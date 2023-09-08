@@ -91,9 +91,9 @@ pub fn shm_agent_send_progress(resources: &mut AnyResources, op: &mut TransportO
     {
         let buf_slot = ((op.base + op.transmitted) % NUM_BUFFER_SLOTS as u64) as usize;
         let meta = resources.meta_sync.as_ptr_host();
-        let tail = unsafe { (&*meta).tail };
+        let tail = unsafe { (*meta).tail };
         if tail > op.base + op.transmitted {
-            let size = unsafe { (&*meta).slots_sizes[buf_slot] };
+            let size = unsafe { (*meta).slots_sizes[buf_slot] };
             let offset = buf_slot * step_size;
             unsafe {
                 let device_buf = resources.device_buf.as_ptr().add(offset);
@@ -178,7 +178,7 @@ pub fn shm_agent_recv_progress(resources: &mut AnyResources, op: &mut TransportO
             if res == cudaError::cudaSuccess {
                 op.done += op.slice_steps as u64;
                 let meta = resources.meta_sync.as_ptr_host();
-                (&mut *meta).tail = op.base + op.done;
+                (*meta).tail = op.base + op.done;
                 if op.done == op.num_steps as u64 {
                     resources.step = op.base + op.num_steps as u64;
                     op.state = TransportOpState::Completed;
