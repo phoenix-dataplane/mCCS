@@ -17,6 +17,7 @@ fn main() {
         .header("wrapper.h")
         .clang_arg("-I../collectives/include")
         .clang_arg("-I/usr/local/cuda/include")
+        .clang_arg("-I/usr/local/cuda/targets/x86_64-linux/include/cuda/std/detail/libcxx/include")
         .clang_arg("-x")
         .clang_arg("c++")
         .clang_arg("-std=c++11")

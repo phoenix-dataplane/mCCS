@@ -1,3 +1,3 @@
-#include "host_defines.h"
+#include "cuda_runtime.h"
 #include "devcomm.h"
 #include "collectives.h"
