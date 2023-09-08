@@ -99,7 +99,7 @@ impl TrasnportEngineResources {
 
     fn progress_async_task(&mut self, task: &mut AsyncTask) -> bool {
         let waker = futures::task::noop_waker_ref();
-        let mut cx = Context::from_waker(&waker);
+        let mut cx = Context::from_waker(waker);
         let poll = task.task.as_mut().poll(&mut cx);
         match poll {
             Poll::Ready(result) => {

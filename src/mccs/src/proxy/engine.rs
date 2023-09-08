@@ -92,7 +92,7 @@ impl ProxyResources {
         comm: &CommInitState,
         peer_conn: &PeerConnId,
         peer_connect_info: ConnectInfo,
-        peer_proxy_tx: &mut Vec<Sender<ProxyPeerMessage>>,
+        peer_proxy_tx: &mut [Sender<ProxyPeerMessage>],
     ) {
         let remote_conn_type = match peer_conn.conn_type {
             ConnType::Send => ConnType::Recv,
@@ -356,13 +356,13 @@ impl ProxyResources {
                     conn_info,
                     transport_resources,
                 } => {
-                    let transport_engine = comm.peer_transport_assigned.get(&peer_conn).map(|x| *x);
+                    let transport_engine = comm.peer_transport_assigned.get(&peer_conn).copied();
 
                     let peer_connector = PeerConnector {
                         conn_info,
                         transport_agent_engine: transport_engine,
                         transporter: setup.transporter,
-                        transport_resources: transport_resources,
+                        transport_resources,
                     };
                     comm.peer_connected.insert(peer_conn, peer_connector);
                     comm.await_connections -= 1;
@@ -390,13 +390,13 @@ impl ProxyResources {
                     conn_info,
                     transport_resources,
                 } => {
-                    let transport_engine = comm.peer_transport_assigned.get(&peer_conn).map(|x| *x);
+                    let transport_engine = comm.peer_transport_assigned.get(&peer_conn).copied();
 
                     let peer_connector = PeerConnector {
                         conn_info,
                         transport_agent_engine: transport_engine,
                         transporter: construct.transporter,
-                        transport_resources: transport_resources,
+                        transport_resources,
                     };
                     comm.peer_connected.insert(peer_conn, peer_connector);
                     comm.await_connections -= 1;

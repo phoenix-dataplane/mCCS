@@ -127,8 +127,7 @@ impl Communicator {
                     header: dev_work_header,
                     __bindgen_anon_1: dev_work_elems,
                 }
-            }
-            _ => todo!(),
+            } // TODO
         };
 
         let dev_work = DeviceAlloc::new(1);

@@ -8,6 +8,12 @@ impl<T> WorkPool<T> {
     }
 }
 
+impl<T> Default for WorkPool<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> WorkPool<T> {
     pub fn progress<F>(&mut self, mut f: F)
     where

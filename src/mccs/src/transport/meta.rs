@@ -29,6 +29,12 @@ impl SendBufMeta {
     }
 }
 
+impl Default for SendBufMeta {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[repr(C, align(4096))]
 pub struct RecvBufMeta {
     pub tail: u64,
@@ -36,6 +42,12 @@ pub struct RecvBufMeta {
     pub slots_sizes: [u32; NUM_BUFFER_SLOTS],
     _slots_offsets: [u32; NUM_BUFFER_SLOTS],
     _flush: bool,
+}
+
+impl Default for RecvBufMeta {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RecvBufMeta {

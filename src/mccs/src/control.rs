@@ -47,7 +47,7 @@ impl Control {
     pub fn new(config: Config) -> Self {
         let mccs_prefix = &config.control.prefix;
         fs::create_dir_all(mccs_prefix)
-            .unwrap_or_else(|e| panic!("Failed to create directory for {:?}: {}", mccs_prefix, e));
+            .unwrap_or_else(|e| panic!("Failed to create directory for {mccs_prefix:?}: {e}"));
 
         let mccs_path = mccs_prefix.join(&config.control.path);
         if mccs_path.exists() {
@@ -363,13 +363,13 @@ impl Control {
         let msg: control::Request = bincode::deserialize(buf).unwrap();
         match msg {
             control::Request::NewClient => {
-                let client_path = sender
+                let _client_path = sender
                     .as_pathname()
                     .ok_or_else(|| anyhow!("peer is unnamed, something is wrong"))?;
 
                 let uuid = uuid::Uuid::new_v4();
                 let instance_name = format!("{}-{}.sock", self.config.mccs_daemon_basename, uuid);
-                let engine_path = self.config.mccs_daemon_prefix.join(instance_name);
+                let _engine_path = self.config.mccs_daemon_prefix.join(instance_name);
 
                 // create customer stub
                 // let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;

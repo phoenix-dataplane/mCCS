@@ -51,11 +51,7 @@ impl<T> DeviceHostPtr<T> {
     #[inline]
     pub fn cast<U>(self) -> DeviceHostPtr<U> {
         unsafe {
-            let ptr = DeviceHostPtr::new_unchecked(
-                self.as_ptr_host() as *mut U,
-                self.as_ptr_dev() as *mut U,
-            );
-            ptr
+            DeviceHostPtr::new_unchecked(self.as_ptr_host() as *mut U, self.as_ptr_dev() as *mut U)
         }
     }
 }

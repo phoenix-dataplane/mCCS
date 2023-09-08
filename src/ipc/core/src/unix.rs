@@ -130,7 +130,7 @@ impl DomainSocket {
         self.peer_cred.ok_or(Error::NotConnected)
     }
 
-    fn add_creds<'a>(&self, ancillary: &mut SocketAncillary<'a>) {
+    fn add_creds(&self, ancillary: &mut SocketAncillary) {
         let mut cred = SocketCred::new();
         // get the real one as is done by default
         cred.set_pid(self.local_cred.pid.expect("Must be sucessful on Linux"));

@@ -42,9 +42,9 @@ pub async fn shm_agent_connect(agent_request: AgentMessage) -> (AnyResources, Ag
     };
     let stream = unsafe { stream.assume_init() };
     let mut events = MaybeUninit::uninit_array();
-    for i in 0..events.len() {
+    for event in &mut events {
         unsafe {
-            cudaEventCreate(events[i].as_mut_ptr());
+            cudaEventCreate(event.as_mut_ptr());
         };
     }
     let events = unsafe { MaybeUninit::array_assume_init(events) };
@@ -93,7 +93,7 @@ pub fn shm_agent_send_progress(resources: &mut AnyResources, op: &mut TransportO
         let meta = resources.meta_sync.as_ptr_host();
         let tail = unsafe { (&*meta).tail };
         if tail > op.base + op.transmitted {
-            let size = unsafe { (&*meta).slots_sizes[buf_slot as usize] };
+            let size = unsafe { (&*meta).slots_sizes[buf_slot] };
             let offset = buf_slot * step_size;
             unsafe {
                 let device_buf = resources.device_buf.as_ptr().add(offset);

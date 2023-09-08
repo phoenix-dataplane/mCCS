@@ -24,6 +24,12 @@ impl TransportDelegator {
     }
 }
 
+impl Default for TransportDelegator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransportDelegator {
     pub fn assign_transport_engine(
         &self,
