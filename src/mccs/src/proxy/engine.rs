@@ -480,7 +480,6 @@ impl ProxyResources {
                 unsafe {
                     let state = cudaEventQuery(comm.event);
                     if state == cudaError::cudaSuccess {
-                        dbg!("Success");
                         let _ = self
                             .daemon_tx
                             .get_mut(daemon_id)
@@ -520,7 +519,6 @@ impl ProxyEngine {
             if let Ok(msg) = daemon_rx.try_recv() {
                 match msg {
                     ProxyCommand::InitCommunicator(init) => {
-                        dbg!("BANZAI");
                         let profile = CommProfile {
                             buff_sizes: [8 * 1024 * 1024],
                         };
