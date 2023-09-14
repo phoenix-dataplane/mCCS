@@ -84,14 +84,14 @@ fn new_connect_task(
     }
 }
 
-struct TrasnportEngineResources {
+struct TransportEngineResources {
     agent_setup: HashMap<TransportAgentId, AnyResources>,
     agent_connected: HashMap<TransportAgentId, TransportAgent>,
     proxy_tx: Vec<Sender<TransportEngineReply>>,
     proxy_rx: Vec<Receiver<TransportEngineRequest>>,
 }
 
-impl TrasnportEngineResources {
+impl TransportEngineResources {
     fn progress_op(&mut self, _op: &mut TransportOp) -> bool {
         // TODO
         true
@@ -138,7 +138,7 @@ impl TrasnportEngineResources {
 
 pub struct TransportEngine {
     id: TransportEngineId,
-    resources: TrasnportEngineResources,
+    resources: TransportEngineResources,
     async_tasks: WorkPool<AsyncTask>,
     op_queue: TransrportOpQueue,
 }
