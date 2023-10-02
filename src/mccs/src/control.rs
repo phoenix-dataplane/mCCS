@@ -7,7 +7,7 @@ use std::os::unix::net::{SocketAddr, UCred};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
 use cuda_runtime_sys::cudaMalloc;
@@ -105,6 +105,8 @@ impl Control {
     }
 
     fn test(&mut self) -> anyhow::Result<()> {
+        env_logger::init();
+        let start_test = Instant::now();
         let mut num_devices = 0;
         unsafe {
             let error = cudaGetDeviceCount(&mut num_devices as *mut _);
@@ -242,7 +244,7 @@ impl Control {
                 panic!("cudaSetDevice");
             }
         }
-        const BUFFER_SIZE: usize = 8192;
+        const BUFFER_SIZE: usize = 1024 * 64;
         let dev_buf_0 = unsafe {
             let mut dev_ptr = std::ptr::null_mut();
             cudaMalloc(&mut dev_ptr, BUFFER_SIZE);
@@ -250,6 +252,11 @@ impl Control {
         };
         let mut buf = vec![1883i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
         buf.extend(vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
+        log::info!(
+            "Initialize resource: {} ms",
+            start_test.elapsed().as_millis()
+        );
+        let before_memcpy = Instant::now();
         unsafe {
             cudaMemcpy(
                 dev_buf_0,
@@ -280,6 +287,8 @@ impl Control {
                 cudaMemcpyKind::cudaMemcpyHostToDevice,
             )
         };
+        log::info!("Memory copy: {} ms", before_memcpy.elapsed().as_millis());
+        let before_allgather = Instant::now();
         let cmd = AllGather {
             communicator_id: CommunicatorId(0),
             send_buf_addr: dev_buf_0 as usize,
@@ -307,6 +316,7 @@ impl Control {
             ProxyCompletion::InitCommunicator => panic!(),
             ProxyCompletion::AllGather => (),
         }
+        log::info!("All Gather: {} ms", before_allgather.elapsed().as_millis());
 
         let mut buf = vec![0; BUFFER_SIZE];
         unsafe {
@@ -322,7 +332,8 @@ impl Control {
         };
         assert_eq!(buf[0], 1883);
         assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 2042);
-        println!("OK");
+        log::info!("Pass data check");
+
         // let (endpoint_tx, endpoint_rx) = crossbeam::channel::unbounded();
         // let device_info = DeviceInfo {
         //     cuda_device_idx: idx,
