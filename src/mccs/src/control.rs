@@ -244,7 +244,7 @@ impl Control {
                 panic!("cudaSetDevice");
             }
         }
-        const BUFFER_SIZE: usize = 1024 * 64;
+        const BUFFER_SIZE: usize = 1024 * 128;
         let dev_buf_0 = unsafe {
             let mut dev_ptr = std::ptr::null_mut();
             cudaMalloc(&mut dev_ptr, BUFFER_SIZE);
@@ -253,7 +253,8 @@ impl Control {
         let mut buf = vec![1883i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
         buf.extend(vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
         log::info!(
-            "Initialize resource: {} ms",
+            "Initialize resource for {:.3} KB: {} ms",
+            (BUFFER_SIZE as f64) / 1024.0,
             start_test.elapsed().as_millis()
         );
         let before_memcpy = Instant::now();

@@ -13,6 +13,10 @@ fn main() {
     );
     println!("cargo:rustc-link-lib=colldevice");
     println!("cargo:rerun-if-changed=wrapper.h");
+    println!(
+        "cargo:rerun-if-changed={}",
+        build_dir.as_os_str().to_str().unwrap()
+    );
 
     let bindings = bindgen::Builder::default()
         // The input header we would like to generate
