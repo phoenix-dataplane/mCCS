@@ -244,7 +244,7 @@ impl Control {
                 panic!("cudaSetDevice");
             }
         }
-        const BUFFER_SIZE: usize = 1024 * 128;
+        const BUFFER_SIZE: usize = 1024 * 1024 * 1024 * 4;
         let dev_buf_0 = unsafe {
             let mut dev_ptr = std::ptr::null_mut();
             cudaMalloc(&mut dev_ptr, BUFFER_SIZE);

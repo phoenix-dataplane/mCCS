@@ -224,6 +224,6 @@ pub fn get_task_schema(task: &CollTask) -> TaskSchema {
         algorithm,
         protocol,
         num_channels: nc as _,
-        num_threads: nt as _,
+        num_threads: 64, //FIXME
     }
 }
