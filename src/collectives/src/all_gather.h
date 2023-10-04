@@ -41,12 +41,16 @@ namespace {
       // step 0: push data to next GPU
       rankDest = ringRanks[0];
       offset = chunkOffset + rankDest * size;
+//      if(tid==0)
+//        printf("[%d/%d] Before send: [%lld/%lld]\n",tid,nthreads,gridOffset,size);
 
       if (inputBuf + chunkOffset == outputBuf + offset) { // In place
         prims.directSend(chunkOffset, offset, nelem);
       } else {
         prims.directCopySend(chunkOffset, offset, offset, nelem);
       }
+//        if(tid==0)
+//        printf("[%d/%d] After send: [%lld/%lld]\n",tid,nthreads,gridOffset,size);
 
       // k-2 steps: copy to next GPU
       for (int j=1; j<nranks-1; ++j) {
@@ -62,7 +66,8 @@ namespace {
 
       // Final wait/copy.
       prims.directRecv(offset, nelem);
-    } 
+    }
+//        printf("[%d/%d] End\n",tid,nthreads);
   }
 }
 

@@ -175,6 +175,9 @@ class Primitives<
           mccsShmem.groups[group].srcs[0] = userBuff + srcIx + offset;
         if (Dst && (flags & (DstBuf==Input ? RoleInput : RoleOutput)))
           mccsShmem.groups[group].dsts[0] = userBuff + dstIx + offset;
+//        printf("[%d] dsts[0]: %p, srcs[0]: %p, dsts[1]: %p, srcs[0]-userBuff:%lld\n",threadIdx.x,
+//               mccsShmem.groups[group].dsts[0],mccsShmem.groups[group].srcs[0],mccsShmem.groups[group].dsts[1],
+//               ((char*)(mccsShmem.groups[group].srcs[0])-(char*)userBuff));
         waitPeer<DirectRecv, DirectSend, Recv, Send, Src, Dst>(dstIx, remoteIx, offset, sliceSize);
         subBarrier();
         if (DirectRecv && mccsShmem.groups[group].srcs[0] == mccsShmem.groups[group].dsts[0]) {
