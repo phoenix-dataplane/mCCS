@@ -24,6 +24,7 @@ use ipc::unix::DomainSocket;
 use crate::comm::CommunicatorId;
 use crate::comm::HostIdent;
 use crate::config::Config;
+use crate::cuda_warning;
 use crate::daemon::DaemonId;
 use crate::proxy::command::AllGather;
 use crate::proxy::command::InitCommunicator;
@@ -514,8 +515,8 @@ impl Control {
                 panic!("cudaSetDevice");
             }
         }
-        const BUFFER_SIZE: usize = 1024 * 1024 * 512;
-        const BUFFER2_SIZE: usize = 1024 * 1024 * 1;
+        const BUFFER_SIZE: usize = 1024 * 1024 * 1024 * 2;
+        const BUFFER2_SIZE: usize = 1024 * 1024 * 1024 * 4;
         let dev_buf_0 = unsafe {
             let mut dev_ptr = std::ptr::null_mut();
             cudaMalloc(&mut dev_ptr, BUFFER_SIZE);
@@ -749,7 +750,7 @@ impl Control {
         // Inference
         let dev_buf_0 = unsafe {
             let mut dev_ptr = std::ptr::null_mut();
-            cudaMalloc(&mut dev_ptr, buf_size);
+            cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
             dev_ptr
         };
         let mut buf = vec![first_content; buf_size / 2 / std::mem::size_of::<i32>()];
@@ -772,7 +773,7 @@ impl Control {
         }
         let dev_buf_1 = unsafe {
             let mut dev_ptr = std::ptr::null_mut();
-            cudaMalloc(&mut dev_ptr, buf_size);
+            cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
             dev_ptr
         };
         let mut buf = vec![0i32; buf_size / 2 / std::mem::size_of::<i32>()];
@@ -915,13 +916,17 @@ impl Control {
 
             // -----------------------------------------------------------
 
-            const BUFFER_SIZE: usize = 1024 * 1024 * 4;
-            const BUFFER_SIZE_2: usize = 1024 * 1024 * 8;
+            const BUFFER_SIZE: usize = 1024 * 1024 * 1024 * 2;
+            const BUFFER_SIZE_2: usize = 1024 * 1024 * 1024 * 4;
 
             // Inference
             let (dev_buf_0, dev_buf_1) = Self::initialize_test_region(BUFFER_SIZE, 1883, 2042);
+            log::info!("dev_buf_0: {:p} of size {BUFFER_SIZE} bytes", dev_buf_0);
+            log::info!("dev_buf_1: {:p} of size {BUFFER_SIZE} bytes", dev_buf_1);
             // training
             let (dev_buf2_0, dev_buf2_1) = Self::initialize_test_region(BUFFER_SIZE_2, 2049, 40999);
+            log::info!("dev_buf2_0: {:p} of size {BUFFER_SIZE_2} bytes", dev_buf2_0);
+            log::info!("dev_buf2_1: {:p} of size {BUFFER_SIZE_2} bytes", dev_buf2_1);
 
             log::info!("Initialization: {} ms", initial_timer.elapsed().as_millis());
 
@@ -951,7 +956,7 @@ impl Control {
                 .send(ProxyCommand::AllGather(AllGather {
                     communicator_id: CommunicatorId(training_comm_id),
                     send_buf_addr: dev_buf2_0 as usize,
-                    recv_buf_addr: dev_buf2_1 as usize,
+                    recv_buf_addr: dev_buf2_0 as usize,
                     size: BUFFER_SIZE_2 / 2,
                 }))
                 .unwrap();

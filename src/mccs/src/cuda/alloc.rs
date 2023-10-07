@@ -1,6 +1,7 @@
 use std::ffi::c_void;
 use std::num::NonZeroUsize;
 
+use crate::cuda_warning;
 use cuda_runtime_sys::{
     cudaFree, cudaFreeHost, cudaHostAlloc, cudaHostGetDevicePointer, cudaHostRegister,
     cudaHostUnregister, cudaMalloc,
@@ -32,8 +33,8 @@ impl<T> DeviceHostMapped<T> {
         let mut device = 0;
         unsafe {
             cudaGetDevice(&mut device);
-            cudaHostAlloc(&mut ptr_host, size, cudaHostAllocMapped);
-            cudaHostGetDevicePointer(&mut ptr_dev, ptr_host, 0);
+            cuda_warning!(cudaHostAlloc(&mut ptr_host, size, cudaHostAllocMapped));
+            cuda_warning!(cudaHostGetDevicePointer(&mut ptr_dev, ptr_host, 0));
         }
         let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host as *mut T, ptr_dev as *mut T) };
         DeviceHostMapped {
@@ -54,6 +55,7 @@ impl<T> DeviceHostMapped<T> {
                 cudaHostRegister(ptr_host as *mut _, size, cudaHostRegisterMapped);
                 cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0);
             }
+            log::info!("DeviceHostMapped register: {:p}", ptr_dev);
             let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host, ptr_dev as *mut T) };
             let mapped = DeviceHostMapped {
                 ptr,

@@ -75,7 +75,7 @@ impl Communicator {
             channel_upper_bound: 1,
             channel_mask: 1,
 
-            thread_per_block: 512,
+            thread_per_block: 512, //FIXME: potential obstacle for maximum thread?
         };
         self.unlaunched_plans.push_back(plan);
     }
@@ -224,6 +224,6 @@ pub fn get_task_schema(task: &CollTask) -> TaskSchema {
         algorithm,
         protocol,
         num_channels: nc as _,
-        num_threads: 128, //FIXME
+        num_threads: 512, //FIXME
     }
 }
