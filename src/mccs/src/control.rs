@@ -76,7 +76,7 @@ impl Control {
             config,
             daemon_cnt: 0,
         };
-        control.test1().unwrap();
+        control.test2().unwrap();
         control
         // control.create_proxies().unwrap();
         // control
@@ -575,7 +575,6 @@ impl Control {
         let mut buf = vec![1883i32; BUFFER2_SIZE / 2 / std::mem::size_of::<i32>()];
         buf.extend(vec![0i32; BUFFER2_SIZE / 2 / std::mem::size_of::<i32>()]);
 
-        let before_memcpy = Instant::now();
         unsafe {
             cudaMemcpy(
                 dev_buf2_0,
@@ -639,7 +638,6 @@ impl Control {
         log::info!("All Gather: {} ms", before_allgather.elapsed().as_millis());
 
         // --------------
-        let before_allgather = Instant::now();
         let cmd = AllGather {
             communicator_id: CommunicatorId(0),
             send_buf_addr: dev_buf2_0 as usize,

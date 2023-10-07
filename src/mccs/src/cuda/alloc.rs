@@ -52,8 +52,15 @@ impl<T> DeviceHostMapped<T> {
             let mut device = 0;
             unsafe {
                 cudaGetDevice(&mut device);
-                cudaHostRegister(ptr_host as *mut _, size, cudaHostRegisterMapped);
-                cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0);
+                cuda_warning!(cudaHostRegister(
+                    ptr_host as *mut _,
+                    size,
+                    cudaHostRegisterMapped
+                ));
+                cuda_warning!(
+                    cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0),
+                    format!("{:p}",ptr_host)
+                );
             }
             log::info!("DeviceHostMapped register: {:p}", ptr_dev);
             let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host, ptr_dev as *mut T) };
@@ -146,7 +153,7 @@ impl<T> DeviceAlloc<T> {
         let mut dev_ptr: *mut c_void = std::ptr::null_mut();
         unsafe {
             cudaGetDevice(&mut device);
-            cudaMalloc(&mut dev_ptr, size);
+            cuda_warning!(cudaMalloc(&mut dev_ptr, size));
         }
         let ptr = unsafe { DeviceNonNull::new_unchecked(dev_ptr as *mut T) };
         DeviceAlloc { ptr, size, device }

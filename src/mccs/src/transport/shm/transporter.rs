@@ -40,7 +40,7 @@ impl Transporter for ShmTransporter {
         if config.locality == ShmLocality::Sender {
             buf_size += profile.buff_sizes.iter().sum::<usize>();
         }
-        buf_size += 32 * 1024 * 1024; //FIXME
+        buf_size += 8 * 1024 * 1024;
         let send_buf_meta = SendBufMeta::new();
         let send_buf =
             TransportBuffer::new(send_buf_meta, buf_size, std::mem::align_of::<SendBufMeta>());
@@ -219,7 +219,7 @@ impl Transporter for ShmTransporter {
         if config.locality == ShmLocality::Receiver {
             buf_size += profile.buff_sizes.iter().sum::<usize>();
         }
-        buf_size += 32 * 1024 * 1024; //FIXME
+        buf_size += 8 * 1024 * 1024;
         let recv_buf_meta = RecvBufMeta::new();
         let recv_buf =
             TransportBuffer::new(recv_buf_meta, buf_size, std::mem::align_of::<RecvBufMeta>());
