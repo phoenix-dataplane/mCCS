@@ -26,12 +26,16 @@ use crate::utils::pool::WorkPool;
 
 pub struct ProxyResources {
     pub device_info: DeviceInfo,
+    // control engine
     pub control_tx: Sender<ControlRequest>,
     pub control_rx: Receiver<ControlNotification>,
+    // daemons
     pub daemon_tx: HashMap<DaemonId, Sender<ProxyCompletion>>,
     pub daemon_rx: Vec<(DaemonId, Receiver<ProxyCommand>)>,
+    // peer
     pub proxy_peer_tx: Vec<Sender<ProxyPeerMessage>>,
     pub proxy_peer_rx: Receiver<ProxyPeerMessage>,
+    // communications and transport
     pub comms_init: HashMap<CommunicatorId, CommInitState>,
     pub communicators: HashMap<CommunicatorId, Communicator>,
     pub global_registry: Arc<GlobalRegistry>,
@@ -456,6 +460,7 @@ impl ProxyResources {
                 } => {
                     self.register_transport_engine(id, request_tx, reply_rx);
                 }
+                ControlNotification::NewDaemon { .. } => todo!(),
             }
         }
     }

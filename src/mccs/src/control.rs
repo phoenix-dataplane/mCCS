@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io;
+use std::iter::zip;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::os::unix::net::{SocketAddr, UCred};
@@ -14,11 +15,13 @@ use cuda_runtime_sys::cudaMalloc;
 use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind;
 use dashmap::DashMap;
+use futures::FutureExt;
 use nix::libc;
 
 use cuda_runtime_sys::cudaError;
 use cuda_runtime_sys::cudaGetDeviceCount;
 use cuda_runtime_sys::cudaSetDevice;
+use ipc::customer::ShmCustomer;
 use ipc::unix::DomainSocket;
 
 use crate::comm::CommunicatorId;
@@ -38,6 +41,7 @@ use crate::registry::GlobalRegistry;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::delegator::TransportDelegator;
 use crate::transport::shm::config::ShmConfig;
+use crate::utils::duplex_chan::DuplexChannel;
 use crate::utils::pool::WorkPool;
 
 pub struct Control {
@@ -76,7 +80,7 @@ impl Control {
             config,
             daemon_cnt: 0,
         };
-        control.test2().unwrap();
+        // control.test2().unwrap();
         control
         // control.create_proxies().unwrap();
         // control
@@ -107,6 +111,150 @@ impl Control {
         Ok(())
     }
 
+    fn create_proxies(&mut self) -> anyhow::Result<()> {
+        let transport_delegator = TransportDelegator::new();
+        let transport_catalog = TransportCatalog::new();
+        let shm_config = ShmConfig {
+            locality: crate::transport::shm::config::ShmLocality::Sender,
+            use_memcpy_send: false,
+            use_memcpy_recv: false,
+        };
+        transport_catalog.register_config(String::from("ShmTransport"), shm_config);
+        let registry = GlobalRegistry {
+            communicators: DashMap::new(),
+            transport_delegator,
+            transport_catalog,
+        };
+        let registry = Arc::new(registry); // we don't allow device hot-plug, so we create connected proxies in advance
+        let device_cnt = {
+            let mut i = 0;
+            cuda_warning!(unsafe { cudaGetDeviceCount(&mut i) });
+            i as i32 as usize
+        };
+        // proxies <--> proxies
+        let mut inter_senders = vec![vec![]; device_cnt];
+        let mut inter_receivers = vec![];
+        for i in 0..device_cnt {
+            let (sender, receiver) = crossbeam::channel::unbounded();
+            inter_receivers.push(receiver);
+            inter_senders.iter_mut().enumerate().for_each(|(j, x)| {
+                if i != j {
+                    x.push(sender.clone())
+                }
+            });
+        }
+        // control <--> proxies
+        let mut control_command_local = vec![];
+        let mut control_command_proxy = vec![];
+        for _ in 0..device_cnt {
+            let (local_side, proxy_side) = DuplexChannel::new_unbound_pair();
+            control_command_local.push(local_side);
+            control_command_proxy.push(proxy_side)
+        }
+        // FIXME: problematic, should be checked whenever encountered a bug with inter-host
+        let sock_addr = "127.0.0.1:8000".parse().unwrap();
+        zip(control_command_proxy, zip(inter_senders, inter_receivers))
+            .enumerate()
+            .map(
+                |(idx, (chan, (inter_sender, inter_receiver)))| ProxyResources {
+                    device_info: DeviceInfo {
+                        host: HostIdent(sock_addr),
+                        cuda_device_idx: idx as i32,
+                    },
+                    control_tx: chan.tx,
+                    control_rx: chan.rx,
+                    daemon_tx: Default::default(),
+                    daemon_rx: vec![],
+                    proxy_peer_tx: inter_sender,
+                    proxy_peer_rx: inter_receiver,
+                    comms_init: Default::default(),
+                    communicators: Default::default(),
+                    global_registry: registry.clone(),
+                    transport_engines_tx: Default::default(),
+                    transport_engines_rx: vec![],
+                    transport_submission_pool: Default::default(),
+                },
+            )
+            .enumerate()
+            .for_each(|(cuda_idx, res)| {
+                let mut proxy = ProxyEngine {
+                    resources: res,
+                    ops: WorkPool::new(),
+                };
+                std::thread::spawn(move || {
+                    unsafe {
+                        let error = cudaSetDevice(cuda_idx as i32);
+                        if error != cudaError::cudaSuccess {
+                            panic!("cudaSetDevice");
+                        }
+                    }
+                    proxy.mainloop();
+                });
+            });
+
+        Ok(())
+    }
+
+    fn dispatch(
+        &mut self,
+        buf: &mut [u8],
+        sender: &SocketAddr,
+        _cred: &UCred,
+    ) -> anyhow::Result<()> {
+        use ipc::control;
+        let msg: control::Request = bincode::deserialize(buf).unwrap();
+        match msg {
+            control::Request::NewClient => {
+                let client_path = sender
+                    .as_pathname()
+                    .ok_or_else(|| anyhow!("peer is unnamed, something is wrong"))?;
+
+                let uuid = uuid::Uuid::new_v4();
+                let instance_name = format!("{}-{}.sock", self.config.mccs_daemon_basename, uuid);
+                let engine_path = self.config.mccs_daemon_prefix.join(instance_name);
+
+                // create customer stub
+                // let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
+
+                // let daemon_id = self.daemon_cnt;
+                // let num_devices = self.proxy_cmd_endpoints_tx.len();
+                // let mut command_txs = Vec::with_capacity(num_devices);
+                // let mut completion_rxs = Vec::with_capacity(num_devices);
+                //
+                // for device_idx in 0..num_devices {
+                //     let endpoint_tx = &mut self.proxy_cmd_endpoints_tx[device_idx];
+                //     let (cmd_tx, cmd_rx) = crossbeam::channel::unbounded();
+                //     let (cmp_tx, cmp_rx) = crossbeam::channel::unbounded();
+                //     let proxy_endpoint = CommandEndpointProxy {
+                //         daemon_id,
+                //         command_rx: cmd_rx,
+                //         completion_tx: cmp_tx,
+                //     };
+                //     endpoint_tx.send(proxy_endpoint).unwrap();
+                //     command_txs.push(cmd_tx);
+                //     completion_rxs.push(cmp_rx);
+                // }
+                //
+                // let mut engine = crate::daemon::engine::DaemonEngine {
+                //     id: daemon_id,
+                //     proxy_command_tx: command_txs,
+                //     proxy_completion_rx: completion_rxs,
+                //     device_mem: HashMap::new(),
+                //     comm_delegation: HashMap::new(),
+                //     customer,
+                // };
+                // std::thread::spawn(move || {
+                //     engine.mainloop();
+                // });
+                self.daemon_cnt += 1;
+
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Control {
     fn test(&mut self) -> anyhow::Result<()> {
         env_logger::init();
         let start_test = Instant::now();
@@ -688,7 +836,7 @@ impl Control {
         Ok(())
     }
 
-    fn start_proxy(
+    fn start_test_proxy(
         cuda_device: i32,
         sock_addr: std::net::SocketAddr,
         daemon_tx: HashMap<DaemonId, crossbeam::channel::Sender<ProxyCompletion>>,
@@ -836,7 +984,7 @@ impl Control {
             daemon_tx.insert(1, daemon2_0_comp_tx);
             let daemon_rx = vec![(0, daemon_0_cmd_rx), (1, daemon2_0_cmd_rx)];
             let proxy_peer_tx = vec![proxy_0_tx.clone(), proxy_1_tx.clone()];
-            Self::start_proxy(
+            Self::start_test_proxy(
                 0,
                 sock_addr,
                 daemon_tx,
@@ -852,7 +1000,7 @@ impl Control {
             daemon_tx.insert(1, daemon2_1_comp_tx);
             let daemon_rx = vec![(0, daemon_1_cmd_rx), (1, daemon2_1_cmd_rx)];
             let proxy_peer_tx = vec![proxy_0_tx, proxy_1_tx];
-            Self::start_proxy(
+            Self::start_test_proxy(
                 1,
                 sock_addr,
                 daemon_tx,
@@ -1069,7 +1217,7 @@ impl Control {
             daemon_tx.insert(0, daemon_0_comp_tx);
             let daemon_rx = vec![(0, daemon_0_cmd_rx)];
             let proxy_peer_tx = vec![proxy_0_tx.clone(), proxy_1_tx.clone()];
-            Self::start_proxy(
+            Self::start_test_proxy(
                 0,
                 sock_addr,
                 daemon_tx,
@@ -1084,7 +1232,7 @@ impl Control {
             daemon_tx.insert(0, daemon_1_comp_tx);
             let daemon_rx = vec![(0, daemon_1_cmd_rx)];
             let proxy_peer_tx = vec![proxy_0_tx, proxy_1_tx];
-            Self::start_proxy(
+            Self::start_test_proxy(
                 1,
                 sock_addr,
                 daemon_tx,
@@ -1234,63 +1382,5 @@ impl Control {
             log::info!("Pass data check");
         }
         Ok(())
-    }
-
-    fn dispatch(
-        &mut self,
-        buf: &mut [u8],
-        sender: &SocketAddr,
-        _cred: &UCred,
-    ) -> anyhow::Result<()> {
-        use ipc::control;
-        let msg: control::Request = bincode::deserialize(buf).unwrap();
-        match msg {
-            control::Request::NewClient => {
-                let _client_path = sender
-                    .as_pathname()
-                    .ok_or_else(|| anyhow!("peer is unnamed, something is wrong"))?;
-
-                let uuid = uuid::Uuid::new_v4();
-                let instance_name = format!("{}-{}.sock", self.config.mccs_daemon_basename, uuid);
-                let _engine_path = self.config.mccs_daemon_prefix.join(instance_name);
-
-                // create customer stub
-                // let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
-
-                // let daemon_id = self.daemon_cnt;
-                // let num_devices = self.proxy_cmd_endpoints_tx.len();
-                // let mut command_txs = Vec::with_capacity(num_devices);
-                // let mut completion_rxs = Vec::with_capacity(num_devices);
-
-                // for device_idx in 0..num_devices {
-                //     let endpoint_tx = &mut self.proxy_cmd_endpoints_tx[device_idx];
-                //     let (cmd_tx, cmd_rx) = crossbeam::channel::unbounded();
-                //     let (cmp_tx, cmp_rx) = crossbeam::channel::unbounded();
-                //     let proxy_endpoint = CommandEndpointProxy {
-                //         daemon_id,
-                //         command_rx: cmd_rx,
-                //         completion_tx: cmp_tx,
-                //     };
-                //     endpoint_tx.send(proxy_endpoint).unwrap();
-                //     command_txs.push(cmd_tx);
-                //     completion_rxs.push(cmp_rx);
-                // }
-
-                // let mut engine = crate::daemon::engine::DaemonEngine {
-                //     id: daemon_id,
-                //     proxy_command_tx: command_txs,
-                //     proxy_completion_rx: completion_rxs,
-                //     device_mem: HashMap::new(),
-                //     comm_delegation: HashMap::new(),
-                //     customer,
-                // };
-                // std::thread::spawn(move || {
-                //     engine.mainloop();
-                // });
-                self.daemon_cnt += 1;
-
-                Ok(())
-            }
-        }
     }
 }

@@ -59,7 +59,7 @@ impl<T> DeviceHostMapped<T> {
                 ));
                 cuda_warning!(
                     cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0),
-                    format!("{:p}",ptr_host)
+                    format!("{:p}", ptr_host)
                 );
             }
             log::info!("DeviceHostMapped register: {:p}", ptr_dev);
