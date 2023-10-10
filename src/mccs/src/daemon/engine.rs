@@ -28,8 +28,7 @@ pub struct CommunicatorDelegation {
 pub struct DaemonEngine {
     pub(crate) id: DaemonId,
     pub(crate) customer: CustomerType,
-    pub(crate) proxy_command_tx: Vec<Sender<ProxyCommand>>,
-    pub(crate) proxy_completion_rx: Vec<Receiver<ProxyCompletion>>,
+    pub(crate) proxy_chan: Vec<DuplexChannel<ProxyCommand, ProxyCompletion>>,
     pub(crate) device_mem: HashMap<u64, usize>,
     pub(crate) comm_delegation: HashMap<CommunicatorHandle, CommunicatorDelegation>,
 }
@@ -48,6 +47,7 @@ enum Status {
     Disconnected,
 }
 
+use crate::utils::duplex_chan::DuplexChannel;
 use Status::Progress;
 
 impl DaemonEngine {
@@ -85,12 +85,11 @@ impl DaemonEngine {
                     num_ranks: init.num_ranks,
                 };
                 let proxy_cmd = ProxyCommand::InitCommunicator(proxy_init);
-                self.proxy_command_tx[init.cuda_device_idx]
+                self.proxy_chan[init.cuda_device_idx]
+                    .tx
                     .send(proxy_cmd)
                     .unwrap();
-                let res = self.proxy_completion_rx[init.cuda_device_idx]
-                    .recv()
-                    .unwrap();
+                let res = self.proxy_chan[init.cuda_device_idx].rx.recv().unwrap();
                 match res {
                     ProxyCompletion::InitCommunicator => {}
                     _ => panic!("unexpected result"),
@@ -114,12 +113,11 @@ impl DaemonEngine {
                     size: all_gather.size,
                 };
                 let proxy_cmd = ProxyCommand::AllGather(proxy_all_gather);
-                self.proxy_command_tx[comm.cuda_device_idx]
+                self.proxy_chan[comm.cuda_device_idx]
+                    .tx
                     .send(proxy_cmd)
                     .unwrap();
-                let res = self.proxy_completion_rx[comm.cuda_device_idx]
-                    .recv()
-                    .unwrap();
+                let res = self.proxy_chan[comm.cuda_device_idx].rx.recv().unwrap();
                 match res {
                     ProxyCompletion::AllGather => {}
                     _ => panic!("unexpected result"),

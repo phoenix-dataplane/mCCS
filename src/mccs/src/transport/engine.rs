@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::task::{Context, Poll};
 
+use crate::utils::duplex_chan::DuplexChannel;
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use futures::future::BoxFuture;
 use futures::FutureExt;
@@ -87,8 +88,7 @@ fn new_connect_task(
 struct TransportEngineResources {
     agent_setup: HashMap<TransportAgentId, AnyResources>,
     agent_connected: HashMap<TransportAgentId, TransportAgent>,
-    proxy_tx: Vec<Sender<TransportEngineReply>>,
-    proxy_rx: Vec<Receiver<TransportEngineRequest>>,
+    proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
 }
 
 impl TransportEngineResources {
@@ -109,7 +109,8 @@ impl TransportEngineResources {
                         reply,
                     } => {
                         let reply = TransportEngineReply::AgentSetup(task.agent_id, reply);
-                        self.proxy_tx[task.agent_id.client_cuda_dev as usize]
+                        self.proxy_chan[task.agent_id.client_cuda_dev as usize]
+                            .tx
                             .send(reply)
                             .unwrap();
                         self.agent_setup.insert(task.agent_id, setup_resources);
@@ -123,7 +124,8 @@ impl TransportEngineResources {
                             agent_resources,
                         };
                         let reply = TransportEngineReply::AgentConnect(task.agent_id, reply);
-                        self.proxy_tx[task.agent_id.client_cuda_dev as usize]
+                        self.proxy_chan[task.agent_id.client_cuda_dev as usize]
+                            .tx
                             .send(reply)
                             .unwrap();
                         self.agent_connected.insert(task.agent_id, connected);
@@ -155,7 +157,7 @@ impl TransportEngine {
     }
 
     fn check_proxy_requests(&mut self) {
-        for rx in self.resources.proxy_rx.iter_mut() {
+        for rx in self.resources.proxy_chan.iter_mut().map(|c| &mut c.rx) {
             match rx.try_recv() {
                 Ok(request) => {
                     let task = match request {

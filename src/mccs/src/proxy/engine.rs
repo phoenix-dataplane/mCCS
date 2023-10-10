@@ -22,13 +22,13 @@ use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
 use crate::transport::transporter::{
     ConnectInfo, TransportAgentId, TransportConnect, TransportSetup,
 };
+use crate::utils::duplex_chan::DuplexChannel;
 use crate::utils::pool::WorkPool;
 
 pub struct ProxyResources {
     pub device_info: DeviceInfo,
     // control engine
-    pub control_tx: Sender<ControlRequest>,
-    pub control_rx: Receiver<ControlNotification>,
+    pub control_chan: DuplexChannel<ControlRequest, ControlNotification>,
     // daemons
     pub daemon_tx: HashMap<DaemonId, Sender<ProxyCompletion>>,
     pub daemon_rx: Vec<(DaemonId, Receiver<ProxyCommand>)>,
@@ -48,16 +48,15 @@ impl ProxyResources {
     fn register_transport_engine(
         &mut self,
         id: TransportEngineId,
-        tx: Sender<TransportEngineRequest>,
-        rx: Receiver<TransportEngineReply>,
+        chan: DuplexChannel<TransportEngineRequest, TransportEngineReply>,
     ) {
         let pool = self.transport_submission_pool.remove(&id);
         if let Some(requests) = pool {
             for req in requests {
-                tx.send(req).unwrap();
+                chan.tx.send(req).unwrap();
             }
         }
-        self.transport_engines_tx.insert(id, tx);
+        self.transport_engines_tx.insert(id, chan.tx);
         let rx_idx = self
             .transport_engines_rx
             .iter()
@@ -65,7 +64,7 @@ impl ProxyResources {
         if let Some(idx) = rx_idx {
             self.transport_engines_rx.swap_remove(idx);
         }
-        self.transport_engines_rx.push((id, rx));
+        self.transport_engines_rx.push((id, chan.rx));
     }
 }
 
@@ -219,7 +218,7 @@ impl ProxyResources {
                         .assign_transport_engine(
                             self.device_info.cuda_device_idx,
                             agent,
-                            &mut self.control_tx,
+                            &mut self.control_chan.tx,
                         );
                     let request = match peer_conn.conn_type {
                         ConnType::Send => {
@@ -328,7 +327,7 @@ impl ProxyResources {
                                 .assign_transport_engine(
                                     self.device_info.cuda_device_idx,
                                     agent,
-                                    &mut self.control_tx,
+                                    &mut self.control_chan.tx,
                                 )
                         });
                     let request = match peer_conn.conn_type {
@@ -451,14 +450,10 @@ impl ProxyResources {
     }
 
     fn check_control_notify(&mut self) {
-        if let Ok(msg) = self.control_rx.try_recv() {
+        if let Ok(msg) = self.control_chan.rx.try_recv() {
             match msg {
-                ControlNotification::NewTransportEngine {
-                    id,
-                    request_tx,
-                    reply_rx,
-                } => {
-                    self.register_transport_engine(id, request_tx, reply_rx);
+                ControlNotification::NewTransportEngine { id, chan } => {
+                    self.register_transport_engine(id, chan);
                 }
                 ControlNotification::NewDaemon { .. } => todo!(),
             }

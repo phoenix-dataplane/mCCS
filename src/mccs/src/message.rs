@@ -1,8 +1,8 @@
 use crate::daemon::DaemonId;
-use crossbeam::channel::{Receiver, Sender};
 
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
+use crate::utils::duplex_chan::DuplexChannel;
 
 pub enum ControlRequest {
     NewDaemon(DaemonId),
@@ -15,7 +15,6 @@ pub enum ControlNotification {
     },
     NewTransportEngine {
         id: TransportEngineId,
-        request_tx: Sender<TransportEngineRequest>,
-        reply_rx: Receiver<TransportEngineReply>,
+        chan: DuplexChannel<TransportEngineRequest, TransportEngineReply>,
     },
 }
