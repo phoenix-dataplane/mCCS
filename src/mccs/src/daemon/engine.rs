@@ -94,7 +94,6 @@ impl DaemonEngine {
                     ProxyCompletion::InitCommunicator => {}
                     _ => panic!("unexpected result"),
                 };
-                // TODO: whether is ((init.id as u64) << 32) + init.rank or (init.id as u64) << (32 + init.rank)
                 let comm_handle = CommunicatorHandle(((init.id as u64) << 32) + init.rank as u64);
                 let comm = CommunicatorDelegation {
                     comm_id: init.id,

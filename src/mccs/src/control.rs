@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::iter::zip;
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::net::{SocketAddr, UCred};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -69,22 +68,32 @@ impl Control {
         sock.set_write_timeout(Some(Duration::from_millis(1)))
             .expect("set_write_timeout");
 
-        // let transport_setup = TransportSetupRegistry::new();
+        let transport_delegator = TransportDelegator::new();
+        let transport_catalog = TransportCatalog::new();
+        let shm_config = ShmConfig {
+            locality: crate::transport::shm::config::ShmLocality::Sender,
+            use_memcpy_send: false,
+            use_memcpy_recv: false,
+        };
+        transport_catalog.register_config(String::from("ShmTransport"), shm_config);
+        let registry = GlobalRegistry {
+            communicators: DashMap::new(),
+            transport_delegator,
+            transport_catalog,
+        };
+        let registry = Arc::new(registry);
 
-        // let global_resources = GlobalResources {
-        //     communicators: DashMap::new(),
-        //     transport_setup: transport_setup,
-        // };
+        // FIXME: problematic, should be checked whenever encountered a bug with inter-host
+        let sock_addr = "127.0.0.1:8000".parse().unwrap();
 
-        let chan = Self::create_proxies().expect("Create proxies failed");
+        let chan = Self::create_proxies(registry, sock_addr).expect("Create proxies failed");
 
-        let mut control = Control {
+        Control {
             sock,
             config,
             daemon_cnt: 0,
             proxy_channels: chan,
-        };
-        control
+        }
     }
 
     pub fn mainloop(&mut self, exit_flag: &AtomicBool) -> anyhow::Result<()> {
@@ -112,21 +121,11 @@ impl Control {
         Ok(())
     }
 
-    fn create_proxies() -> anyhow::Result<Vec<DuplexChannel<ControlCommand, ControlRequest>>> {
-        let transport_delegator = TransportDelegator::new();
-        let transport_catalog = TransportCatalog::new();
-        let shm_config = ShmConfig {
-            locality: crate::transport::shm::config::ShmLocality::Sender,
-            use_memcpy_send: false,
-            use_memcpy_recv: false,
-        };
-        transport_catalog.register_config(String::from("ShmTransport"), shm_config);
-        let registry = GlobalRegistry {
-            communicators: DashMap::new(),
-            transport_delegator,
-            transport_catalog,
-        };
-        let registry = Arc::new(registry); // we don't allow device hot-plug, so we create connected proxies in advance
+    fn create_proxies(
+        registry: Arc<GlobalRegistry>,
+        sock_addr: std::net::SocketAddr,
+    ) -> anyhow::Result<Vec<DuplexChannel<ControlCommand, ControlRequest>>> {
+        // we don't allow device hot-plug, so we create connected proxies in advance
         let device_cnt = {
             let mut i = 0;
             cuda_warning!(unsafe { cudaGetDeviceCount(&mut i) });
@@ -152,8 +151,7 @@ impl Control {
             control_command_local.push(local_side);
             control_command_proxy.push(proxy_side)
         }
-        // FIXME: problematic, should be checked whenever encountered a bug with inter-host
-        let sock_addr = "127.0.0.1:8000".parse().unwrap();
+
         zip(control_command_proxy, zip(inter_senders, inter_receivers))
             .enumerate()
             .map(
