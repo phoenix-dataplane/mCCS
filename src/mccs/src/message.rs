@@ -1,4 +1,5 @@
 use crate::daemon::DaemonId;
+use crate::proxy::command::{ProxyCommand, ProxyCompletion};
 
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
@@ -9,9 +10,10 @@ pub enum ControlRequest {
     NewTransportEngine(TransportEngineId),
 }
 
-pub enum ControlNotification {
+pub enum ControlCommand {
     NewDaemon {
-        id: TransportEngineId,
+        id: DaemonId,
+        chan: DuplexChannel<ProxyCompletion, ProxyCommand>,
     },
     NewTransportEngine {
         id: TransportEngineId,

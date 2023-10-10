@@ -13,7 +13,7 @@ use super::DeviceInfo;
 use crate::comm::{CommProfile, Communicator, CommunicatorId, PeerInfo, PeerType};
 use crate::cuda::ptr::DeviceNonNull;
 use crate::daemon::DaemonId;
-use crate::message::{ControlNotification, ControlRequest};
+use crate::message::{ControlCommand, ControlRequest};
 use crate::proxy::init::PeerConnConstruct;
 use crate::registry::GlobalRegistry;
 use crate::transport::channel::{ConnType, PeerConnId, PeerConnector};
@@ -28,7 +28,7 @@ use crate::utils::pool::WorkPool;
 pub struct ProxyResources {
     pub device_info: DeviceInfo,
     // control engine
-    pub control_chan: DuplexChannel<ControlRequest, ControlNotification>,
+    pub control_chan: DuplexChannel<ControlRequest, ControlCommand>,
     // daemons
     pub daemon_tx: HashMap<DaemonId, Sender<ProxyCompletion>>,
     pub daemon_rx: Vec<(DaemonId, Receiver<ProxyCommand>)>,
@@ -45,6 +45,15 @@ pub struct ProxyResources {
 }
 
 impl ProxyResources {
+    fn register_daemon_engine(
+        &mut self,
+        id: DaemonId,
+        chan: DuplexChannel<ProxyCompletion, ProxyCommand>,
+    ) {
+        self.daemon_tx.insert(id, chan.tx);
+        self.daemon_rx.push((id, chan.rx));
+    }
+
     fn register_transport_engine(
         &mut self,
         id: TransportEngineId,
@@ -452,10 +461,12 @@ impl ProxyResources {
     fn check_control_notify(&mut self) {
         if let Ok(msg) = self.control_chan.rx.try_recv() {
             match msg {
-                ControlNotification::NewTransportEngine { id, chan } => {
+                ControlCommand::NewTransportEngine { id, chan } => {
                     self.register_transport_engine(id, chan);
                 }
-                ControlNotification::NewDaemon { .. } => todo!(),
+                ControlCommand::NewDaemon { id, chan } => {
+                    self.register_daemon_engine(id, chan);
+                }
             }
         }
     }

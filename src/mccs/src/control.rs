@@ -28,6 +28,7 @@ use crate::comm::HostIdent;
 use crate::config::Config;
 use crate::cuda_warning;
 use crate::daemon::DaemonId;
+use crate::message::{ControlCommand, ControlRequest};
 use crate::proxy::command::AllGather;
 use crate::proxy::command::InitCommunicator;
 use crate::proxy::command::ProxyCommand;
@@ -47,6 +48,7 @@ pub struct Control {
     sock: DomainSocket,
     config: Config,
     daemon_cnt: DaemonId,
+    proxy_channels: Vec<DuplexChannel<ControlCommand, ControlRequest>>,
 }
 
 impl Control {
@@ -74,15 +76,15 @@ impl Control {
         //     transport_setup: transport_setup,
         // };
 
+        let chan = Self::create_proxies().expect("Create proxies failed");
+
         let mut control = Control {
             sock,
             config,
             daemon_cnt: 0,
+            proxy_channels: chan,
         };
-        // control.test2().unwrap();
         control
-        // control.create_proxies().unwrap();
-        // control
     }
 
     pub fn mainloop(&mut self, exit_flag: &AtomicBool) -> anyhow::Result<()> {
@@ -110,7 +112,7 @@ impl Control {
         Ok(())
     }
 
-    fn create_proxies(&mut self) -> anyhow::Result<()> {
+    fn create_proxies() -> anyhow::Result<Vec<DuplexChannel<ControlCommand, ControlRequest>>> {
         let transport_delegator = TransportDelegator::new();
         let transport_catalog = TransportCatalog::new();
         let shm_config = ShmConfig {
@@ -190,7 +192,7 @@ impl Control {
                 });
             });
 
-        Ok(())
+        Ok(control_command_local)
     }
 
     fn dispatch(
@@ -212,38 +214,33 @@ impl Control {
                 let engine_path = self.config.mccs_daemon_prefix.join(instance_name);
 
                 // create customer stub
-                // let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
+                let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
 
-                // let daemon_id = self.daemon_cnt;
-                // let num_devices = self.proxy_cmd_endpoints_tx.len();
-                // let mut command_txs = Vec::with_capacity(num_devices);
-                // let mut completion_rxs = Vec::with_capacity(num_devices);
-                //
-                // for device_idx in 0..num_devices {
-                //     let endpoint_tx = &mut self.proxy_cmd_endpoints_tx[device_idx];
-                //     let (cmd_tx, cmd_rx) = crossbeam::channel::unbounded();
-                //     let (cmp_tx, cmp_rx) = crossbeam::channel::unbounded();
-                //     let proxy_endpoint = CommandEndpointProxy {
-                //         daemon_id,
-                //         command_rx: cmd_rx,
-                //         completion_tx: cmp_tx,
-                //     };
-                //     endpoint_tx.send(proxy_endpoint).unwrap();
-                //     command_txs.push(cmd_tx);
-                //     completion_rxs.push(cmp_rx);
-                // }
-                //
-                // let mut engine = crate::daemon::engine::DaemonEngine {
-                //     id: daemon_id,
-                //     proxy_command_tx: command_txs,
-                //     proxy_completion_rx: completion_rxs,
-                //     device_mem: HashMap::new(),
-                //     comm_delegation: HashMap::new(),
-                //     customer,
-                // };
-                // std::thread::spawn(move || {
-                //     engine.mainloop();
-                // });
+                let daemon_id = self.daemon_cnt;
+                let num_devices = self.proxy_channels.len();
+                let mut daemon_channels = Vec::with_capacity(num_devices);
+
+                for device_idx in 0..num_devices {
+                    let endpoint_tx = &mut self.proxy_channels[device_idx].tx;
+                    let (daemon_side, proxy_side) = DuplexChannel::new_unbound_pair();
+                    let proxy_endpoint = ControlCommand::NewDaemon {
+                        id: daemon_id,
+                        chan: proxy_side,
+                    };
+                    endpoint_tx.send(proxy_endpoint).unwrap();
+                    daemon_channels.push(daemon_side);
+                }
+
+                let mut engine = crate::daemon::engine::DaemonEngine {
+                    id: daemon_id,
+                    proxy_chan: daemon_channels,
+                    device_mem: HashMap::new(),
+                    comm_delegation: HashMap::new(),
+                    customer,
+                };
+                std::thread::spawn(move || {
+                    engine.mainloop();
+                });
                 self.daemon_cnt += 1;
 
                 Ok(())
