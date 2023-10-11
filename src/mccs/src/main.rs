@@ -28,6 +28,7 @@ fn main() -> Result<()> {
     // load config
     let opts = Opts::from_args();
     let config = Config::from_path(opts.config)?;
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // process Ctrl-C event
     let sig_action = signal::SigAction::new(

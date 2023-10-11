@@ -249,7 +249,6 @@ impl Control {
 
 impl Control {
     fn test(&mut self) -> anyhow::Result<()> {
-        env_logger::init();
         let start_test = Instant::now();
         let mut num_devices = 0;
         unsafe {
@@ -620,7 +619,6 @@ impl Control {
     }
 
     fn test2(&mut self) -> anyhow::Result<()> {
-        env_logger::init();
         let initial_timer = Instant::now();
         let inference_comm_id = 0;
         let training_comm_id = 1;
