@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 use std::os::raw::c_void;
 
-use crossbeam::channel::{Receiver, Sender};
-
 use cuda_runtime_sys::cudaError;
 use cuda_runtime_sys::cudaIpcMemHandle_t;
 use cuda_runtime_sys::{cudaIpcGetMemHandle, cudaMalloc, cudaSetDevice};

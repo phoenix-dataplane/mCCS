@@ -1,10 +1,6 @@
 use cuda_runtime_sys::{cudaError, cudaMemcpyKind};
 use cuda_runtime_sys::{cudaMemcpy, cudaSetDevice};
 
-use libmccs::collectives::all_gather;
-use libmccs::communicator::init_communicator_rank;
-use libmccs::memory::cuda_malloc;
-
 const BUFFER_SIZE: usize = 8192;
 
 fn main() {
@@ -15,7 +11,7 @@ fn main() {
                 panic!("cudaSetDevice");
             }
         }
-        let dev_ptr = cuda_malloc(1, BUFFER_SIZE).unwrap();
+        let dev_ptr = libmccs::cuda_malloc(1, BUFFER_SIZE).unwrap();
         let mut buf = vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
         buf.extend(vec![2042i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
         let err = unsafe {
@@ -36,8 +32,8 @@ fn main() {
             buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
         );
 
-        let comm = init_communicator_rank(42, 1, 2, 1).unwrap();
-        all_gather(comm, (), (), BUFFER_SIZE / 2).unwrap();
+        let comm = libmccs::init_communicator_rank(42, 1, 2, 1).unwrap();
+        // libmccs::collective::all_gather(comm, (), (), BUFFER_SIZE / 2).unwrap();
 
         let mut buf = vec![0; BUFFER_SIZE];
         unsafe {
@@ -67,7 +63,7 @@ fn main() {
             panic!("cudaSetDevice");
         }
     }
-    let dev_ptr = cuda_malloc(0, BUFFER_SIZE).unwrap();
+    let dev_ptr = libmccs::cuda_malloc(0, BUFFER_SIZE).unwrap();
     let mut buf = vec![1883i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
     buf.extend(vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
     let err = unsafe {
@@ -87,8 +83,8 @@ fn main() {
         BUFFER_SIZE / 2 / std::mem::size_of::<i32>(),
         buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
     );
-    let comm = init_communicator_rank(42, 0, 2, 0).unwrap();
-    all_gather(comm, (), (), BUFFER_SIZE / 2).unwrap();
+    let comm = libmccs::init_communicator_rank(42, 0, 2, 0).unwrap();
+    // libmccs::all_gather(comm, (), (), BUFFER_SIZE / 2).unwrap();
     let mut buf = vec![0; BUFFER_SIZE];
     unsafe {
         let err = cudaMemcpy(

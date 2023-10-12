@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::task::{Context, Poll};
 
 use crate::utils::duplex_chan::DuplexChannel;
-use crossbeam::channel::{Receiver, Sender, TryRecvError};
+use crossbeam::channel::TryRecvError;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 

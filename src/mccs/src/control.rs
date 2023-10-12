@@ -137,11 +137,10 @@ impl Control {
         for i in 0..device_cnt {
             let (sender, receiver) = crossbeam::channel::unbounded();
             inter_receivers.push(receiver);
-            inter_senders.iter_mut().enumerate().for_each(|(j, x)| {
-                if i != j {
-                    x.push(sender.clone())
-                }
-            });
+            inter_senders
+                .iter_mut()
+                .enumerate()
+                .for_each(|(j, x)| x.push(sender.clone()));
         }
         // control <--> proxies
         let mut control_command_local = vec![];
@@ -248,6 +247,7 @@ impl Control {
 }
 
 impl Control {
+    #[allow(dead_code)]
     fn test(&mut self) -> anyhow::Result<()> {
         let start_test = Instant::now();
         let mut num_devices = 0;
@@ -618,6 +618,7 @@ impl Control {
         (dev_buf_0, dev_buf_1)
     }
 
+    #[allow(dead_code)]
     fn test2(&mut self) -> anyhow::Result<()> {
         let initial_timer = Instant::now();
         let inference_comm_id = 0;

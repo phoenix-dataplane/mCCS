@@ -11,6 +11,10 @@ pub mod collectives;
 pub mod communicator;
 pub mod memory;
 
+pub use collectives::all_gather;
+pub use communicator::init_communicator_rank;
+pub use memory::cuda_malloc;
+
 const DEFAULT_MCCS_PREFIX: &str = "/tmp/mccs";
 const DEFAULT_MCCS_CONTROL: &str = "control.sock";
 
