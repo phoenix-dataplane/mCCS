@@ -7,6 +7,7 @@ use cuda_runtime_sys::{cudaIpcGetMemHandle, cudaMalloc, cudaSetDevice};
 
 use ipc::customer::ShmCustomer;
 use ipc::mccs::command;
+use ipc::mccs::command::DeviceMem;
 use ipc::mccs::dp;
 use ipc::mccs::handle::{CommunicatorHandle, CudaMemHandle};
 
@@ -29,6 +30,7 @@ pub struct DaemonEngine {
     pub(crate) proxy_chan: Vec<DuplexChannel<ProxyCommand, ProxyCompletion>>,
     pub(crate) device_mem: HashMap<u64, usize>,
     pub(crate) comm_delegation: HashMap<CommunicatorHandle, CommunicatorDelegation>,
+    pub(crate) mem_counter: u64,
 }
 
 impl DaemonEngine {
@@ -56,6 +58,12 @@ impl DaemonEngine {
         use ipc::mccs::command::{Command, CompletionKind};
         match req {
             Command::CudaMalloc(dev_idx, size) => {
+                log::info!(
+                    "[Daemon-{}] cudaMalloc {} bytes on GPU {}",
+                    self.id,
+                    size,
+                    dev_idx
+                );
                 unsafe {
                     let error = cudaSetDevice(*dev_idx as _);
                     if error != cudaError::cudaSuccess {
@@ -72,11 +80,29 @@ impl DaemonEngine {
                 if err != cudaError::cudaSuccess {
                     panic!("cudaIpcGetMemHandle failed")
                 }
+                let this_cnt = self.mem_counter;
+                self.mem_counter += 1;
                 self.device_mem.insert(0, dev_ptr as usize);
                 let return_handle = CudaMemHandle(handle.reserved);
-                Ok(Some(CompletionKind::CudaMalloc(return_handle)))
+                let return_mem = DeviceMem {
+                    id: this_cnt,
+                    offset: 0,
+                    len: *size,
+                };
+                Ok(Some(CompletionKind::CudaMalloc((
+                    return_handle,
+                    return_mem,
+                ))))
             }
             Command::InitCommunicator(init) => {
+                log::info!(
+                    "[Daemon-{}] initCommunicator {} ({}/{}) on GPU {}",
+                    self.id,
+                    init.id,
+                    init.rank,
+                    init.num_ranks,
+                    init.cuda_device_idx
+                );
                 let proxy_init = InitCommunicator {
                     communicator_id: CommunicatorId(init.id),
                     rank: init.rank,
@@ -103,10 +129,18 @@ impl DaemonEngine {
             }
             Command::AllGather(all_gather) => {
                 let comm = self.comm_delegation.get(&all_gather.comm).unwrap();
+                log::info!(
+                    "[Daemon-{}] allGather on communicator {}@{}",
+                    self.id,
+                    comm.cuda_device_idx,
+                    comm.comm_id,
+                );
+                let send_buf_addr = *self.device_mem.get(&all_gather.send_buf.id).unwrap();
+                let recv_buf_addr = *self.device_mem.get(&all_gather.recv_buf.id).unwrap();
                 let proxy_all_gather = AllGather {
                     communicator_id: CommunicatorId(comm.comm_id),
-                    send_buf_addr: *self.device_mem.get(&0).unwrap(),
-                    recv_buf_addr: *self.device_mem.get(&0).unwrap(),
+                    send_buf_addr,
+                    recv_buf_addr,
                     size: all_gather.size,
                 };
                 let proxy_cmd = ProxyCommand::AllGather(proxy_all_gather);
@@ -119,6 +153,12 @@ impl DaemonEngine {
                     ProxyCompletion::AllGather => {}
                     _ => panic!("unexpected result"),
                 }
+                log::info!(
+                    "[Daemon-{}] SUCCESS for allGather on communicator {}@{}",
+                    self.id,
+                    comm.cuda_device_idx,
+                    comm.comm_id,
+                );
                 Ok(Some(CompletionKind::AllGather))
             }
         }

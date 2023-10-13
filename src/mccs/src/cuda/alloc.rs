@@ -52,17 +52,12 @@ impl<T> DeviceHostMapped<T> {
             let mut device = 0;
             unsafe {
                 cudaGetDevice(&mut device);
-                cuda_warning!(cudaHostRegister(
-                    ptr_host as *mut _,
-                    size,
-                    cudaHostRegisterMapped
-                ));
+                cudaHostRegister(ptr_host as *mut _, size, cudaHostRegisterMapped);
                 cuda_warning!(
                     cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0),
                     format!("{:p}", ptr_host)
                 );
             }
-            log::info!("DeviceHostMapped register: {:p}", ptr_dev);
             let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host, ptr_dev as *mut T) };
             let mapped = DeviceHostMapped {
                 ptr,

@@ -71,6 +71,7 @@ macro_rules! _rx_recv_impl {
 
 #[doc(hidden)]
 pub(crate) use _rx_recv_impl as rx_recv_impl;
+use ipc::mccs::command::DeviceMem;
 
 thread_local! {
     pub(crate) static MCCS_CTX: Context = Context::register().expect("mCCS register failed");
@@ -85,6 +86,22 @@ impl Context {
     fn register() -> Result<Context, Error> {
         let service = ShmService::register(&*MCCS_PREFIX, &*MCCS_CONTROL_SOCK)?;
         Ok(Self { service })
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct DevicePtr {
+    pub ptr: *mut std::os::raw::c_void,
+    backup_mem: DeviceMem,
+}
+
+impl DevicePtr {
+    pub fn add(&self, size: usize) -> Result<Self, ()> {
+        let new_mem = self.backup_mem.add(size)?;
+        Ok(Self {
+            ptr: self.ptr,
+            backup_mem: new_mem,
+        })
     }
 }
 

@@ -234,6 +234,7 @@ impl Control {
                     device_mem: HashMap::new(),
                     comm_delegation: HashMap::new(),
                     customer,
+                    mem_counter: 0,
                 };
                 std::thread::spawn(move || {
                     engine.mainloop();

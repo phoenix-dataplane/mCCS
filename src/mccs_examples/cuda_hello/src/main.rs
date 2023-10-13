@@ -10,7 +10,7 @@ fn main() {
     let buf = vec![42i32; BUFFER_SIZE / std::mem::size_of::<i32>()];
     let err = unsafe {
         cudaMemcpy(
-            dev_ptr,
+            dev_ptr.ptr,
             buf.as_ptr() as *const _,
             BUFFER_SIZE,
             cudaMemcpyKind::cudaMemcpyHostToDevice,
