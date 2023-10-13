@@ -3,7 +3,7 @@ use std::os::raw::c_void;
 use cuda_runtime_sys::cudaIpcMemLazyEnablePeerAccess;
 use cuda_runtime_sys::cudaIpcOpenMemHandle;
 use cuda_runtime_sys::{cudaError, cudaIpcMemHandle_t};
-use ipc::mccs::command::{Command, CompletionKind};
+use ipc::mccs::command::{Command, CompletionKind, MccsDeviceMemoryHandle};
 
 use crate::Error;
 use crate::MCCS_CTX;
@@ -34,4 +34,8 @@ pub fn cuda_malloc(device_idx: usize, size: usize) -> Result<DevicePtr, Error> {
             })
         })
     })
+}
+
+pub fn cuda_free(ptr: MccsDeviceMemoryHandle) {
+    todo!()
 }

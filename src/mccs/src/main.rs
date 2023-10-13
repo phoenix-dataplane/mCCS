@@ -41,7 +41,6 @@ fn main() -> Result<()> {
 
     // the Control now takes over
     let mut control = Control::new(config);
-    log::info!("Finished initialization");
-    log::info!("Starting Control Engine...");
+    log::info!("Started mCCS");
     control.mainloop(&TERMINATE)
 }

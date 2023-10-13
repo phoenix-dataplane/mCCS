@@ -55,7 +55,7 @@ impl<T> DeviceHostMapped<T> {
                 cudaHostRegister(ptr_host as *mut _, size, cudaHostRegisterMapped);
                 cuda_warning!(
                     cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0),
-                    format!("{:p}", ptr_host)
+                    format!("{:p}, please re-run", ptr_host)
                 );
             }
             let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host, ptr_dev as *mut T) };

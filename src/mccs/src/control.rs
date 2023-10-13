@@ -134,13 +134,12 @@ impl Control {
         // proxies <--> proxies
         let mut inter_senders = vec![vec![]; device_cnt];
         let mut inter_receivers = vec![];
-        for i in 0..device_cnt {
+        for _ in 0..device_cnt {
             let (sender, receiver) = crossbeam::channel::unbounded();
             inter_receivers.push(receiver);
             inter_senders
                 .iter_mut()
-                .enumerate()
-                .for_each(|(j, x)| x.push(sender.clone()));
+                .for_each(|x| x.push(sender.clone()));
         }
         // control <--> proxies
         let mut control_command_local = vec![];

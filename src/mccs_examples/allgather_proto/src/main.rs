@@ -4,7 +4,12 @@ use cuda_runtime_sys::{cudaMemcpy, cudaSetDevice};
 const BUFFER_SIZE: usize = 8192;
 
 fn main() {
-    let handle = std::thread::spawn(|| {
+    let comm_id = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(42);
+
+    let handle = std::thread::spawn(move || {
         // device 1
         unsafe {
             let err = cudaSetDevice(1);
@@ -33,7 +38,7 @@ fn main() {
             buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
         );
 
-        let comm = libmccs::init_communicator_rank(42, 1, 2, 1).unwrap();
+        let comm = libmccs::init_communicator_rank(comm_id, 1, 2, 1).unwrap();
         libmccs::all_gather(
             comm,
             dev_ptr.add(BUFFER_SIZE / 2).unwrap(),
@@ -91,7 +96,7 @@ fn main() {
         BUFFER_SIZE / 2 / std::mem::size_of::<i32>(),
         buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
     );
-    let comm = libmccs::init_communicator_rank(42, 0, 2, 0).unwrap();
+    let comm = libmccs::init_communicator_rank(comm_id, 0, 2, 0).unwrap();
     libmccs::all_gather(comm, dev_ptr, dev_ptr, BUFFER_SIZE / 2).unwrap();
     let mut buf = vec![0; BUFFER_SIZE];
     unsafe {

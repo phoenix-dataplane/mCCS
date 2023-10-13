@@ -13,13 +13,13 @@ pub struct CommunicatorInit {
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-pub struct DeviceMem {
+pub struct MccsDeviceMemoryHandle {
     pub id: u64,
     pub offset: usize,
     pub len: usize,
 }
 
-impl DeviceMem {
+impl MccsDeviceMemoryHandle {
     pub fn add(&self, len: usize) -> Result<Self, ()> {
         if self.offset + len > self.len {
             Err(())
@@ -36,8 +36,8 @@ impl DeviceMem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AllGather {
     pub comm: CommunicatorHandle,
-    pub send_buf: DeviceMem,
-    pub recv_buf: DeviceMem,
+    pub send_buf: MccsDeviceMemoryHandle,
+    pub recv_buf: MccsDeviceMemoryHandle,
     pub size: usize,
 }
 
@@ -51,7 +51,7 @@ pub enum Command {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum CompletionKind {
-    CudaMalloc((CudaMemHandle, DeviceMem)),
+    CudaMalloc((CudaMemHandle, MccsDeviceMemoryHandle)),
     InitCommunicator(CommunicatorHandle),
     AllGather,
 }

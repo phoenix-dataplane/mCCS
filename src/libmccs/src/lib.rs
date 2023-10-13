@@ -71,7 +71,7 @@ macro_rules! _rx_recv_impl {
 
 #[doc(hidden)]
 pub(crate) use _rx_recv_impl as rx_recv_impl;
-use ipc::mccs::command::DeviceMem;
+use ipc::mccs::command::MccsDeviceMemoryHandle;
 
 thread_local! {
     pub(crate) static MCCS_CTX: Context = Context::register().expect("mCCS register failed");
@@ -92,7 +92,7 @@ impl Context {
 #[derive(Copy, Clone, Debug)]
 pub struct DevicePtr {
     pub ptr: *mut std::os::raw::c_void,
-    backup_mem: DeviceMem,
+    backup_mem: MccsDeviceMemoryHandle,
 }
 
 impl DevicePtr {
