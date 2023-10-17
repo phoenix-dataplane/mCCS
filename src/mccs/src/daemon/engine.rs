@@ -1,8 +1,9 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::os::raw::c_void;
 
-use cuda_runtime_sys::cudaError;
 use cuda_runtime_sys::cudaIpcMemHandle_t;
+use cuda_runtime_sys::{cudaError, cudaStreamCreate};
 use cuda_runtime_sys::{cudaIpcGetMemHandle, cudaMalloc, cudaSetDevice};
 
 use ipc::customer::ShmCustomer;
@@ -12,7 +13,7 @@ use ipc::mccs::dp;
 use ipc::mccs::handle::{CommunicatorHandle, CudaMemHandle};
 
 use crate::comm::CommunicatorId;
-use crate::proxy::command::{AllGather, InitCommunicator, ProxyCommand, ProxyCompletion};
+use crate::proxy::command::{AllGatherRequest, InitCommunicator, ProxyCommand, ProxyCompletion};
 
 use super::{DaemonId, Error};
 
@@ -34,6 +35,7 @@ pub struct DaemonEngine {
     pub(crate) customer: CustomerType,
     pub(crate) proxy_chan: Vec<DuplexChannel<ProxyCommand, ProxyCompletion>>,
     pub(crate) device_mem: HashMap<u64, DeviceMemory>,
+    pub(crate) app_stream: HashMap<usize, CudaStream>,
     pub(crate) comm_delegation: HashMap<CommunicatorHandle, CommunicatorDelegation>,
     pub(crate) mem_counter: u64,
 }
@@ -52,6 +54,8 @@ enum Status {
     Disconnected,
 }
 
+use crate::cuda_warning;
+use crate::message::CudaStream;
 use crate::utils::duplex_chan::DuplexChannel;
 use Status::Progress;
 
@@ -140,16 +144,31 @@ impl DaemonEngine {
                 Ok(Some(CompletionKind::InitCommunicator(comm_handle)))
             }
             Command::AllGather(all_gather) => {
+                // locate corresponding cuda stream
+                let daemon_stream = match self.app_stream.entry(all_gather.app_stream_opaque) {
+                    Entry::Occupied(entry) => entry.get().clone(),
+                    Entry::Vacant(entry) => {
+                        let mut stream = std::ptr::null_mut();
+                        cuda_warning!(unsafe { cudaStreamCreate(&mut stream) });
+                        let stream: CudaStream = stream.into();
+                        entry.insert(stream.clone());
+                        stream
+                    }
+                };
+
+                // prepare other arguments
                 let comm = self.comm_delegation.get(&all_gather.comm).unwrap();
                 let send_buf_addr = (*self.device_mem.get(&all_gather.send_buf.id).unwrap()).addr
                     + all_gather.send_buf.offset;
                 let recv_buf_addr = (*self.device_mem.get(&all_gather.recv_buf.id).unwrap()).addr
                     + all_gather.recv_buf.offset;
-                let proxy_all_gather = AllGather {
+                let proxy_all_gather = AllGatherRequest {
                     communicator_id: CommunicatorId(comm.comm_id),
                     send_buf_addr,
                     recv_buf_addr,
                     size: all_gather.size,
+                    app_ipc_event_handle: all_gather.ipc_event_handle.clone(),
+                    daemon_stream,
                 };
                 log::debug!(
                     "[Daemon-{}] allGather ({:p},{:p}) on communicator {}@{}",
@@ -159,6 +178,7 @@ impl DaemonEngine {
                     comm.cuda_device_idx,
                     comm.comm_id,
                 );
+                // send command
                 let proxy_cmd = ProxyCommand::AllGather(proxy_all_gather);
                 self.proxy_chan[comm.cuda_device_idx]
                     .tx

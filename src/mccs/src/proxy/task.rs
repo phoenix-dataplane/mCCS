@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::cuda::ptr::DeviceNonNull;
+use crate::message::CudaStream;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskFuncType {
@@ -52,6 +53,7 @@ pub struct CollTask {
     pub reduce_op: Option<TaskReduceOp>,
     pub chunk_steps: u32,
     pub slice_steps: u32,
+    pub stream: CudaStream,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

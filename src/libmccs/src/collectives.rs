@@ -34,6 +34,7 @@ pub fn all_gather(
         recv_buf: recv_buf.backup_mem,
         size,
         ipc_event_handle: handle.into(),
+        app_stream_opaque: stream as usize,
     };
     MCCS_CTX.with(move |ctx| {
         let req = Command::AllGather(op);

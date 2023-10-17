@@ -10,9 +10,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
-use cuda_runtime_sys::cudaMalloc;
 use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind;
+use cuda_runtime_sys::{cudaMalloc, cudaStream_t};
 use dashmap::DashMap;
 use nix::libc;
 
@@ -28,7 +28,7 @@ use crate::config::Config;
 use crate::cuda_warning;
 use crate::daemon::DaemonId;
 use crate::message::{ControlCommand, ControlRequest};
-use crate::proxy::command::AllGather;
+use crate::proxy::command::AllGatherRequest;
 use crate::proxy::command::InitCommunicator;
 use crate::proxy::command::ProxyCommand;
 use crate::proxy::command::ProxyCompletion;
@@ -231,6 +231,7 @@ impl Control {
                     id: daemon_id,
                     proxy_chan: daemon_channels,
                     device_mem: HashMap::new(),
+                    app_stream: HashMap::new(),
                     comm_delegation: HashMap::new(),
                     customer,
                     mem_counter: 0,
@@ -439,19 +440,23 @@ impl Control {
         };
         log::info!("Memory copy: {} ms", before_memcpy.elapsed().as_millis());
         let before_allgather = Instant::now();
-        let cmd = AllGather {
+        let cmd = AllGatherRequest {
             communicator_id: CommunicatorId(0),
             send_buf_addr: dev_buf_0 as usize,
             recv_buf_addr: dev_buf_0 as usize,
             size: BUFFER_SIZE / 2,
+            app_ipc_event_handle: todo!(),
+            daemon_stream: (0 as cudaStream_t).into(),
         };
         let cmd = ProxyCommand::AllGather(cmd);
         daemon_0_cmd_tx.send(cmd).unwrap();
-        let cmd = AllGather {
+        let cmd = AllGatherRequest {
             communicator_id: CommunicatorId(0),
             send_buf_addr: dev_buf_1 as usize + BUFFER_SIZE / 2,
             recv_buf_addr: dev_buf_1 as usize,
             size: BUFFER_SIZE / 2,
+            app_ipc_event_handle: todo!(),
+            daemon_stream: (0 as cudaStream_t).into(),
         };
         let cmd = ProxyCommand::AllGather(cmd);
         daemon_1_cmd_tx.send(cmd).unwrap();

@@ -40,6 +40,8 @@ pub struct AllGather {
     pub recv_buf: MccsDeviceMemoryHandle,
     pub size: usize,
     pub ipc_event_handle: CudaEventHandle,
+    // raw value of app's cuda stream; can only be used as an identifier
+    pub app_stream_opaque: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

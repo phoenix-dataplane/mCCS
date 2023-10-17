@@ -2,7 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crossbeam::channel::{Receiver, Sender};
-use cuda_runtime_sys::{cudaError, cudaEventQuery};
+use cuda_runtime_sys::{
+    cudaError, cudaEventCreateWithFlags, cudaEventDisableTiming, cudaEventInterprocess,
+    cudaEventQuery, cudaEventRecord, cudaIpcEventHandle_t, cudaIpcGetEventHandle,
+    cudaIpcOpenEventHandle, cudaStreamWaitEvent,
+};
 
 use super::command::{ProxyCommand, ProxyCompletion};
 use super::init::{CommInitStage, CommInitState};
@@ -12,6 +16,7 @@ use super::task::{CollTask, TaskDataType, TaskFuncType};
 use super::DeviceInfo;
 use crate::comm::{CommProfile, Communicator, CommunicatorId, PeerInfo, PeerType};
 use crate::cuda::ptr::DeviceNonNull;
+use crate::cuda_warning;
 use crate::daemon::DaemonId;
 use crate::message::{ControlCommand, ControlRequest};
 use crate::proxy::init::PeerConnConstruct;
@@ -487,6 +492,7 @@ impl ProxyResources {
                 res
             }
             ProxyOp::PollCudaEvent(daemon_id, comm_id) => {
+                todo!("Should not be invoked for now");
                 let comm = self.communicators.get_mut(comm_id).unwrap();
                 unsafe {
                     let state = cudaEventQuery(comm.event);
@@ -546,6 +552,20 @@ impl ProxyEngine {
                         self.ops.enqueue(op);
                     }
                     ProxyCommand::AllGather(coll) => {
+                        // recover event and register waiting order
+                        let event = {
+                            let event_handle = coll.app_ipc_event_handle.into();
+                            let mut event = std::ptr::null_mut();
+                            cuda_warning!(unsafe {
+                                cudaIpcOpenEventHandle(&mut event, event_handle)
+                            });
+                            event
+                        };
+                        cuda_warning!(unsafe {
+                            cudaStreamWaitEvent(coll.daemon_stream.clone().into(), event, 0)
+                        });
+
+                        // prepare arguments
                         let comm = self
                             .resources
                             .communicators
@@ -563,12 +583,32 @@ impl ProxyEngine {
                             reduce_op: None,
                             chunk_steps: 0,
                             slice_steps: 0,
+                            stream: coll.daemon_stream.clone(),
                         };
                         comm.task_queue.coll_queue.push_back(task);
                         comm.pre_launch_schedule();
                         comm.launch_plan();
-                        let op = ProxyOp::PollCudaEvent(*daemon_id, coll.communicator_id);
-                        self.ops.enqueue(op);
+
+                        // record event for daemon_stream
+                        let handle = unsafe {
+                            let mut event = std::ptr::null_mut();
+                            cuda_warning!(cudaEventCreateWithFlags(
+                                &mut event,
+                                cudaEventInterprocess | cudaEventDisableTiming
+                            ));
+                            cuda_warning!(cudaEventRecord(event, coll.daemon_stream.into()));
+                            let mut handle = cudaIpcEventHandle_t::default();
+                            cuda_warning!(cudaIpcGetEventHandle(&mut handle, event));
+                            handle
+                        };
+                        let _ = self
+                            .resources
+                            .daemon_tx
+                            .get_mut(daemon_id)
+                            .unwrap()
+                            .send(ProxyCompletion::AllGather(handle.into()));
+                        // let op = ProxyOp::PollCudaEvent(*daemon_id, coll.communicator_id);
+                        // self.ops.enqueue(op);
                     }
                 }
             }
