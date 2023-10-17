@@ -377,12 +377,12 @@ impl Control {
         let comp = daemon_0_comp_rx.recv().unwrap();
         match comp {
             ProxyCompletion::InitCommunicator => (),
-            ProxyCompletion::AllGather => panic!(),
+            ProxyCompletion::AllGather(_) => panic!(),
         }
         let comp = daemon_1_comp_rx.recv().unwrap();
         match comp {
             ProxyCompletion::InitCommunicator => (),
-            ProxyCompletion::AllGather => panic!(),
+            ProxyCompletion::AllGather(_) => panic!(),
         }
 
         unsafe {
@@ -459,12 +459,12 @@ impl Control {
         let comp = daemon_0_comp_rx.recv().unwrap();
         match comp {
             ProxyCompletion::InitCommunicator => panic!(),
-            ProxyCompletion::AllGather => (),
+            ProxyCompletion::AllGather(_) => (),
         }
         let comp = daemon_1_comp_rx.recv().unwrap();
         match comp {
             ProxyCompletion::InitCommunicator => panic!(),
-            ProxyCompletion::AllGather => (),
+            ProxyCompletion::AllGather(_) => (),
         }
         log::info!("All Gather: {} ms", before_allgather.elapsed().as_millis());
 
@@ -483,34 +483,6 @@ impl Control {
         assert_eq!(buf[0], 1883);
         assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 2042);
         log::info!("Pass data check");
-
-        // let (endpoint_tx, endpoint_rx) = crossbeam::channel::unbounded();
-        // let device_info = DeviceInfo {
-        //     cuda_device_idx: idx,
-        //     cuda_comp_cap: 0,
-        // };
-        // let mut proxy_engine = ProxyEngine {
-        //     device_info,
-        //     outstanding_ops: std::collections::LinkedList::new(),
-        //     enqueue_ops: std::collections::LinkedList::new(),
-        //     daemon_endpoint_rx: endpoint_rx,
-        //     daemon_command_rx: Vec::new(),
-        //     daemon_completion_tx: Vec::new(),
-        //     communicators: HashMap::new(),
-        //     global_resources: self.global_resources.clone(),
-        //     hmem_senders: HashMap::new(),
-        //     hmem_receivers: HashMap::new(),
-        // };
-        // self.proxy_cmd_endpoints_tx.push(endpoint_tx);
-        // std::thread::spawn(move || {
-        //     unsafe {
-        //         let error = cudaSetDevice(idx as _);
-        //         if error != cudaError::cudaSuccess {
-        //             panic!("cudaSetDevice");
-        //         }
-        //     }
-        //     proxy_engine.mainloop();
-        // });
         Ok(())
     }
 
@@ -618,6 +590,7 @@ impl Control {
         (dev_buf_0, dev_buf_1)
     }
 
+    /*
     #[allow(dead_code)]
     fn test2(&mut self) -> anyhow::Result<()> {
         let initial_timer = Instant::now();
@@ -797,11 +770,11 @@ impl Control {
                 .unwrap();
 
             match daemon_0_comp_rx.recv() {
-                Ok(ProxyCompletion::AllGather) => (),
+                Ok(ProxyCompletion::AllGather(_)) => (),
                 _ => panic!(),
             }
             match daemon_1_comp_rx.recv() {
-                Ok(ProxyCompletion::AllGather) => (),
+                Ok(ProxyCompletion::AllGather(_)) => (),
                 _ => panic!(),
             }
             log::info!(
@@ -810,11 +783,11 @@ impl Control {
             );
 
             match daemon2_0_comp_rx.recv() {
-                Ok(ProxyCompletion::AllGather) => (),
+                Ok(ProxyCompletion::AllGather(_)) => (),
                 _ => panic!(),
             }
             match daemon2_1_comp_rx.recv() {
-                Ok(ProxyCompletion::AllGather) => (),
+                Ok(ProxyCompletion::AllGather(_)) => (),
                 _ => panic!(),
             }
 
@@ -857,4 +830,5 @@ impl Control {
         }
         Ok(())
     }
+    */
 }

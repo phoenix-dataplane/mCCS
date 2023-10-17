@@ -1,4 +1,5 @@
 use crate::comm::CommunicatorId;
+use ipc::mccs::handle::CudaEventHandle;
 
 pub struct InitCommunicator {
     pub communicator_id: CommunicatorId,
@@ -20,5 +21,5 @@ pub enum ProxyCommand {
 
 pub enum ProxyCompletion {
     InitCommunicator,
-    AllGather,
+    AllGather(CudaEventHandle),
 }

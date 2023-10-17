@@ -70,6 +70,19 @@ macro_rules! _rx_recv_impl {
 }
 
 #[doc(hidden)]
+#[macro_export]
+macro_rules! _checked_cuda {
+    ($call:expr) => {
+        match $call {
+            cuda_runtime_sys::cudaError::cudaSuccess => {}
+            e => return Err(Error::Cuda(e)),
+        }
+    };
+}
+
+#[doc(hidden)]
+pub(crate) use _checked_cuda as checked_cuda;
+#[doc(hidden)]
 pub(crate) use _rx_recv_impl as rx_recv_impl;
 use ipc::mccs::command::MccsDeviceMemoryHandle;
 

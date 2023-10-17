@@ -495,7 +495,7 @@ impl ProxyResources {
                             .daemon_tx
                             .get_mut(daemon_id)
                             .unwrap()
-                            .send(ProxyCompletion::AllGather);
+                            .send(ProxyCompletion::AllGather(todo!()));
                         true
                     } else {
                         false

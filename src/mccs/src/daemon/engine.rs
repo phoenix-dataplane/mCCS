@@ -165,17 +165,17 @@ impl DaemonEngine {
                     .send(proxy_cmd)
                     .unwrap();
                 let res = self.proxy_chan[comm.cuda_device_idx].rx.recv().unwrap();
-                match res {
-                    ProxyCompletion::AllGather => {}
+                let handle = match res {
+                    ProxyCompletion::AllGather(handle) => handle,
                     _ => panic!("unexpected result"),
-                }
+                };
                 log::debug!(
                     "[Daemon-{}] SUCCESS for allGather on communicator {}@{}",
                     self.id,
                     comm.cuda_device_idx,
                     comm.comm_id,
                 );
-                Ok(Some(CompletionKind::AllGather))
+                Ok(Some(CompletionKind::AllGather(handle)))
             }
         }
     }

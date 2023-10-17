@@ -1,4 +1,4 @@
-use cuda_runtime_sys::{cudaError, cudaMemcpyKind};
+use cuda_runtime_sys::{cudaError, cudaMemcpyKind, cudaStream_t};
 use cuda_runtime_sys::{cudaMemcpy, cudaSetDevice};
 
 const BUFFER_SIZE: usize = 8192;
@@ -44,6 +44,7 @@ fn main() {
             dev_ptr.add(BUFFER_SIZE / 2).unwrap(),
             dev_ptr,
             BUFFER_SIZE / 2,
+            0 as cudaStream_t,
         )
         .unwrap();
 
@@ -97,7 +98,7 @@ fn main() {
         buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
     );
     let comm = libmccs::init_communicator_rank(comm_id, 0, 2, 0).unwrap();
-    libmccs::all_gather(comm, dev_ptr, dev_ptr, BUFFER_SIZE / 2).unwrap();
+    libmccs::all_gather(comm, dev_ptr, dev_ptr, BUFFER_SIZE / 2, 0 as cudaStream_t).unwrap();
     let mut buf = vec![0; BUFFER_SIZE];
     unsafe {
         let err = cudaMemcpy(

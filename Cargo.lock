@@ -686,6 +686,7 @@ dependencies = [
 name = "ipc-mccs"
 version = "0.1.0"
 dependencies = [
+ "cuda-runtime-sys",
  "ipc-core",
  "serde",
  "serde-big-array",

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::handle::{CommunicatorHandle, CudaMemHandle};
+use crate::handle::{CommunicatorHandle, CudaEventHandle, CudaMemHandle};
 
 type IResult<T> = Result<T, ipc_core::control::Error>;
 
@@ -39,6 +39,7 @@ pub struct AllGather {
     pub send_buf: MccsDeviceMemoryHandle,
     pub recv_buf: MccsDeviceMemoryHandle,
     pub size: usize,
+    pub ipc_event_handle: CudaEventHandle,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,7 +54,7 @@ pub enum Command {
 pub enum CompletionKind {
     CudaMalloc((CudaMemHandle, MccsDeviceMemoryHandle)),
     InitCommunicator(CommunicatorHandle),
-    AllGather,
+    AllGather(CudaEventHandle),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

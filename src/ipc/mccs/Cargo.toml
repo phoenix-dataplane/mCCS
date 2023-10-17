@@ -10,3 +10,5 @@ ipc-core = { path = "../core" }
 
 serde = { version = "1.0.149", features = ["derive"] }
 serde-big-array = { version = "0.4.1" }
+
+cuda-runtime-sys = {path = "../../cuda-sys/cuda-runtime-sys"}
