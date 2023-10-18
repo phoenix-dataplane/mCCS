@@ -231,7 +231,6 @@ impl Control {
                     id: daemon_id,
                     proxy_chan: daemon_channels,
                     device_mem: HashMap::new(),
-                    app_stream: HashMap::new(),
                     comm_delegation: HashMap::new(),
                     customer,
                     mem_counter: 0,
@@ -446,7 +445,6 @@ impl Control {
             recv_buf_addr: dev_buf_0 as usize,
             size: BUFFER_SIZE / 2,
             app_ipc_event_handle: todo!(),
-            daemon_stream: (0 as cudaStream_t).into(),
         };
         let cmd = ProxyCommand::AllGather(cmd);
         daemon_0_cmd_tx.send(cmd).unwrap();
@@ -456,7 +454,6 @@ impl Control {
             recv_buf_addr: dev_buf_1 as usize,
             size: BUFFER_SIZE / 2,
             app_ipc_event_handle: todo!(),
-            daemon_stream: (0 as cudaStream_t).into(),
         };
         let cmd = ProxyCommand::AllGather(cmd);
         daemon_1_cmd_tx.send(cmd).unwrap();

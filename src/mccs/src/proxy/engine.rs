@@ -561,16 +561,14 @@ impl ProxyEngine {
                             });
                             event
                         };
-                        cuda_warning!(unsafe {
-                            cudaStreamWaitEvent(coll.daemon_stream.clone().into(), event, 0)
-                        });
 
-                        // prepare arguments
                         let comm = self
                             .resources
                             .communicators
                             .get_mut(&coll.communicator_id)
                             .unwrap();
+                        cuda_warning!(unsafe { cudaStreamWaitEvent(comm.stream, event, 0) });
+                        // prepare arguments
                         let send_buf = DeviceNonNull::new(coll.send_buf_addr as *mut u8).unwrap();
                         let recv_buf = DeviceNonNull::new(coll.recv_buf_addr as *mut u8).unwrap();
                         let task = CollTask {
@@ -583,7 +581,6 @@ impl ProxyEngine {
                             reduce_op: None,
                             chunk_steps: 0,
                             slice_steps: 0,
-                            stream: coll.daemon_stream.clone(),
                         };
                         comm.task_queue.coll_queue.push_back(task);
                         comm.pre_launch_schedule();
@@ -596,7 +593,7 @@ impl ProxyEngine {
                                 &mut event,
                                 cudaEventInterprocess | cudaEventDisableTiming
                             ));
-                            cuda_warning!(cudaEventRecord(event, coll.daemon_stream.into()));
+                            cuda_warning!(cudaEventRecord(event, comm.stream));
                             let mut handle = cudaIpcEventHandle_t::default();
                             cuda_warning!(cudaIpcGetEventHandle(&mut handle, event));
                             handle

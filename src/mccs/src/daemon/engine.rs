@@ -35,7 +35,6 @@ pub struct DaemonEngine {
     pub(crate) customer: CustomerType,
     pub(crate) proxy_chan: Vec<DuplexChannel<ProxyCommand, ProxyCompletion>>,
     pub(crate) device_mem: HashMap<u64, DeviceMemory>,
-    pub(crate) app_stream: HashMap<usize, CudaStream>,
     pub(crate) comm_delegation: HashMap<CommunicatorHandle, CommunicatorDelegation>,
     pub(crate) mem_counter: u64,
 }
@@ -144,19 +143,7 @@ impl DaemonEngine {
                 Ok(Some(CompletionKind::InitCommunicator(comm_handle)))
             }
             Command::AllGather(all_gather) => {
-                // locate corresponding cuda stream
-                let daemon_stream = match self.app_stream.entry(all_gather.app_stream_opaque) {
-                    Entry::Occupied(entry) => entry.get().clone(),
-                    Entry::Vacant(entry) => {
-                        let mut stream = std::ptr::null_mut();
-                        cuda_warning!(unsafe { cudaStreamCreate(&mut stream) });
-                        let stream: CudaStream = stream.into();
-                        entry.insert(stream.clone());
-                        stream
-                    }
-                };
-
-                // prepare other arguments
+                // prepare arguments
                 let comm = self.comm_delegation.get(&all_gather.comm).unwrap();
                 let send_buf_addr = (*self.device_mem.get(&all_gather.send_buf.id).unwrap()).addr
                     + all_gather.send_buf.offset;
@@ -168,7 +155,6 @@ impl DaemonEngine {
                     recv_buf_addr,
                     size: all_gather.size,
                     app_ipc_event_handle: all_gather.ipc_event_handle.clone(),
-                    daemon_stream,
                 };
                 log::debug!(
                     "[Daemon-{}] allGather ({:p},{:p}) on communicator {}@{}",

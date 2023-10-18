@@ -53,7 +53,6 @@ pub struct CollTask {
     pub reduce_op: Option<TaskReduceOp>,
     pub chunk_steps: u32,
     pub slice_steps: u32,
-    pub stream: CudaStream,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -112,7 +112,7 @@ impl DevicePtr {
     pub fn add(&self, size: usize) -> Result<Self, ()> {
         let new_mem = self.backup_mem.add(size)?;
         Ok(Self {
-            ptr: self.ptr,
+            ptr: unsafe { self.ptr.clone().add(size) },
             backup_mem: new_mem,
         })
     }

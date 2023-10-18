@@ -1,5 +1,4 @@
 use crate::comm::CommunicatorId;
-use crate::message::CudaStream;
 use ipc::mccs::handle::CudaEventHandle;
 
 pub struct InitCommunicator {
@@ -14,7 +13,6 @@ pub struct AllGatherRequest {
     pub recv_buf_addr: usize,
     pub size: usize,
     pub app_ipc_event_handle: CudaEventHandle,
-    pub daemon_stream: CudaStream,
 }
 
 pub enum ProxyCommand {

@@ -1,7 +1,8 @@
 use crate::checked_cuda;
 use cuda_runtime_sys::{
     cudaEventCreateWithFlags, cudaEventDisableTiming, cudaEventInterprocess, cudaEventRecord,
-    cudaEvent_t, cudaIpcEventHandle_t, cudaIpcGetEventHandle, cudaIpcOpenEventHandle, cudaStream_t,
+    cudaIpcEventHandle_t, cudaIpcGetEventHandle, cudaIpcOpenEventHandle, cudaStreamWaitEvent,
+    cudaStream_t,
 };
 use ipc::mccs::command::{AllGather, Command, CompletionKind};
 use ipc::mccs::handle::CommunicatorHandle;
@@ -16,7 +17,7 @@ pub fn all_gather(
     recv_buf: DevicePtr,
     size: usize,
     stream: cudaStream_t,
-) -> Result<cudaEvent_t, Error> {
+) -> Result<(), Error> {
     let handle = unsafe {
         let mut event = std::ptr::null_mut();
         checked_cuda!(cudaEventCreateWithFlags(
@@ -42,7 +43,8 @@ pub fn all_gather(
         rx_recv_impl!(ctx.service, CompletionKind::AllGather, handle, {
             let mut event = std::ptr::null_mut();
             checked_cuda!(unsafe { cudaIpcOpenEventHandle(&mut event, handle.into()) });
-            Ok(event)
+            checked_cuda!(unsafe { cudaStreamWaitEvent(stream, event, 0) });
+            Ok(())
         })
     })
 }
