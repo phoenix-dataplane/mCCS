@@ -8,6 +8,7 @@ pub mod message;
 pub mod meta;
 pub mod op;
 pub mod queue;
+pub mod rdma;
 pub mod shm;
 pub mod task;
 pub mod transporter;
