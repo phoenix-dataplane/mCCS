@@ -11,6 +11,7 @@ use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
 use crate::{
     comm::Communicator,
     cuda::{alloc::DeviceAlloc, ptr::DeviceNonNull},
+    cuda_warning,
 };
 
 #[derive(Clone)]
@@ -134,12 +135,12 @@ impl Communicator {
         let ptr = unsafe { DeviceNonNull::new_unchecked(dev_work.as_ptr()) };
         let _guard = std::mem::ManuallyDrop::new(dev_work);
         unsafe {
-            cudaMemcpy(
+            cuda_warning!(cudaMemcpy(
                 ptr.as_ptr() as _,
                 &mut dev_work_content as *mut mccsDevWork as _,
                 std::mem::size_of::<mccsDevWork>(),
                 cudaMemcpyKind::cudaMemcpyHostToDevice,
-            );
+            ));
         }
         ptr
     }
@@ -165,15 +166,15 @@ impl Communicator {
             z: 1,
         };
         unsafe {
-            cudaLaunchKernel(
+            cuda_warning!(cudaLaunchKernel(
                 plan.kernel_fn,
                 grid,
                 block,
                 args.as_mut_ptr(),
                 0,
                 self.stream,
-            );
-            cudaEventRecord(self.event, self.stream);
+            ));
+            cuda_warning!(cudaEventRecord(self.event, self.stream));
         }
     }
 }

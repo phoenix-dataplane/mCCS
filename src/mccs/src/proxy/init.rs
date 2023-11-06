@@ -5,6 +5,7 @@ use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
 
 use crate::comm::device::CommDevResources;
 use crate::comm::{ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo};
+use crate::cuda_warning;
 use crate::transport::channel::{
     ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
 };
@@ -150,12 +151,12 @@ impl CommInitState {
         };
         let event = unsafe {
             let mut event = std::ptr::null_mut();
-            cudaEventCreate(&mut event);
+            cuda_warning!(cudaEventCreate(&mut event));
             event
         };
         let stream = unsafe {
             let mut stream = std::ptr::null_mut();
-            cudaStreamCreate(&mut stream);
+            cuda_warning!(cudaStreamCreate(&mut stream));
             stream
         };
 

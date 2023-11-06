@@ -10,6 +10,7 @@ use cuda_runtime_sys::{cudaEventCreate, cudaEventQuery, cudaEventRecord};
 
 use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
 use crate::cuda::ptr::DeviceNonNull;
+use crate::cuda_warning;
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::transporter::{AgentMessage, AnyResources};
 use crate::transport::{NUM_BUFFER_SLOTS, PROTOCOL_SIMPLE};
@@ -38,13 +39,16 @@ pub async fn shm_agent_connect(agent_request: AgentMessage) -> (AnyResources, Ag
 
     let mut stream = MaybeUninit::uninit();
     unsafe {
-        cudaStreamCreateWithFlags(stream.as_mut_ptr(), cudaStreamNonBlocking);
+        cuda_warning!(cudaStreamCreateWithFlags(
+            stream.as_mut_ptr(),
+            cudaStreamNonBlocking
+        ));
     };
     let stream = unsafe { stream.assume_init() };
     let mut events = MaybeUninit::uninit_array();
     for event in &mut events {
         unsafe {
-            cudaEventCreate(event.as_mut_ptr());
+            cuda_warning!(cudaEventCreate(event.as_mut_ptr()));
         };
     }
     let events = unsafe { MaybeUninit::array_assume_init(events) };
@@ -98,14 +102,17 @@ pub fn shm_agent_send_progress(resources: &mut AnyResources, op: &mut TransportO
             unsafe {
                 let device_buf = resources.device_buf.as_ptr().add(offset);
                 let host_buf = resources.host_buf.add(offset);
-                cudaMemcpyAsync(
+                cuda_warning!(cudaMemcpyAsync(
                     host_buf as _,
                     device_buf as _,
                     size as usize,
                     cudaMemcpyDeviceToHost,
                     resources.stream,
-                );
-                cudaEventRecord(resources.events[buf_slot], resources.stream);
+                ));
+                cuda_warning!(cudaEventRecord(
+                    resources.events[buf_slot],
+                    resources.stream
+                ));
                 let receiver_meta = resources.receiver_meta.get_meta_mut();
                 receiver_meta.slots_sizes[buf_slot] = size;
                 // TODO: check whether it is equivalent to
@@ -159,14 +166,19 @@ pub fn shm_agent_recv_progress(resources: &mut AnyResources, op: &mut TransportO
             unsafe {
                 let device_buf = resources.device_buf.as_ptr().add(offset);
                 let host_buf = resources.host_buf.add(offset);
-                cudaMemcpyAsync(
-                    device_buf as _,
-                    host_buf as _,
-                    size as usize,
-                    cudaMemcpyHostToDevice,
-                    resources.stream,
+                cuda_warning!(
+                    (cudaMemcpyAsync(
+                        device_buf as _,
+                        host_buf as _,
+                        size as usize,
+                        cudaMemcpyHostToDevice,
+                        resources.stream,
+                    ))
                 );
-                cudaEventRecord(resources.events[buf_slot], resources.stream);
+                cuda_warning!(cudaEventRecord(
+                    resources.events[buf_slot],
+                    resources.stream
+                ));
                 op.transmitted += op.slice_steps as u64;
             }
         }

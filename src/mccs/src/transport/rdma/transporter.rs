@@ -18,6 +18,7 @@ impl Transporter for RdmaTransporter {
         conn_id: &PeerConnId,
         catalog: &TransportCatalog,
     ) -> TransportSetup {
+        todo!()
     }
 
     fn send_connect(
@@ -26,7 +27,7 @@ impl Transporter for RdmaTransporter {
         connect_info: ConnectInfo,
         setup_resources: Option<AnyResources>,
     ) -> TransportConnect {
-
+        todo!()
     }
 
     // Setup receiver transport
@@ -36,6 +37,7 @@ impl Transporter for RdmaTransporter {
         conn_id: &PeerConnId,
         catalog: &TransportCatalog,
     ) -> TransportSetup {
+        todo!()
     }
 
     // Connect receiver transport
@@ -45,6 +47,7 @@ impl Transporter for RdmaTransporter {
         connect_info: ConnectInfo,
         setup_resources: Option<AnyResources>,
     ) -> TransportConnect {
+        todo!()
     }
 
     // Progress transport op for send connection
