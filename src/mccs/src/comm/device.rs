@@ -6,11 +6,12 @@ use collectives_sys::{
     mccsDevChannel, mccsDevChannelPeer, mccsDevComm, mccsDevCommAndChannels, mccsDevConnInfo,
     mccsDevRing,
 };
-use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyHostToDevice;
+use cuda_runtime_sys::{cudaMalloc, cudaMemcpy};
 
 use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
 use crate::cuda::ptr::DeviceNonNull;
+use crate::cuda_warning;
 use crate::transport::channel::{CommChannel, PeerConnInfo};
 
 use super::CommProfile;
@@ -137,12 +138,18 @@ impl CommDevResources {
         }
 
         let dev_channels = unsafe { MaybeUninit::array_assume_init(dev_channels) };
-        let dev_comm = mccsDevComm {
+        let mut dev_comm = mccsDevComm {
             rank: rank as _,
             nRanks: num_ranks as _,
             buffSizes: buf_sizes,
             abortFlag: std::ptr::null_mut(),
         };
+        cuda_warning!(unsafe {
+            cudaMalloc(
+                &mut dev_comm.abortFlag as *mut *mut u32 as *mut *mut _,
+                std::mem::size_of_val(&dev_comm.abortFlag),
+            )
+        });
         let mut dev_comm_chans = mccsDevCommAndChannels {
             comm: dev_comm,
             __bindgen_padding_0: 0,
