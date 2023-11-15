@@ -4,6 +4,7 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
+#![feature(variant_count)]
 
 #[allow(dead_code)]
 pub mod comm;

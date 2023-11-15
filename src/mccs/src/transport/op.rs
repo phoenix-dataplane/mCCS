@@ -1,3 +1,5 @@
+use super::Protocol;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportOpState {
     Init,
@@ -16,7 +18,7 @@ pub struct TransportOp {
     pub slice_steps: u32,
     pub chunk_steps: u32,
 
-    pub protocol: usize,
+    pub protocol: Protocol,
 
     pub state: TransportOpState,
 

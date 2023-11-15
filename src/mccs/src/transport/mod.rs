@@ -1,3 +1,5 @@
+use collectives_sys::{MCCS_NUM_PROTOCOLS, MCCS_PROTO_SIMPLE};
+
 use self::shm::transporter::ShmTransporter;
 
 pub mod catalog;
@@ -8,16 +10,22 @@ pub mod message;
 pub mod meta;
 pub mod op;
 pub mod queue;
-pub mod rdma;
 pub mod shm;
+pub mod net;
 pub mod task;
 pub mod transporter;
 
 pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 
 pub const NUM_BUFFER_SLOTS: usize = 8;
-pub const NUM_PROTOCOLS: usize = 1;
+pub const NUM_PROTOCOLS: usize = MCCS_NUM_PROTOCOLS as _;
 
-pub const PROTOCOL_SIMPLE: usize = 0;
+#[derive(PartialEq, Eq)]
+#[repr(usize)]
+pub enum Protocol {
+    Simple = MCCS_PROTO_SIMPLE as _
+}
+
+static_assertions::const_assert_eq!(std::mem::variant_count::<Protocol>(), NUM_PROTOCOLS);
 
 pub const DEFAULT_BUFFER_SIZE: usize = 1 << 22;
