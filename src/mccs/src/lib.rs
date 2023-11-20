@@ -4,8 +4,10 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
+// todo: temporary
+#![allow(dead_code)]
+#![allow(unused)]
 
-#[allow(dead_code)]
 pub mod comm;
 pub mod config;
 pub mod control;
