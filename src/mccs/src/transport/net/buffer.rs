@@ -1,19 +1,25 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
+use std::sync::Arc;
 
+use num_enum::TryFromPrimitive;
+
+use crate::cuda::alloc::{DeviceHostMapped, DeviceAlloc};
 use crate::cuda::mapped_ptr::DeviceHostPtr;
+use crate::cuda::ptr::DeviceNonNull;
 use crate::transport::{NUM_PROTOCOLS, Protocol};
 use crate::transport::meta::{SendBufMeta, RecvBufMeta};
 
-#[derive(PartialEq, Eq)]
-#[repr(usize)]
-enum MemoryBankType {
+#[derive(PartialEq, Eq, TryFromPrimitive)]
+#[repr(u8)]
+pub enum MemoryBankType {
     HostMem = 0,
     DeviceMem = 1,
     GdcMem = 2,
 }
 
-enum BufferType {
+
+pub enum BufferType {
     SendMem,
     RecvMem,
     RingBuffer(Protocol)
@@ -23,16 +29,23 @@ const NET_MAP_MASK_DEVMEM: u32 = 0x40000000;
 const NET_MAP_MASK_USED: u32 = 0x20000000;
 const NET_MAP_MASK_OFFSET: u32 = 0x1fffffff;
 
+pub enum BufferAlloc {
+    Host(DeviceHostMapped<u8>),
+    Device(DeviceAlloc<u8>),
+}
+
+#[derive(Clone)]
 pub struct BufferBankMem {
     cpu_ptr: *mut c_void,
     gpu_ptr: *mut c_void,
     size: usize,
+    alloc: Option<Arc<BufferAlloc>>,
 }
 
 pub struct BufferOffset {
     send_mem: u32,
     recv_mem: u32,
-    buffs: [u32; NUM_PROTOCOLS]
+    buffers: [u32; NUM_PROTOCOLS]
 }
 
 /*
@@ -52,8 +65,30 @@ struct connectMap {
 */
 
 pub struct BufferMap {
-    mems: [BufferBankMem; std::mem::variant_count::<MemoryBankType>()],
-    offsets: BufferOffset,
+    pub(crate) mems: [BufferBankMem; std::mem::variant_count::<MemoryBankType>()],
+    pub(crate) offsets: BufferOffset,
+}
+
+impl BufferMap {
+    pub(crate) fn new() -> Self {
+        let mems = std::array::from_fn(|_| {
+            BufferBankMem {
+                cpu_ptr: std::ptr::null_mut(),
+                gpu_ptr: std::ptr::null_mut(),
+                size: 0,
+                alloc: None,
+            }
+        });
+        let offsets = BufferOffset {
+            send_mem: 0,
+            recv_mem: 0,
+            buffers: [0; NUM_PROTOCOLS],
+        };
+        BufferMap { 
+            mems, 
+            offsets 
+        }
+    }
 }
 
 impl BufferMap {
@@ -65,7 +100,7 @@ impl BufferMap {
                     panic!("SendMem and RecvMem should reside on dedicated host memory");
                 },
                 BufferType::RingBuffer(proto) => {
-                    self.offsets.buffs[proto as usize] = bank_mask + self.mems[MemoryBankType::DeviceMem as usize].size as u32;
+                    self.offsets.buffers[proto as usize] = bank_mask + self.mems[MemoryBankType::DeviceMem as usize].size as u32;
                 },
             }
             self.mems[MemoryBankType::DeviceMem as usize].size += mem_size;
@@ -78,7 +113,7 @@ impl BufferMap {
                     self.offsets.recv_mem = bank_mask + self.mems[MemoryBankType::HostMem as usize].size as u32;
                 }
                 BufferType::RingBuffer(proto) => {
-                    self.offsets.buffs[proto as usize] = bank_mask + self.mems[MemoryBankType::HostMem as usize].size as u32;
+                    self.offsets.buffers[proto as usize] = bank_mask + self.mems[MemoryBankType::HostMem as usize].size as u32;
                 }
             }
             self.mems[MemoryBankType::HostMem as usize].size += mem_size;
@@ -86,15 +121,51 @@ impl BufferMap {
     }
 
     fn is_buffer_device_memory(&self, proto: Protocol) -> bool {
-        (self.offsets.buffs[proto as usize] & NET_MAP_MASK_DEVMEM) != 0
+        (self.offsets.buffers[proto as usize] & NET_MAP_MASK_DEVMEM) != 0
     }
 
-    fn get_buffer_cpu_ptr(&self) -> Option<NonNull<c_void>> {
-        
+    fn get_buffer_bank(&self, proto: Protocol) -> MemoryBankType {
+        ((self.offsets.buffers[proto as usize] >> 30) as u8).into()
+    }
+
+    fn is_buffer_null(&self, proto: Protocol) -> bool {
+        (self.offsets.buffers[proto as usize] >> 29) == 0
+    }
+
+    fn get_buffer_cpu_ptr(&self, proto: Protocol) -> Option<NonNull<c_void>> {
+        if self.is_buffer_null(proto) {
+            None
+        } else {
+            let offset = (self.offsets.buffers[proto as usize] & NET_MAP_MASK_OFFSET) as usize;
+            let cpu_ptr = unsafe {
+                let base_ptr = self.mems[self.get_buffer_bank(proto) as usize].cpu_ptr;
+                if base_ptr.is_null() {
+                    return None
+                }
+                base_ptr.add(offset)
+            };
+            Some(NonNull::new(cpu_ptr).unwrap())
+        }
+    }
+
+    fn get_buffer_gpu_ptr(&self, proto: Protocol) -> Option<DeviceNonNull<c_void>> {
+        if self.is_buffer_null(proto) {
+            None
+        } else {
+            let offset = (self.offsets.buffers[proto as usize] & NET_MAP_MASK_OFFSET) as usize;
+            let gpu_ptr = unsafe {
+                let base_ptr = self.mems[self.get_buffer_bank(proto) as usize].gpu_ptr;
+                if base_ptr.is_null() {
+                    return None
+                }
+                base_ptr.add(offset)
+            };
+            Some(DeviceNonNull::new(gpu_ptr).unwrap())
+        }
     }
 
     fn get_send_mem_meta(&self) -> Option<DeviceHostPtr<SendBufMeta>> {
-        if self.mems[MemoryBankType::HostMem as usize].cpu_ptr.is_null() {
+        if (self.mems[MemoryBankType::HostMem as usize].cpu_ptr.is_null()) || (self.offsets.send_mem >> 29 == 0) {
             None
         } else {
             let offset = (self.offsets.send_mem & NET_MAP_MASK_OFFSET) as usize;
@@ -109,7 +180,7 @@ impl BufferMap {
     }
 
     fn get_recv_mem_meta(&self) -> Option<DeviceHostPtr<RecvBufMeta>> {
-        if self.mems[MemoryBankType::HostMem as usize].cpu_ptr.is_null() {
+        if (self.mems[MemoryBankType::HostMem as usize].cpu_ptr.is_null()) || (self.offsets.recv_mem >> 29 == 0) {
             None
         } else {
             let offset = (self.offsets.recv_mem & NET_MAP_MASK_OFFSET) as usize;

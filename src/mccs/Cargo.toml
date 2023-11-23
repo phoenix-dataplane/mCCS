@@ -9,6 +9,7 @@ edition = "2021"
 cuda-runtime-sys = { path = "../cuda-sys/cuda-runtime-sys" }
 ipc = { path = "../ipc", features = ["mccs"] }
 collectives-sys = { path = "../collectives-sys" }
+gdrcopy-sys = { path = "../gdrcopy-sys" }
 
 anyhow = "1.0.66"
 bincode = "1.3.3"
@@ -27,3 +28,6 @@ futures = "0.3.26"
 memoffset = "0.8.0"
 log = { version = "0.4.20", features = ["max_level_trace", "release_max_level_info"] }
 env_logger = "0.10.0"
+bitflags = "2.4.1"
+once_cell = "1.18.0"
+num_enum = "0.7.1"

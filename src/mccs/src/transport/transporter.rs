@@ -2,6 +2,7 @@ use std::any::Any;
 use std::mem::MaybeUninit;
 
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use thiserror::Error;
 use async_trait::async_trait;
 
@@ -16,9 +17,9 @@ pub type ConnectInfo = Box<dyn Any + Send>;
 
 pub const CONNECT_HANDLE_SIZE: usize = 128;
 
-pub struct ConnectHandle {
-    handle: [u8; CONNECT_HANDLE_SIZE]
-}
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct ConnectHandle([u8; CONNECT_HANDLE_SIZE]);
 
 #[derive(Debug, Error)]
 pub enum ConnectHandleError {
@@ -37,10 +38,13 @@ impl ConnectHandle {
             return Err(ConnectHandleError::ExceedMaxSize(required_size as usize));
         }
         bincode::serialize_into(serialized.as_mut_slice(), &handle);
-        let serialized_handle = ConnectHandle {
-            handle: serialized
-        };
+        let serialized_handle = ConnectHandle(serialized);
         Ok(serialized_handle)
+    }
+
+    pub fn deserialize_to<T: DeserializeOwned>(&self) -> Result<T, ConnectHandleError> {
+        let handle = bincode::deserialize::<T>(self.0.as_slice())?;
+        Ok(handle)
     }
 }
 
