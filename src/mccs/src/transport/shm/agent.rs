@@ -13,7 +13,7 @@ use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::transporter::{AgentMessage, AnyResources};
-use crate::transport::{NUM_BUFFER_SLOTS, PROTOCOL_SIMPLE};
+use crate::transport::{NUM_BUFFER_SLOTS, Protocol};
 
 use super::config::ShmLocality;
 use super::resources::{ShmAgentReply, ShmAgentRequest, ShmAgentResources};
@@ -28,8 +28,8 @@ pub async fn shm_agent_connect(agent_request: AgentMessage) -> (AnyResources, Ag
         ShmLocality::Sender => request.sender_meta.buf_mut_ptr(),
         ShmLocality::Receiver => request.receiver_meta.buf_mut_ptr(),
     };
-    let buf_size = request.buf_sizes[PROTOCOL_SIMPLE];
-    let buf_offset = request.buf_sizes[0..PROTOCOL_SIMPLE].iter().copied().sum();
+    let buf_size = request.buf_sizes[Protocol::Simple as usize];
+    let buf_offset = request.buf_sizes[0..Protocol::Simple as usize].iter().copied().sum();
     let host_buf = unsafe { buf.add(buf_offset) };
 
     let meta_sync = DeviceHostMapped::alloc(1);
@@ -82,7 +82,7 @@ pub fn shm_agent_send_progress(resources: &mut AnyResources, op: &mut TransportO
         op.transmitted = 0;
         op.done = 0;
         op.state = TransportOpState::InProgress;
-        if op.protocol == PROTOCOL_SIMPLE {
+        if op.protocol == Protocol::Simple {
             resources.step = op.base + op.num_steps as u64;
             op.state = TransportOpState::Completed;
             return;
@@ -147,7 +147,7 @@ pub fn shm_agent_recv_progress(resources: &mut AnyResources, op: &mut TransportO
         op.transmitted = 0;
         op.done = 0;
         op.state = TransportOpState::InProgress;
-        if op.protocol == PROTOCOL_SIMPLE {
+        if op.protocol == Protocol::Simple {
             resources.step = op.base + op.num_steps as u64;
             op.state = TransportOpState::Completed;
             return;
@@ -167,13 +167,13 @@ pub fn shm_agent_recv_progress(resources: &mut AnyResources, op: &mut TransportO
                 let device_buf = resources.device_buf.as_ptr().add(offset);
                 let host_buf = resources.host_buf.add(offset);
                 cuda_warning!(
-                    (cudaMemcpyAsync(
+                    cudaMemcpyAsync(
                         device_buf as _,
                         host_buf as _,
                         size as usize,
                         cudaMemcpyHostToDevice,
                         resources.stream,
-                    ))
+                    )
                 );
                 cuda_warning!(cudaEventRecord(
                     resources.events[buf_slot],

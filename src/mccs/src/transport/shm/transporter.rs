@@ -15,7 +15,7 @@ use crate::transport::transporter::{AgentMessage, TransportAgentId};
 use crate::transport::transporter::{
     AnyResources, ConnectInfo, TransportConnect, TransportSetup, Transporter,
 };
-use crate::transport::{NUM_PROTOCOLS, PROTOCOL_SIMPLE};
+use crate::transport::{NUM_PROTOCOLS, Protocol};
 
 use super::agent::{shm_agent_connect, shm_agent_recv_progress, shm_agent_send_progress};
 use super::buffer::TransportBuffer;
@@ -193,7 +193,7 @@ impl Transporter for ShmTransporter {
                 buf_curr = buf_curr.add(resources.buf_sizes[proto]);
             }
         }
-        bufs[PROTOCOL_SIMPLE].write(reply.device_buf);
+        bufs[Protocol::Simple as usize].write(reply.device_buf);
         let bufs = unsafe { MaybeUninit::array_assume_init(bufs) };
 
         let info = PeerConnInfo {
@@ -361,7 +361,7 @@ impl Transporter for ShmTransporter {
                 buf_curr = buf_curr.add(resources.buf_sizes[proto]);
             }
         }
-        bufs[PROTOCOL_SIMPLE].write(reply.device_buf);
+        bufs[Protocol::Simple as usize].write(reply.device_buf);
         let bufs = unsafe { MaybeUninit::array_assume_init(bufs) };
 
         let info = PeerConnInfo {

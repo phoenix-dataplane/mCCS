@@ -1,5 +1,10 @@
-use async_trait::async_trait;
 use std::any::Any;
+use std::mem::MaybeUninit;
+
+use serde::Serialize;
+use serde::de::DeserializeOwned;
+use thiserror::Error;
+use async_trait::async_trait;
 
 use super::catalog::TransportCatalog;
 use super::channel::{PeerConnId, PeerConnInfo};
@@ -9,6 +14,39 @@ use crate::comm::{CommProfile, CommunicatorId};
 pub type AgentMessage = Option<Box<dyn Any + Send>>;
 pub type AnyResources = Box<dyn Any + Send>;
 pub type ConnectInfo = Box<dyn Any + Send>;
+
+pub const CONNECT_HANDLE_SIZE: usize = 128;
+
+#[derive(Clone)]
+#[repr(transparent)]
+pub struct ConnectHandle([u8; CONNECT_HANDLE_SIZE]);
+
+#[derive(Debug, Error)]
+pub enum ConnectHandleError {
+    #[error("Bincode error: {0}")]
+    Bincode(#[from] bincode::Error),
+    #[error("Required size {0} exceeds maximum of {}", CONNECT_HANDLE_SIZE)]
+    ExceedMaxSize(usize)
+}
+
+impl ConnectHandle {
+    pub fn serialize_from<T: Serialize>(handle: T) -> Result<Self, ConnectHandleError> {
+        let mut uninit = MaybeUninit::<u8>::uninit_array::<CONNECT_HANDLE_SIZE>();
+        let mut serialized = unsafe { MaybeUninit::array_assume_init(uninit) };
+        let required_size = bincode::serialized_size(&handle)?;
+        if required_size as usize > CONNECT_HANDLE_SIZE {
+            return Err(ConnectHandleError::ExceedMaxSize(required_size as usize));
+        }
+        bincode::serialize_into(serialized.as_mut_slice(), &handle);
+        let serialized_handle = ConnectHandle(serialized);
+        Ok(serialized_handle)
+    }
+
+    pub fn deserialize_to<T: DeserializeOwned>(&self) -> Result<T, ConnectHandleError> {
+        let handle = bincode::deserialize::<T>(self.0.as_slice())?;
+        Ok(handle)
+    }
+}
 
 pub enum TransportSetup {
     PreAgentCb {

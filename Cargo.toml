@@ -4,6 +4,7 @@ members = [
     "src/cuda-sys/cuda-driver-sys",
     "src/cuda-sys/cuda-runtime-sys",
     "src/cuda-sys/cuda-finder",
+    "src/gdrcopy-sys",
     "src/rdma",
     "src/collectives-sys",
     "src/experimental",

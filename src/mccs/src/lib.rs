@@ -4,9 +4,11 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
+#![feature(variant_count)]
 // todo: temporary
 #![allow(dead_code)]
 #![allow(unused)]
+
 
 pub mod comm;
 pub mod config;
