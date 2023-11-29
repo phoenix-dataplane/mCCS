@@ -1,11 +1,11 @@
 use std::any::Any;
-use std::os::fd::RawFd;
 use std::ffi::c_void;
+use std::os::fd::RawFd;
 
-use thiserror::Error;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
 use async_trait::async_trait;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use thiserror::Error;
 
 use crate::transport::transporter::{ConnectHandle, ConnectHandleError};
 
@@ -75,39 +75,40 @@ pub trait NetProvider: Send + Sync {
     async fn accept(&self, listen_comm: AnyNetComm) -> Result<AnyNetComm, Self::NetError>;
     // Register memory. Comm can be either a sendComm or a recvComm.
     async fn register_mr(
-        &self, 
+        &self,
         comm: &mut AnyNetComm,
-        mr: MemoryRegion
+        mr: MemoryRegion,
     ) -> Result<AnyMrHandle, Self::NetError>;
     // DMA-BUF support
     async fn register_mr_dma_buf(
-        &self, 
-        comm: &mut AnyNetComm, 
+        &self,
+        comm: &mut AnyNetComm,
         mr: MemoryRegion,
-        offset: u64, fd: RawFd
+        offset: u64,
+        fd: RawFd,
     ) -> Result<AnyMrHandle, Self::NetError>;
     // Deregister memory
     async fn deregister_mr(
         &self,
         comm: &mut AnyNetComm,
-        handle: AnyMrHandle
+        handle: AnyMrHandle,
     ) -> Result<(), Self::NetError>;
     // Initiate an asynchronous send operation to a peer.
     fn initiate_send(
-        &self, 
-        send_comm: &mut AnyNetComm, 
+        &self,
+        send_comm: &mut AnyNetComm,
         data: *mut c_void,
         size: usize,
-        tag: u32, 
+        tag: u32,
         mr_handle: &AnyMrHandle,
     ) -> Option<NetRequestId>;
     // Initiate an asynchronous recv operation from a eer.
     fn initiate_recv(
-        &self, 
-        recv_comm: &mut AnyNetComm, 
+        &self,
+        recv_comm: &mut AnyNetComm,
         data: &[*mut c_void],
         sizes: &[usize],
-        tags: &[u32], 
+        tags: &[u32],
         mr_handles: &[&AnyMrHandle],
     ) -> Option<NetRequestId>;
     // Initiate an asynchronous flush/fence to make sure all data received with
@@ -120,11 +121,7 @@ pub trait NetProvider: Send + Sync {
         mr_handle: &[&AnyMrHandle],
     ) -> Option<NetRequestId>;
     // Test whether a request is complete.
-    fn test(
-        &self,
-        request: NetRequestId,
-        sizes: &mut [usize],
-    ) -> bool;
+    fn test(&self, request: NetRequestId, sizes: &mut [usize]) -> bool;
 }
 
 pub(crate) struct NetListenerErased {
@@ -141,7 +138,7 @@ pub enum NetProviderError {
     #[error("Connection handle: {0}")]
     ConnectionHandle(#[from] ConnectHandleError),
     #[error("Net provider: {0}")]
-    NetProvider(#[from] anyhow::Error)
+    NetProvider(#[from] anyhow::Error),
 }
 
 #[async_trait]
@@ -153,35 +150,36 @@ pub(crate) trait NetProvierWrap: private::Sealed {
     async fn connect(&self, handle: &ConnectHandle) -> Result<AnyNetComm, NetProviderError>;
     async fn accept(&self, listen_comm: AnyNetComm) -> Result<AnyNetComm, NetProviderError>;
     async fn register_mr(
-        &self, 
+        &self,
         comm: &mut AnyNetComm,
-        mr: MemoryRegion
+        mr: MemoryRegion,
     ) -> Result<AnyMrHandle, NetProviderError>;
     async fn register_mr_dma_buf(
-        &self, 
-        comm: &mut AnyNetComm, 
+        &self,
+        comm: &mut AnyNetComm,
         mr: MemoryRegion,
-        offset: u64, fd: RawFd
+        offset: u64,
+        fd: RawFd,
     ) -> Result<AnyMrHandle, NetProviderError>;
     async fn deregister_mr(
         &self,
         comm: &mut AnyNetComm,
-        handle: AnyMrHandle
-    ) -> Result<(), NetProviderError>; 
+        handle: AnyMrHandle,
+    ) -> Result<(), NetProviderError>;
     fn initiate_send(
-        &self, 
-        send_comm: &mut AnyNetComm, 
+        &self,
+        send_comm: &mut AnyNetComm,
         data: *mut c_void,
         size: usize,
-        tag: u32, 
+        tag: u32,
         mr_handle: &AnyMrHandle,
     ) -> Option<NetRequestId>;
     fn initiate_recv(
-        &self, 
-        recv_comm: &mut AnyNetComm, 
+        &self,
+        recv_comm: &mut AnyNetComm,
         data: &[*mut c_void],
         sizes: &[usize],
-        tags: &[u32], 
+        tags: &[u32],
         mr_handles: &[&AnyMrHandle],
     ) -> Option<NetRequestId>;
     fn initiate_flush(
@@ -191,11 +189,7 @@ pub(crate) trait NetProvierWrap: private::Sealed {
         sizes: &[usize],
         mr_handle: &[&AnyMrHandle],
     ) -> Option<NetRequestId>;
-    fn test(
-        &self,
-        request: NetRequestId,
-        sizes: &mut [usize],
-    ) -> bool;
+    fn test(&self, request: NetRequestId, sizes: &mut [usize]) -> bool;
 }
 
 impl<T: NetProvider> private::Sealed for T {}
@@ -243,9 +237,9 @@ impl<T: NetProvider> NetProvierWrap for T {
     }
     #[inline]
     async fn register_mr(
-        &self, 
+        &self,
         comm: &mut AnyNetComm,
-        mr: MemoryRegion
+        mr: MemoryRegion,
     ) -> Result<AnyMrHandle, NetProviderError> {
         let mr_handle = <Self as NetProvider>::register_mr(self, comm, mr)
             .await
@@ -257,7 +251,8 @@ impl<T: NetProvider> NetProvierWrap for T {
         &self,
         comm: &mut AnyNetComm,
         mr: MemoryRegion,
-        offset: u64, fd: RawFd
+        offset: u64,
+        fd: RawFd,
     ) -> Result<AnyMrHandle, NetProviderError> {
         let mr_handle = <Self as NetProvider>::register_mr_dma_buf(self, comm, mr, offset, fd)
             .await
@@ -268,7 +263,7 @@ impl<T: NetProvider> NetProvierWrap for T {
     async fn deregister_mr(
         &self,
         comm: &mut AnyNetComm,
-        handle: AnyMrHandle
+        handle: AnyMrHandle,
     ) -> Result<(), NetProviderError> {
         <Self as NetProvider>::deregister_mr(self, comm, handle)
             .await
@@ -277,22 +272,22 @@ impl<T: NetProvider> NetProvierWrap for T {
     }
     #[inline]
     fn initiate_send(
-        &self, 
-        send_comm: &mut AnyNetComm, 
+        &self,
+        send_comm: &mut AnyNetComm,
         data: *mut c_void,
         size: usize,
-        tag: u32, 
+        tag: u32,
         mr_handle: &AnyMrHandle,
     ) -> Option<NetRequestId> {
         <Self as NetProvider>::initiate_send(self, send_comm, data, size, tag, mr_handle)
     }
     #[inline]
     fn initiate_recv(
-        &self, 
-        recv_comm: &mut AnyNetComm, 
+        &self,
+        recv_comm: &mut AnyNetComm,
         data: &[*mut c_void],
         sizes: &[usize],
-        tags: &[u32], 
+        tags: &[u32],
         mr_handles: &[&AnyMrHandle],
     ) -> Option<NetRequestId> {
         <Self as NetProvider>::initiate_recv(self, recv_comm, data, sizes, tags, mr_handles)
@@ -308,11 +303,7 @@ impl<T: NetProvider> NetProvierWrap for T {
         <Self as NetProvider>::initiate_flush(self, recv_comm, data, sizes, mr_handle)
     }
     #[inline]
-    fn test(
-        &self,
-        request: NetRequestId,
-        sizes: &mut [usize],
-    ) -> bool {
+    fn test(&self, request: NetRequestId, sizes: &mut [usize]) -> bool {
         <Self as NetProvider>::test(self, request, sizes)
     }
 }

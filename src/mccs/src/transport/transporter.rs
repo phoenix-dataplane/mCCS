@@ -1,10 +1,10 @@
 use std::any::Any;
 use std::mem::MaybeUninit;
 
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-use thiserror::Error;
 use async_trait::async_trait;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use thiserror::Error;
 
 use super::catalog::TransportCatalog;
 use super::channel::{PeerConnId, PeerConnInfo};
@@ -26,7 +26,7 @@ pub enum ConnectHandleError {
     #[error("Bincode error: {0}")]
     Bincode(#[from] bincode::Error),
     #[error("Required size {0} exceeds maximum of {}", CONNECT_HANDLE_SIZE)]
-    ExceedMaxSize(usize)
+    ExceedMaxSize(usize),
 }
 
 impl ConnectHandle {

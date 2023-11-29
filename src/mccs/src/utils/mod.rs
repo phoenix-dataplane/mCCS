@@ -1,6 +1,6 @@
 pub mod duplex_chan;
-pub mod pool;
 pub mod gdr;
+pub mod pool;
 
 #[macro_export]
 macro_rules! cuda_warning {

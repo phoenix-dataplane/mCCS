@@ -16,7 +16,7 @@ pub enum ConnType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PeerConnId {
     pub(crate) peer_rank: usize,
-    pub(crate) channel: u32,
+    pub(crate) channel: ChannelId,
     pub(crate) conn_index: u32,
     pub(crate) conn_type: ConnType,
 }
@@ -47,3 +47,6 @@ pub struct CommChannel {
     pub peers: HashMap<usize, ChannelPeerConn>,
     pub ring: RingPattern,
 }
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct ChannelId(pub u32);

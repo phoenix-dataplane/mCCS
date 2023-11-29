@@ -12,7 +12,7 @@ use cuda_runtime_sys::{cudaMalloc, cudaMemcpy};
 use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
 use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
-use crate::transport::channel::{CommChannel, PeerConnInfo};
+use crate::transport::channel::{ChannelId, CommChannel, PeerConnInfo};
 
 use super::CommProfile;
 
@@ -54,7 +54,7 @@ fn conn_info_to_dev(conn_info: &PeerConnInfo) -> mccsDevConnInfo {
 struct DevHostSyncResources {
     work_queue_done: DeviceHostMapped<u32>,
     // maps index in work_queue_done to its corresponding channel id
-    chan_mapping: Vec<u32>,
+    chan_mapping: Vec<ChannelId>,
 }
 
 impl DevHostSyncResources {
@@ -78,7 +78,7 @@ impl CommDevResources {
         rank: usize,
         num_ranks: usize,
         profile: &CommProfile,
-        channels: &HashMap<u32, CommChannel>,
+        channels: &HashMap<ChannelId, CommChannel>,
     ) -> Self {
         let buf_sizes = profile.buff_sizes.map(|x| x as _);
         let mut dev_host_sync = DevHostSyncResources::new(channels.len());
@@ -133,7 +133,7 @@ impl CommDevResources {
                 ring: dev_ring,
                 workFifoDone: work_done,
             };
-            dev_channels[*chan_id as usize].write(dev_chan);
+            dev_channels[chan_id.0 as usize].write(dev_chan);
             dev_chan_stroage.push(storage);
         }
 

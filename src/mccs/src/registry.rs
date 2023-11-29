@@ -5,7 +5,7 @@ use dashmap::DashMap;
 use crate::comm::{ChannelCommPattern, CommunicatorId, HostIdent, PeerInfo, PeerType};
 use crate::pattern;
 use crate::transport::catalog::TransportCatalog;
-use crate::transport::channel::PeerConnId;
+use crate::transport::channel::{ChannelId, PeerConnId};
 use crate::transport::delegator::TransportDelegator;
 use crate::transport::transporter::Transporter;
 use crate::transport::SHM_TRANSPORTER;
@@ -134,7 +134,7 @@ impl GlobalRegistry {
         };
 
         let channel = ChannelCommPattern {
-            channel: 0,
+            channel: ChannelId(0),
             ring: ring_pattern,
         };
         let channels = vec![channel];

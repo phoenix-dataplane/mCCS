@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use crate::pattern::RingPattern;
 use crate::proxy::plan::{ChanWorkSchedule, KernelPlan};
 use crate::proxy::task::TaskQueue;
-use crate::transport::channel::CommChannel;
+use crate::transport::channel::{ChannelId, CommChannel};
 use crate::transport::NUM_PROTOCOLS;
 
 use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
@@ -38,13 +38,13 @@ pub struct Communicator {
     pub num_ranks: usize,
     pub peers_info: Vec<PeerInfo>,
     // channel_id -> CommChannel
-    pub channels: HashMap<u32, CommChannel>,
+    pub channels: HashMap<ChannelId, CommChannel>,
     pub profile: CommProfile,
     pub dev_resources: CommDevResources,
 
     pub task_queue: TaskQueue,
 
-    pub plan_schedule: HashMap<u32, ChanWorkSchedule>,
+    pub plan_schedule: HashMap<ChannelId, ChanWorkSchedule>,
     pub unlaunched_plans: VecDeque<KernelPlan>,
 
     pub stream: cudaStream_t,
@@ -56,7 +56,7 @@ unsafe impl Send for Communicator {}
 
 pub struct ChannelCommPattern {
     // channel id
-    pub channel: u32,
+    pub channel: ChannelId,
     pub ring: RingPattern,
 }
 

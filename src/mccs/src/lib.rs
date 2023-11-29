@@ -9,7 +9,6 @@
 #![allow(dead_code)]
 #![allow(unused)]
 
-
 pub mod comm;
 pub mod config;
 pub mod control;

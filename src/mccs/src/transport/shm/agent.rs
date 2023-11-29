@@ -13,7 +13,7 @@ use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::transporter::{AgentMessage, AnyResources};
-use crate::transport::{NUM_BUFFER_SLOTS, Protocol};
+use crate::transport::{Protocol, NUM_BUFFER_SLOTS};
 
 use super::config::ShmLocality;
 use super::resources::{ShmAgentReply, ShmAgentRequest, ShmAgentResources};
@@ -29,7 +29,10 @@ pub async fn shm_agent_connect(agent_request: AgentMessage) -> (AnyResources, Ag
         ShmLocality::Receiver => request.receiver_meta.buf_mut_ptr(),
     };
     let buf_size = request.buf_sizes[Protocol::Simple as usize];
-    let buf_offset = request.buf_sizes[0..Protocol::Simple as usize].iter().copied().sum();
+    let buf_offset = request.buf_sizes[0..Protocol::Simple as usize]
+        .iter()
+        .copied()
+        .sum();
     let host_buf = unsafe { buf.add(buf_offset) };
 
     let meta_sync = DeviceHostMapped::alloc(1);
@@ -166,15 +169,13 @@ pub fn shm_agent_recv_progress(resources: &mut AnyResources, op: &mut TransportO
             unsafe {
                 let device_buf = resources.device_buf.as_ptr().add(offset);
                 let host_buf = resources.host_buf.add(offset);
-                cuda_warning!(
-                    cudaMemcpyAsync(
-                        device_buf as _,
-                        host_buf as _,
-                        size as usize,
-                        cudaMemcpyHostToDevice,
-                        resources.stream,
-                    )
-                );
+                cuda_warning!(cudaMemcpyAsync(
+                    device_buf as _,
+                    host_buf as _,
+                    size as usize,
+                    cudaMemcpyHostToDevice,
+                    resources.stream,
+                ));
                 cuda_warning!(cudaEventRecord(
                     resources.events[buf_slot],
                     resources.stream

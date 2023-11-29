@@ -3,7 +3,6 @@ use crate::transport::transporter::Transporter;
 
 pub struct NetTransport;
 
-
 // impl Transporter for NetTransport {
 //     fn send_setup(&self, profile: &CommProfile,conn_id: &PeerConnId,catalog: &TransportCatalog,) -> TransportSetup {
 //         todo!()

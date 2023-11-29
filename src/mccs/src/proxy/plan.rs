@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::{collections::VecDeque, mem::MaybeUninit};
 
@@ -8,6 +9,8 @@ use collectives_sys::{
 use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpyKind};
 
 use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
+use crate::transport::channel::{ChannelId, CommChannel};
+use crate::transport::task::TransportTask;
 use crate::{
     comm::Communicator,
     cuda::{alloc::DeviceAlloc, ptr::DeviceNonNull},
@@ -36,6 +39,7 @@ pub enum KernelWork {
 pub struct ChanWorkSchedule {
     pub coll_bytes: usize,
     pub work_queue: VecDeque<KernelWork>,
+    pub agent_task_queue: Vec<TransportTask>,
 }
 
 pub struct KernelPlan {
@@ -59,15 +63,22 @@ impl Communicator {
         self.finalize_plan();
     }
 
-    pub fn schedule_coll_tasks(&mut self) {
+    fn schedule_coll_tasks(&mut self) {
         let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
         let work = compute_coll_work(&coll_task);
-        enqueue_coll_work_to_chans(&work, self);
+        enqueue_work_elem_coll(&work, self);
     }
 
-    pub fn finalize_plan(&mut self) {
+    fn finalize_plan(&mut self) {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
-        let dev_work = self.upload_work();
+        let dev_work = upload_work(
+            self.plan_schedule
+                .get_mut(&ChannelId(0))
+                .unwrap()
+                .work_queue
+                .pop_front()
+                .unwrap(),
+        );
         let plan = KernelPlan {
             kernel_fn: ptr as _,
             dev_work_head: dev_work,
@@ -79,70 +90,6 @@ impl Communicator {
             thread_per_block: 512, //FIXME: should be bigger than maximum thread. Otherwise the program will hang
         };
         self.unlaunched_plans.push_back(plan);
-    }
-
-    pub fn upload_work(&mut self) -> DeviceNonNull<mccsDevWork> {
-        let work = self
-            .plan_schedule
-            .get_mut(&0)
-            .unwrap()
-            .work_queue
-            .pop_front()
-            .unwrap();
-        let mut dev_work_content = match work {
-            KernelWork::Coll {
-                func_index: _,
-                mut work_elems,
-            } => {
-                let work_elem = work_elems.pop().unwrap();
-                let mut dev_work_elem = unsafe {
-                    let elem = MaybeUninit::<mccsDevWorkElem>::zeroed();
-                    elem.assume_init()
-                };
-                dev_work_elem.bid = 0;
-                dev_work_elem.nChannels = work_elem.num_channels;
-                dev_work_elem.nWarps = work_elem.num_warps;
-                dev_work_elem.count = work_elem.count;
-                dev_work_elem.root = work_elem.root;
-                dev_work_elem.recvbuff = work_elem.recv_buf.as_ptr();
-                dev_work_elem.sendbuff = work_elem.send_buf.as_ptr();
-                dev_work_elem.set_isUsed(1);
-
-                let elems = unsafe {
-                    let elems = [MaybeUninit::zeroed(); 10];
-                    let mut elems = MaybeUninit::array_assume_init(elems);
-                    elems[0] = dev_work_elem;
-                    elems
-                };
-                let dev_work_elems = mccsDevWork__bindgen_ty_1 { elems };
-                let dev_work_header = unsafe {
-                    let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
-                    let mut init = uninit.assume_init();
-                    init.set_isLast(1);
-                    init.set_inFifo(0);
-                    init.type_ = mccsDevWorkType::mccsDevWorkTypeColl;
-                    init
-                };
-
-                mccsDevWork {
-                    header: dev_work_header,
-                    __bindgen_anon_1: dev_work_elems,
-                }
-            } // TODO
-        };
-
-        let dev_work = DeviceAlloc::new(1);
-        let ptr = unsafe { DeviceNonNull::new_unchecked(dev_work.as_ptr()) };
-        let _guard = std::mem::ManuallyDrop::new(dev_work);
-        unsafe {
-            cuda_warning!(cudaMemcpy(
-                ptr.as_ptr() as _,
-                &mut dev_work_content as *mut mccsDevWork as _,
-                std::mem::size_of::<mccsDevWork>(),
-                cudaMemcpyKind::cudaMemcpyHostToDevice,
-            ));
-        }
-        ptr
     }
 
     pub fn launch_plan(&mut self) {
@@ -179,7 +126,7 @@ impl Communicator {
     }
 }
 
-pub fn compute_coll_work(task: &CollTask) -> WorkElemColl {
+fn compute_coll_work(task: &CollTask) -> WorkElemColl {
     let schema = get_task_schema(task);
     let num_wraps = schema.num_threads / 32;
     WorkElemColl {
@@ -193,8 +140,8 @@ pub fn compute_coll_work(task: &CollTask) -> WorkElemColl {
     }
 }
 
-pub fn enqueue_coll_work_to_chans(elem: &WorkElemColl, comm: &mut Communicator) {
-    let schedule = comm.plan_schedule.get_mut(&0).unwrap();
+fn enqueue_work_elem_coll(elem: &WorkElemColl, comm: &mut Communicator) {
+    let schedule = comm.plan_schedule.get_mut(&ChannelId(0)).unwrap();
     let work = KernelWork::Coll {
         func_index: 0,
         work_elems: vec![elem.clone()],
@@ -202,7 +149,7 @@ pub fn enqueue_coll_work_to_chans(elem: &WorkElemColl, comm: &mut Communicator) 
     schedule.work_queue.push_back(work);
 }
 
-pub fn get_task_schema(task: &CollTask) -> TaskSchema {
+fn get_task_schema(task: &CollTask) -> TaskSchema {
     use super::task::TaskDataType;
 
     let algorithm = TaskAlgorithm::Ring;
@@ -227,4 +174,67 @@ pub fn get_task_schema(task: &CollTask) -> TaskSchema {
         num_channels: nc as _,
         num_threads: nt as _,
     }
+}
+
+// bid->ChannelId
+fn select_best_channels(num: usize, chan_list: &HashMap<ChannelId, CommChannel>) -> Vec<ChannelId> {
+    // todo: improve choice quality
+    chan_list.keys().take(num).cloned().collect()
+}
+
+fn upload_work(work: KernelWork) -> DeviceNonNull<mccsDevWork> {
+    let mut dev_work_content = match work {
+        KernelWork::Coll {
+            func_index: _,
+            mut work_elems,
+        } => {
+            let work_elem = work_elems.pop().unwrap();
+            let mut dev_work_elem = unsafe {
+                let elem = MaybeUninit::<mccsDevWorkElem>::zeroed();
+                elem.assume_init()
+            };
+            dev_work_elem.bid = 0;
+            dev_work_elem.nChannels = work_elem.num_channels;
+            dev_work_elem.nWarps = work_elem.num_warps;
+            dev_work_elem.count = work_elem.count;
+            dev_work_elem.root = work_elem.root;
+            dev_work_elem.recvbuff = work_elem.recv_buf.as_ptr();
+            dev_work_elem.sendbuff = work_elem.send_buf.as_ptr();
+            dev_work_elem.set_isUsed(1);
+
+            let elems = unsafe {
+                let elems = [MaybeUninit::zeroed(); 10];
+                let mut elems = MaybeUninit::array_assume_init(elems);
+                elems[0] = dev_work_elem;
+                elems
+            };
+            let dev_work_elems = mccsDevWork__bindgen_ty_1 { elems };
+            let dev_work_header = unsafe {
+                let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
+                let mut init = uninit.assume_init();
+                init.set_isLast(1);
+                init.set_inFifo(0);
+                init.type_ = mccsDevWorkType::mccsDevWorkTypeColl;
+                init
+            };
+
+            mccsDevWork {
+                header: dev_work_header,
+                __bindgen_anon_1: dev_work_elems,
+            }
+        } // TODO
+    };
+
+    let dev_work = DeviceAlloc::new(1);
+    let ptr = unsafe { DeviceNonNull::new_unchecked(dev_work.as_ptr()) };
+    let _guard = std::mem::ManuallyDrop::new(dev_work);
+    unsafe {
+        cuda_warning!(cudaMemcpy(
+            ptr.as_ptr() as _,
+            &mut dev_work_content as *mut mccsDevWork as _,
+            std::mem::size_of::<mccsDevWork>(),
+            cudaMemcpyKind::cudaMemcpyHostToDevice,
+        ));
+    }
+    ptr
 }

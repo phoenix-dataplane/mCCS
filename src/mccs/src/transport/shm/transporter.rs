@@ -15,7 +15,7 @@ use crate::transport::transporter::{AgentMessage, TransportAgentId};
 use crate::transport::transporter::{
     AnyResources, ConnectInfo, TransportConnect, TransportSetup, Transporter,
 };
-use crate::transport::{NUM_PROTOCOLS, Protocol};
+use crate::transport::{Protocol, NUM_PROTOCOLS};
 
 use super::agent::{shm_agent_connect, shm_agent_recv_progress, shm_agent_send_progress};
 use super::buffer::TransportBuffer;

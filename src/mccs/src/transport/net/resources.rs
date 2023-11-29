@@ -1,10 +1,10 @@
 use std::ffi::c_void;
 
 use crate::cuda::mapped_ptr::DeviceHostPtr;
-use crate::transport::meta::{SendBufMeta, RecvBufMeta};
+use crate::transport::meta::{RecvBufMeta, SendBufMeta};
 
 use super::buffer::BufferMap;
-use super::provider::{AnyNetComm, AnyMrHandle, NetProvierWrap};
+use super::provider::{AnyMrHandle, AnyNetComm, NetProvierWrap};
 use crate::transport::transporter::ConnectHandle;
 use crate::transport::NUM_PROTOCOLS;
 
@@ -52,12 +52,12 @@ pub struct AgentSendResources {
     pub(crate) buffers: [*mut c_void; NUM_PROTOCOLS],
     pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
     pub(crate) mr_handles: [AnyMrHandle; NUM_PROTOCOLS],
-    pub(crate) step: u64,  
+    pub(crate) step: u64,
     pub(crate) provider: &'static dyn NetProvierWrap,
 }
 
 pub struct AgentRecvConnectRequest {
-    agent_rank: usize
+    agent_rank: usize,
 }
 
 pub struct AgentRecvSetup {

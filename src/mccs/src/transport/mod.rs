@@ -8,10 +8,10 @@ pub mod delegator;
 pub mod engine;
 pub mod message;
 pub mod meta;
+pub mod net;
 pub mod op;
 pub mod queue;
 pub mod shm;
-pub mod net;
 pub mod task;
 pub mod transporter;
 
@@ -23,7 +23,7 @@ pub const NUM_PROTOCOLS: usize = MCCS_NUM_PROTOCOLS as _;
 #[derive(PartialEq, Eq)]
 #[repr(usize)]
 pub enum Protocol {
-    Simple = MCCS_PROTO_SIMPLE as _
+    Simple = MCCS_PROTO_SIMPLE as _,
 }
 
 static_assertions::const_assert_eq!(std::mem::variant_count::<Protocol>(), NUM_PROTOCOLS);

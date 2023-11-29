@@ -143,6 +143,7 @@ impl CommInitState {
             let schedule = ChanWorkSchedule {
                 coll_bytes: 0,
                 work_queue: VecDeque::new(),
+                agent_task_queue: Vec::new(),
             };
             plan_schedule.insert(*chan, schedule);
         }
