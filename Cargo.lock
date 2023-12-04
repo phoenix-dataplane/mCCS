@@ -135,9 +135,9 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.68.1"
+version = "0.69.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "726e4313eb6ec35d2730258ad4e15b547ee75d6afaa1361a922e78e59b7d8078"
+checksum = "9ffcebc3849946a7170a05992aac39da343a90676ab392c51a4280981d6379c2"
 dependencies = [
  "bitflags 2.4.1",
  "cexpr",
@@ -639,6 +639,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "heck"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95505c38b4572b2d910cecb0281560f54b440a19336cbbcb27bf6ce6adc6f5a8"
+
+[[package]]
 name = "hermit-abi"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -658,6 +664,15 @@ name = "humantime"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
+
+[[package]]
+name = "ibverbs"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bindgen 0.69.1",
+ "serde",
+]
 
 [[package]]
 name = "indexmap"
@@ -724,7 +739,7 @@ dependencies = [
  "crossbeam",
  "ipc-channel",
  "libc",
- "memfd 0.4.1",
+ "memfd",
  "memmap2 0.5.8",
  "minstant",
  "mio 0.8.5",
@@ -851,11 +866,13 @@ dependencies = [
  "bitflags 2.4.1",
  "collectives-sys",
  "crossbeam",
+ "cuda-driver-sys",
  "cuda-runtime-sys",
  "dashmap",
  "env_logger",
  "futures",
  "gdrcopy-sys",
+ "ibverbs",
  "ipc",
  "log",
  "memoffset 0.8.0",
@@ -866,9 +883,11 @@ dependencies = [
  "serde",
  "static_assertions",
  "structopt",
+ "strum",
  "thiserror",
  "toml",
  "uuid 1.2.2",
+ "volatile",
 ]
 
 [[package]]
@@ -884,15 +903,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6627dc657574b49d6ad27105ed671822be56e0d2547d413bfbf3e8d8fa92e7a"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "memfd"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2cffa4ad52c6f791f4f8b15f0c05f9824b2ced1160e88cc393d64fff9a8ac64"
-dependencies = [
- "rustix",
 ]
 
 [[package]]
@@ -936,15 +946,6 @@ name = "memoffset"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d61c719bcfbcf5d62b3a09efa6088de8c54bc0bfcd3ea7ae39fcc186108b8de1"
-dependencies = [
- "autocfg",
-]
-
-[[package]]
-name = "memoffset"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a634b1c61a95585bd15607c6ab0c4e5b226e695ff2800ba0cdccddf208c406c"
 dependencies = [
  "autocfg",
 ]
@@ -1045,18 +1046,6 @@ dependencies = [
  "memoffset 0.7.1",
  "pin-utils",
  "static_assertions",
-]
-
-[[package]]
-name = "nix"
-version = "0.27.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2eb04e9c688eff1c89d72b407f168cf79bb9e867a9d3323ed6c01519eb9cc053"
-dependencies = [
- "bitflags 2.4.1",
- "cfg-if 1.0.0",
- "libc",
- "memoffset 0.9.0",
 ]
 
 [[package]]
@@ -1296,21 +1285,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rdma"
-version = "0.1.0"
-dependencies = [
- "bindgen 0.68.1",
- "cc",
- "libc",
- "log",
- "memfd 0.6.4",
- "nix 0.27.1",
- "socket2",
- "static_assertions",
- "thiserror",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1372,6 +1346,12 @@ dependencies = [
  "linux-raw-sys",
  "windows-sys 0.48.0",
 ]
+
+[[package]]
+name = "rustversion"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ffc183a10b4478d04cbbbfc96d0873219d962dd5accaff2ffbd4ceb7df837f4"
 
 [[package]]
 name = "ryu"
@@ -1457,7 +1437,7 @@ checksum = "d340bc081c581a0db2cca6a84fb58d3869ccc223be7fbba0cb13a1368d949f49"
 dependencies = [
  "byteorder",
  "libc",
- "memfd 0.4.1",
+ "memfd",
  "memmap2 0.2.3",
  "thiserror",
  "zerocopy",
@@ -1517,11 +1497,33 @@ version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcb5ae327f9cc13b68763b5749770cb9e048a99bd9dfdfa58d0cf05d5f64afe0"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro-error",
  "proc-macro2",
  "quote",
  "syn 1.0.105",
+]
+
+[[package]]
+name = "strum"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "290d54ea6f91c969195bdbcd7442c8c2a2ba87da8bf60a7ee86a235d4bc1e125"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.25.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "23dc1fa9ac9c169a78ba62f0b841814b7abae11bdd047b9c58f893439e309ea0"
+dependencies = [
+ "heck 0.4.1",
+ "proc-macro2",
+ "quote",
+ "rustversion",
+ "syn 2.0.38",
 ]
 
 [[package]]
@@ -1701,6 +1703,12 @@ name = "version_check"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
+
+[[package]]
+name = "volatile"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9eaac9f9d9b7ae00cdd43e21b15e58ccacd903e6d29131d7536765a61969d25e"
 
 [[package]]
 name = "waker-fn"

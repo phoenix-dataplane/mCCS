@@ -2,6 +2,7 @@ use std::any::Any;
 use std::os::fd::RawFd;
 use std::ffi::c_void;
 
+use bitflags::bitflags;
 use thiserror::Error;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -9,8 +10,22 @@ use async_trait::async_trait;
 
 use crate::transport::transporter::{ConnectHandle, ConnectHandleError};
 
+pub mod rdma;
+
 pub type AnyNetComm = Box<dyn Any + Send>;
 pub type AnyMrHandle = Box<dyn Any + Send>;
+
+pub const NET_MAX_REQUESTS: usize = 32;
+
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(transparent)]
+    pub(crate) struct PtrSupport: u8 {
+        const PTR_HOST = 0b00000001;
+        const PTR_CUDA = 0b00000010;
+        const PTR_DMA_BUF = 0b00000100;
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct NetProperties {
@@ -20,6 +35,7 @@ pub(crate) struct NetProperties {
     // Unique identifier for the NIC chip. Important for
     // cards with multiple PCI functions (Physical or virtual).
     pub(crate) guid: u64,
+    pub(crate) ptr_support: PtrSupport,
     pub(crate) speed: u32,
     pub(crate) port: u16,
     pub(crate) latency: f32,
@@ -27,7 +43,7 @@ pub(crate) struct NetProperties {
     pub(crate) max_recvs: usize,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub(crate) enum MrType {
     Host,
@@ -55,7 +71,7 @@ pub(crate) struct NetListener<NetHandle> {
 // https://github.com/NVIDIA/nccl/blob/v2.17.1-1/src/include/nccl_net.h#L87
 // closeSend, closeRecv and closeListen should be implemented as Drop of the NetComm types
 #[async_trait]
-pub trait NetProvider: Send + Sync {
+pub(crate) trait NetProvider: Send + Sync {
     type NetError: std::error::Error + Send + Sync + 'static;
     type NetHandle: Serialize + DeserializeOwned + Send + Sync + 'static;
 

@@ -15,11 +15,12 @@ pub struct AgentSetupRequest {
     pub(crate) net_device: usize,
     pub(crate) use_gdr: bool,
     pub(crate) need_flush: bool,
+    pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
     pub(crate) provider: &'static dyn NetProvierWrap,
 }
 
 pub struct AgentSendConnectRequest {
-    handle: ConnectHandle,
+    pub(crate) handle: ConnectHandle,
 }
 
 pub struct AgentSendSetup {
@@ -30,6 +31,7 @@ pub struct AgentSendSetup {
     pub(crate) use_gdr: bool,
     pub(crate) use_dma_buf: bool,
     pub(crate) max_recvs: usize,
+    pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
     pub(crate) provider: &'static dyn NetProvierWrap,
 }
 
@@ -57,7 +59,7 @@ pub struct AgentSendResources {
 }
 
 pub struct AgentRecvConnectRequest {
-    agent_rank: usize
+    pub(crate) agent_rank: usize
 }
 
 pub struct AgentRecvSetup {
@@ -70,6 +72,7 @@ pub struct AgentRecvSetup {
     pub(crate) use_dma_buf: bool,
     pub(crate) need_flush: bool,
     pub(crate) max_recvs: usize,
+    pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
     pub(crate) provider: &'static dyn NetProvierWrap,
 }
 

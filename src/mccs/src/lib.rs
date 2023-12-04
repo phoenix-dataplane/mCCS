@@ -5,6 +5,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
 #![feature(variant_count)]
+#![feature(pointer_byte_offsets)]
 
 #[allow(dead_code)]
 pub mod comm;

@@ -1,3 +1,5 @@
+use strum::{EnumIter, EnumCount};
+
 use collectives_sys::{MCCS_NUM_PROTOCOLS, MCCS_PROTO_SIMPLE};
 
 use self::shm::transporter::ShmTransporter;
@@ -20,7 +22,7 @@ pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 pub const NUM_BUFFER_SLOTS: usize = 8;
 pub const NUM_PROTOCOLS: usize = MCCS_NUM_PROTOCOLS as _;
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumIter, EnumCount)]
 #[repr(usize)]
 pub enum Protocol {
     Simple = MCCS_PROTO_SIMPLE as _

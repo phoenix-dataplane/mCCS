@@ -14,6 +14,8 @@ pub struct SendBufMeta {
     _slots_offsets: [u32; NUM_BUFFER_SLOTS],
 }
 
+static_assertions::const_assert_eq!(std::mem::size_of::<SendBufMeta>(), 4096);
+
 impl SendBufMeta {
     pub fn new() -> Self {
         SendBufMeta {
@@ -43,6 +45,8 @@ pub struct RecvBufMeta {
     _slots_offsets: [u32; NUM_BUFFER_SLOTS],
     _flush: bool,
 }
+
+static_assertions::const_assert_eq!(std::mem::size_of::<RecvBufMeta>(), 4096);
 
 impl Default for RecvBufMeta {
     fn default() -> Self {

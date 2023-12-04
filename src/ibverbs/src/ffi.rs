@@ -4,11 +4,11 @@ include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct ibv_wc {
-    pub(crate) wr_id: u64,
-    pub(crate) status: ibv_wc_status::Type,
-    pub(crate) opcode: ibv_wc_opcode::Type,
-    pub(crate) vendor_err: u32,
-    pub(crate) byte_len: u32,
+    wr_id: u64,
+    status: ibv_wc_status::Type,
+    opcode: ibv_wc_opcode::Type,
+    vendor_err: u32,
+    byte_len: u32,
 
     /// Immediate data OR the local RKey that was invalidated depending on `wc_flags`.
     /// See `man ibv_poll_cq` for details.
@@ -47,7 +47,7 @@ pub struct ibv_wc {
     pub dlid_path_bits: u8,
 }
 
-#[cfg_attr(feature = "cargo-clippy", allow(clippy::len_without_is_empty))]
+#[cfg_attr(feature = "cargo-clippy", allow(len_without_is_empty))]
 impl ibv_wc {
     /// Returns the 64 bit value that was associated with the corresponding Work Request.
     pub fn wr_id(&self) -> u64 {
