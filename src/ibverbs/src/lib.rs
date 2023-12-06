@@ -72,6 +72,7 @@
 // Suppress expected warnings from bindgen-generated code.
 // See https://github.com/rust-lang/rust-bindgen/issues/1651.
 #![allow(deref_nullptr)]
+#![feature(strict_provenance)]
 
 
 use std::convert::TryInto;
@@ -332,7 +333,7 @@ impl<'devlist> Device<'devlist> {
 
 /// An RDMA context bound to a device.
 pub struct Context {
-    ctx: *mut ffi::ibv_context,
+    pub ctx: *mut ffi::ibv_context,
     port_attr: ffi::ibv_port_attr,
     gid: Gid,
 }
@@ -1086,9 +1087,12 @@ impl<T> Drop for MemoryRegionAlloc<T> {
 
 pub struct MemoryRegionRegister {
     mr: *mut ffi::ibv_mr,
-    addr: *mut c_void,
+    ptr: *mut c_void,
     size: usize,
 }
+
+unsafe impl Send for MemoryRegionRegister {}
+unsafe impl Sync for MemoryRegionRegister {}
 
 impl MemoryRegionRegister {
     #[inline]
@@ -1097,8 +1101,8 @@ impl MemoryRegionRegister {
     }
 
     #[inline]
-    pub fn addr(&self) -> *mut c_void {
-        self.addr
+    pub fn addr(&self) -> usize {
+        self.ptr as usize
     }
 
     #[inline]
@@ -1173,10 +1177,63 @@ impl<'ctx> ProtectionDomain<'ctx> {
         }
         let mr_register = MemoryRegionRegister {
             mr,
-            addr,
+            ptr: addr,
             size: length,
         };
         Ok(mr_register)
+    }
+
+    // Register an DMA-BUF memory region
+    pub fn register_dmabuf_mr(
+        &self,
+        addr: *mut c_void, 
+        length: usize, 
+        offset: u64,
+        fd: std::os::unix::io::RawFd,
+        access: ibv_access_flags,
+    ) -> io::Result<MemoryRegionRegister> {
+        let mr = unsafe { ffi::ibv_reg_dmabuf_mr(
+            self.pd, 
+            offset, 
+            length,
+            addr.addr() as u64, 
+            fd, 
+            access.0 as i32,
+        )};
+        if mr.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let mr_register = MemoryRegionRegister {
+            mr,
+            ptr: addr,
+            size: length,
+        };
+        Ok(mr_register)
+    }
+
+    // Register memory region with IBV_ACCESS_RELAXED_ORDERING support
+    pub fn register_mr_iova2(
+        &self,
+        addr: *mut c_void, 
+        length: usize, 
+        access: ibv_access_flags
+    ) -> io::Result<MemoryRegionRegister> {
+        let mr = unsafe { ffi::ibv_reg_mr_iova2(
+            self.pd,
+            addr,
+            length,
+            addr as u64,
+            access.0,
+        )};
+        if mr.is_null() {
+            return Err(io::Error::last_os_error());
+        }
+        let mr_register = MemoryRegionRegister {
+            mr,
+            ptr: addr,
+            size: length,
+        };
+        Ok(mr_register) 
     }
 
     /// Allocates and registers a Memory Region (MR) associated with this `ProtectionDomain`.

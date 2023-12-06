@@ -13,6 +13,8 @@ collectives-sys = { path = "../collectives-sys" }
 gdrcopy-sys = { path = "../gdrcopy-sys" }
 ibverbs = { path = "../ibverbs" }
 
+async-std = "1.12.0"
+socket2 = "0.5.5"
 anyhow = "1.0.66"
 bincode = "1.3.3"
 serde = "1.0.149"
@@ -20,7 +22,7 @@ toml = "0.5.9"
 thiserror = "1.0.37"
 uuid = { version = "1.2.2", features = ["v4"] }
 structopt = "0.3.26"
-nix = "0.26.1"
+nix = { version = "0.27.1", features = ["feature"] }
 dashmap = "5.4.0"
 crossbeam = "0.8.2"
 rand = "0.8.5"
