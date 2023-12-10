@@ -38,7 +38,7 @@ pub struct Communicator {
     pub num_ranks: usize,
     pub peers_info: Vec<PeerInfo>,
     // channel_id -> CommChannel
-    pub channels: HashMap<ChannelId, CommChannel>,
+    pub channels: Vec<CommChannel>,
     pub profile: CommProfile,
     pub dev_resources: CommDevResources,
 
