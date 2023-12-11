@@ -28,6 +28,17 @@ pub enum TaskDataType {
     Float64 = 8,
 }
 
+impl TaskDataType {
+    pub fn count_bytes(&self) -> usize {
+        match self {
+            TaskDataType::Int8 | TaskDataType::Uint8 => 1,
+            TaskDataType::Float16 => 2,
+            TaskDataType::Int32 | TaskDataType::Uint32 | TaskDataType::Float32 => 4,
+            TaskDataType::Int64 | TaskDataType::Uint64 | TaskDataType::Float64 => 8,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskReduceOpType {
     Sum = 0,

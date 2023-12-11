@@ -21,7 +21,7 @@ use crate::{
 const MCCS_MAX_ELEMENTS_PER_WORK: usize = 10;
 
 #[derive(Clone)]
-pub struct WorkElemColl {
+pub struct WorkElem {
     num_warps: u8,
     send_buf: DeviceNonNull<c_void>,
     recv_buf: DeviceNonNull<c_void>,
@@ -36,7 +36,7 @@ pub struct WorkElemColl {
 pub enum KernelWork {
     Coll {
         func_index: u16,
-        work_elems: Vec<WorkElemColl>,
+        work_elems: Vec<WorkElem>,
     },
 }
 
@@ -47,7 +47,12 @@ pub struct ChanWorkSchedule {
 }
 
 impl ChanWorkSchedule {
-    fn enqueue_work_elem_coll(&mut self, elem: WorkElemColl, work_func_index: u16) {
+    fn enqueue_work_elem_coll(
+        &mut self,
+        elem: WorkElem,
+        work_func_index: u16,
+        data_type_bytes: usize,
+    ) {
         if let Some(tail) = self.work_queue.last_mut() {
             if let KernelWork::Coll {
                 func_index,
@@ -69,7 +74,7 @@ impl ChanWorkSchedule {
             work_elems: vec![elem],
         };
         self.work_queue.push(work);
-        self.coll_bytes += elem.count * todo!("depends on work_func_index");
+        self.coll_bytes += elem.count * data_type_bytes;
     }
 }
 
@@ -86,11 +91,14 @@ pub struct KernelPlan {
 
 impl Communicator {
     pub fn pre_launch_schedule(&mut self) {
-        let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
-        self.compute_coll_work(&coll_task);
+        while let Some(coll_task) = self.task_queue.coll_queue.pop_front() {
+            // todo: proxy
+            self.compute_coll_work(&coll_task);
+        }
         self.unlaunched_plans.push_back(self.finalize_one_plan());
     }
 
+    // convert one task to different WorkElem object to different channel
     fn compute_coll_work(&mut self, task: &CollTask) {
         let schema = get_task_schema(task);
         let num_wraps = schema.num_threads / 32;
@@ -98,7 +106,7 @@ impl Communicator {
             .into_iter()
             .enumerate()
             .for_each(|(block_id, chan_id)| {
-                let elem = WorkElemColl {
+                let elem = WorkElem {
                     num_warps: num_wraps as _,
                     send_buf: task.send_buf.cast(),
                     recv_buf: task.recv_buf.cast(),
@@ -110,7 +118,7 @@ impl Communicator {
                 self.plan_schedule
                     .get_mut(&chan_id)
                     .unwrap()
-                    .enqueue_work_elem_coll(elem, todo!());
+                    .enqueue_work_elem_coll(elem, todo!(), task.data_type.count_bytes());
             })
     }
 
@@ -161,24 +169,28 @@ fn get_task_schema(task: &CollTask) -> TaskSchema {
     let algorithm = TaskAlgorithm::Ring;
     let protocol = TaskProtocol::Simple;
     assert_eq!(task.data_type, TaskDataType::Uint8);
-    let mut nc = 1;
-    let mut nt = 512;
+    let mut num_channel = 1;
+    let mut num_thread = 512;
     let thread_th = 64;
-    while task.count < nc * nt * thread_th {
-        if nc >= 2 {
-            nc -= 1;
-        } else if (nt % 128) == 0 {
-            nt /= 2;
+    while task.count < num_channel * num_thread * thread_th {
+        if num_channel >= 2 {
+            num_channel -= 1;
+        } else if (num_thread % 128) == 0 {
+            num_thread /= 2;
         } else {
             break;
         }
     }
-    nt = if nt + 32 > 512 { 512 } else { nt + 32 }; // warning: should not exceed thread_per_block
+    num_thread = if num_thread + 32 > 512 {
+        512
+    } else {
+        num_thread + 32
+    }; // warning: should not exceed thread_per_block
     TaskSchema {
         algorithm,
         protocol,
-        num_channels: nc as _,
-        num_threads: nt as _,
+        num_channels: num_channel as _,
+        num_threads: num_thread as _,
     }
 }
 
