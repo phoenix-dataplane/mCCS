@@ -79,6 +79,7 @@ pub enum TaskProtocol {
 pub struct TaskSchema {
     pub algorithm: TaskAlgorithm,
     pub protocol: TaskProtocol,
+    pub work_func_index: u16,
     pub num_channels: u32,
     pub num_threads: u32,
 }

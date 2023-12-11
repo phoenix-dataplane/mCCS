@@ -33,11 +33,9 @@ pub struct WorkElem {
     num_channels: u8,
 }
 
-pub enum KernelWork {
-    Coll {
-        func_index: u16,
-        work_elems: Vec<WorkElem>,
-    },
+pub struct KernelWork {
+    func_index: u16,
+    work_elems: Vec<WorkElem>,
 }
 
 pub struct ChanWorkSchedule {
@@ -54,22 +52,16 @@ impl ChanWorkSchedule {
         data_type_bytes: usize,
     ) {
         if let Some(tail) = self.work_queue.last_mut() {
-            if let KernelWork::Coll {
-                func_index,
-                work_elems,
-            } = tail
+            // accumulate same type work_elems
+            if work_func_index == *tail.func_index
+                && elem.num_warps == tail.work_elems[0].num_warps
+                && tail.work_elems.len() < MCCS_MAX_ELEMENTS_PER_WORK
             {
-                // accumulate same type work_elems
-                if work_func_index == *func_index
-                    && elem.num_warps == work_elems[0].num_warps
-                    && work_elems.len() < MCCS_MAX_ELEMENTS_PER_WORK
-                {
-                    work_elems.push(elem);
-                    return;
-                }
+                tail.work_elems.push(elem);
+                return;
             }
         }
-        let work = KernelWork::Coll {
+        let work = KernelWork {
             func_index: work_func_index,
             work_elems: vec![elem],
         };
@@ -91,9 +83,19 @@ pub struct KernelPlan {
 
 impl Communicator {
     pub fn pre_launch_schedule(&mut self) {
-        while let Some(coll_task) = self.task_queue.coll_queue.pop_front() {
-            // todo: proxy
-            self.compute_coll_work(&coll_task);
+        let first_task = self.task_queue.coll_queue.pop_front().unwrap();
+        // todo: proxy
+        self.compute_coll_work(&first_task);
+        while let Some(coll_task) = self.task_queue.coll_queue.front() {
+            if first_task.func == coll_task.func
+                && first_task.data_type == coll_task.data_type
+                && first_task.reduce_op == coll_task.reduce_op
+            {
+                let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
+                self.compute_coll_work(&coll_task);
+            } else {
+                break;
+            }
         }
         self.unlaunched_plans.push_back(self.finalize_one_plan());
     }
@@ -118,7 +120,11 @@ impl Communicator {
                 self.plan_schedule
                     .get_mut(&chan_id)
                     .unwrap()
-                    .enqueue_work_elem_coll(elem, todo!(), task.data_type.count_bytes());
+                    .enqueue_work_elem_coll(
+                        elem,
+                        schema.work_func_index,
+                        task.data_type.count_bytes(),
+                    );
             })
     }
 
@@ -142,6 +148,17 @@ impl Communicator {
 
     fn finalize_one_plan(&mut self) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
+        let mut channel_count = 0;
+        let mut channel_upper_bound = 0;
+        let mut channel_mask = 0u64;
+        for (idx, chan) in self.plan_schedule.iter_mut() {
+            if !chan.work_queue.is_empty() {
+                channel_count += 1;
+                channel_upper_bound = channel_upper_bound.max(idx.0 + 1);
+                channel_mask |= 1 << idx.0;
+            }
+        }
+        // todo
         let dev_work = upload_work(
             self.plan_schedule
                 .get_mut(&ChannelId(0))
@@ -154,9 +171,9 @@ impl Communicator {
             kernel_fn: ptr as _,
             dev_work_head: dev_work,
 
-            channel_count: 1,
-            channel_upper_bound: 1,
-            channel_mask: 1,
+            channel_count,
+            channel_upper_bound,
+            channel_mask,
 
             thread_per_block: 512, //FIXME: should be bigger than maximum thread. Otherwise the program will hang
         };
@@ -189,6 +206,7 @@ fn get_task_schema(task: &CollTask) -> TaskSchema {
     TaskSchema {
         algorithm,
         protocol,
+        work_func_index: todo!(),
         num_channels: num_channel as _,
         num_threads: num_thread as _,
     }
