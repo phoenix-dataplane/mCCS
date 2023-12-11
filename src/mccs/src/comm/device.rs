@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 
-use collectives_sys::MCCS_MAX_NCHANNELS;
 use collectives_sys::{
     mccsDevChannel, mccsDevChannelPeer, mccsDevComm, mccsDevCommAndChannels, mccsDevConnInfo,
     mccsDevRing,
 };
+use collectives_sys::{mccsDevWork, MCCS_MAX_NCHANNELS};
 use cuda_runtime_sys::cudaMemcpyKind::cudaMemcpyHostToDevice;
 use cuda_runtime_sys::{cudaMalloc, cudaMemcpy};
 
@@ -52,15 +52,18 @@ fn conn_info_to_dev(conn_info: &PeerConnInfo) -> mccsDevConnInfo {
 }
 
 struct DevHostSyncResources {
-    work_queue_done: DeviceHostMapped<u32>,
+    pub(crate) work_queue_heap: DeviceHostMapped<mccsDevWork>,
+    pub(crate) work_queue_done: DeviceHostMapped<u32>,
     // maps index in work_queue_done to its corresponding channel id
     chan_mapping: Vec<ChannelId>,
 }
 
 impl DevHostSyncResources {
-    fn new(num_channels: usize) -> Self {
+    fn new(num_channels: usize, queue_depth: usize) -> Self {
+        let work_queue_heap = DeviceHostMapped::alloc(queue_depth);
         let work_queue_done = DeviceHostMapped::alloc(num_channels);
         DevHostSyncResources {
+            work_queue_heap,
             work_queue_done,
             chan_mapping: Vec::with_capacity(num_channels),
         }
@@ -69,19 +72,22 @@ impl DevHostSyncResources {
 
 pub struct CommDevResources {
     comm_dev: DeviceAlloc<mccsDevCommAndChannels>,
+
     chan_storage: Vec<ChanDevStorage>,
-    sync: DevHostSyncResources,
+    pub(crate) sync: DevHostSyncResources,
 }
 
 impl CommDevResources {
     pub fn new(
         rank: usize,
         num_ranks: usize,
+        queue_depth: usize, // must be a power of 2
         profile: &CommProfile,
         channels: &HashMap<ChannelId, CommChannel>,
     ) -> Self {
+        debug_assert_eq!(queue_depth & (queue_depth - 1), 0);
         let buf_sizes = profile.buff_sizes.map(|x| x as _);
-        let mut dev_host_sync = DevHostSyncResources::new(channels.len());
+        let mut dev_host_sync = DevHostSyncResources::new(channels.len(), queue_depth);
         let mut dev_channels = [MaybeUninit::zeroed(); MCCS_MAX_NCHANNELS as usize];
         let mut dev_chan_stroage = Vec::with_capacity(channels.len());
         for (idx, (chan_id, chan)) in channels.iter().enumerate() {

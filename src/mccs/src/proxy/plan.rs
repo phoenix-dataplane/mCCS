@@ -89,7 +89,9 @@ impl Communicator {
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
             if first_task.func == coll_task.func
                 && first_task.data_type == coll_task.data_type
-                && first_task.reduce_op == coll_task.reduce_op
+                && first_task
+                    .reduce_op
+                    .is_some_and(|op| coll_task.reduce_op.is_some_and(|op2| op.op == op2.op))
             {
                 let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
                 self.compute_coll_work(&coll_task);
@@ -132,14 +134,9 @@ impl Communicator {
     fn select_best_channels(&self, num: u32) -> Vec<ChannelId> {
         self.channels
             .iter()
-            .enumerate()
             .map(|(chan_id, chan)| ChannelLoad {
-                id: ChannelId(chan_id as u32),
-                coll_bytes: self
-                    .plan_schedule
-                    .get(&ChannelId(chan_id as u32))
-                    .unwrap()
-                    .coll_bytes,
+                id: *chan_id,
+                coll_bytes: self.plan_schedule.get(chan_id).unwrap().coll_bytes,
             })
             .k_smallest(num as usize)
             .map(|load| load.id)
@@ -151,23 +148,19 @@ impl Communicator {
         let mut channel_count = 0;
         let mut channel_upper_bound = 0;
         let mut channel_mask = 0u64;
+        let mut work_count = 0;
         for (idx, chan) in self.plan_schedule.iter_mut() {
             if !chan.work_queue.is_empty() {
                 channel_count += 1;
                 channel_upper_bound = channel_upper_bound.max(idx.0 + 1);
                 channel_mask |= 1 << idx.0;
+                work_count += chan.work_queue.len();
             }
         }
         // todo
-        let dev_work = upload_work(
-            self.plan_schedule
-                .get_mut(&ChannelId(0))
-                .unwrap()
-                .work_queue
-                .pop_front()
-                .unwrap(),
-        );
-        let plan = KernelPlan {
+        let dev_work =
+            self.upload_work(channel_count, channel_upper_bound, channel_mask, work_count);
+        KernelPlan {
             kernel_fn: ptr as _,
             dev_work_head: dev_work,
 
@@ -176,45 +169,38 @@ impl Communicator {
             channel_mask,
 
             thread_per_block: 512, //FIXME: should be bigger than maximum thread. Otherwise the program will hang
-        };
-    }
-}
-
-fn get_task_schema(task: &CollTask) -> TaskSchema {
-    use super::task::TaskDataType;
-
-    let algorithm = TaskAlgorithm::Ring;
-    let protocol = TaskProtocol::Simple;
-    assert_eq!(task.data_type, TaskDataType::Uint8);
-    let mut num_channel = 1;
-    let mut num_thread = 512;
-    let thread_th = 64;
-    while task.count < num_channel * num_thread * thread_th {
-        if num_channel >= 2 {
-            num_channel -= 1;
-        } else if (num_thread % 128) == 0 {
-            num_thread /= 2;
-        } else {
-            break;
         }
     }
-    num_thread = if num_thread + 32 > 512 {
-        512
-    } else {
-        num_thread + 32
-    }; // warning: should not exceed thread_per_block
-    TaskSchema {
-        algorithm,
-        protocol,
-        work_func_index: todo!(),
-        num_channels: num_channel as _,
-        num_threads: num_thread as _,
+
+    fn upload_work(
+        &mut self,
+        channel_count: u32,
+        channel_upper_bound: u32,
+        channel_mask: u64,
+        work_count: usize,
+    ) -> DeviceNonNull<mccsDevWork> {
+        let work_queue_mask = self.dev_resources.sync.work_queue_heap.size() as u32 - 1;
+        let new_first_chan_start = {
+            let mut new_start = self.work_queue_next_available;
+            if ((new_start + channel_count - 1) & work_queue_mask) < (new_start & work_queue_mask) {
+                // wrap around happens
+                new_start = (new_start + work_queue_mask) & !work_queue_mask;
+                self.work_queue_next_available = new_start;
+            }
+            todo!("wait work queue available");
+            new_start
+        };
+
+        // fill work
+        let new_subsequent_start = new_first_chan_start + channel_count;
+
+        ptr
     }
 }
 
-fn upload_work(work: KernelWork) -> DeviceNonNull<mccsDevWork> {
-    let mut dev_work_content = match work {
-        KernelWork::Coll {
+fn work_elem_conversion(work: KernelWork, in_fifo: bool, is_last: bool) -> mccsDevWork {
+    match work {
+        KernelWork {
             func_index,
             mut work_elems,
         } => {
@@ -248,9 +234,9 @@ fn upload_work(work: KernelWork) -> DeviceNonNull<mccsDevWork> {
                 let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
                 let mut init = uninit.assume_init();
                 init.funcIndex = func_index;
-                init.set_isLast(1);
-                init.set_inFifo(0);
                 init.type_ = mccsDevWorkType::mccsDevWorkTypeColl;
+                init.set_inFifo(in_fifo);
+                init.set_isLast(is_last);
                 init
             };
 
@@ -259,20 +245,39 @@ fn upload_work(work: KernelWork) -> DeviceNonNull<mccsDevWork> {
                 __bindgen_anon_1: dev_work_elems,
             }
         } // TODO
-    };
-
-    let dev_work = DeviceAlloc::new(1);
-    let ptr = unsafe { DeviceNonNull::new_unchecked(dev_work.as_ptr()) };
-    let _guard = std::mem::ManuallyDrop::new(dev_work);
-    unsafe {
-        cuda_warning!(cudaMemcpy(
-            ptr.as_ptr() as _,
-            &mut dev_work_content as *mut mccsDevWork as _,
-            std::mem::size_of::<mccsDevWork>(),
-            cudaMemcpyKind::cudaMemcpyHostToDevice,
-        ));
     }
-    ptr
+}
+
+fn get_task_schema(task: &CollTask) -> TaskSchema {
+    use super::task::TaskDataType;
+
+    let algorithm = TaskAlgorithm::Ring;
+    let protocol = TaskProtocol::Simple;
+    assert_eq!(task.data_type, TaskDataType::Uint8);
+    let mut num_channel = 1;
+    let mut num_thread = 512;
+    let thread_th = 64;
+    while task.count < num_channel * num_thread * thread_th {
+        if num_channel >= 2 {
+            num_channel -= 1;
+        } else if (num_thread % 128) == 0 {
+            num_thread /= 2;
+        } else {
+            break;
+        }
+    }
+    num_thread = if num_thread + 32 > 512 {
+        512
+    } else {
+        num_thread + 32
+    }; // warning: should not exceed thread_per_block
+    TaskSchema {
+        algorithm,
+        protocol,
+        work_func_index: todo!(),
+        num_channels: num_channel as _,
+        num_threads: num_thread as _,
+    }
 }
 
 impl Communicator {

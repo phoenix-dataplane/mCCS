@@ -5,6 +5,7 @@
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
 #![feature(variant_count)]
+#![feature(is_some_and)]
 // todo: temporary
 #![allow(dead_code)]
 #![allow(unused)]

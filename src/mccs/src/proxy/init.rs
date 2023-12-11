@@ -4,7 +4,10 @@ use std::mem::MaybeUninit;
 use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
 
 use crate::comm::device::CommDevResources;
-use crate::comm::{ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo};
+use crate::comm::{
+    ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo, MCCS_WORK_FIFO_DEPTH,
+};
+use crate::cuda::alloc::DeviceHostMapped;
 use crate::cuda_warning;
 use crate::transport::channel::{
     ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
@@ -135,14 +138,19 @@ impl CommInitState {
             peer_conns.insert(peer_conn.conn_index, peer_connector);
         }
 
-        let dev_resources =
-            CommDevResources::new(self.rank, self.num_ranks, &self.profile, &channels);
+        let dev_resources = CommDevResources::new(
+            self.rank,
+            self.num_ranks,
+            MCCS_WORK_FIFO_DEPTH,
+            &self.profile,
+            &channels,
+        );
 
         let mut plan_schedule = HashMap::new();
         for chan in channels.keys() {
             let schedule = ChanWorkSchedule {
                 coll_bytes: 0,
-                work_queue: VecDeque::new(),
+                work_queue: Vec::new(),
                 agent_task_queue: Vec::new(),
             };
             plan_schedule.insert(*chan, schedule);

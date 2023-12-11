@@ -1,5 +1,6 @@
 pub mod device;
 
+use collectives_sys::mccsDevWork;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 
@@ -9,6 +10,7 @@ use crate::proxy::task::TaskQueue;
 use crate::transport::channel::{ChannelId, CommChannel};
 use crate::transport::NUM_PROTOCOLS;
 
+use crate::cuda::alloc::DeviceHostMapped;
 use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use device::CommDevResources;
 
@@ -32,18 +34,21 @@ pub struct PeerInfo {
     pub cuda_device_idx: i32,
 }
 
+pub const MCCS_WORK_FIFO_DEPTH: usize = 64 << 10;
+
 pub struct Communicator {
     pub id: CommunicatorId,
     pub rank: usize,
     pub num_ranks: usize,
     pub peers_info: Vec<PeerInfo>,
     // channel_id -> CommChannel
-    pub channels: Vec<CommChannel>,
+    pub channels: HashMap<ChannelId, CommChannel>,
     pub profile: CommProfile,
     pub dev_resources: CommDevResources,
+    pub work_queue_next_available: u32,
 
+    // enqueue system intermediate objects
     pub task_queue: TaskQueue,
-
     pub plan_schedule: HashMap<ChannelId, ChanWorkSchedule>,
     pub unlaunched_plans: VecDeque<KernelPlan>,
 
