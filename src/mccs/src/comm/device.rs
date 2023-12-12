@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::mem::MaybeUninit;
 
 use collectives_sys::{
@@ -83,7 +83,7 @@ impl CommDevResources {
         num_ranks: usize,
         queue_depth: usize, // must be a power of 2
         profile: &CommProfile,
-        channels: &HashMap<ChannelId, CommChannel>,
+        channels: &BTreeMap<ChannelId, CommChannel>,
     ) -> Self {
         debug_assert_eq!(queue_depth & (queue_depth - 1), 0);
         let buf_sizes = profile.buff_sizes.map(|x| x as _);

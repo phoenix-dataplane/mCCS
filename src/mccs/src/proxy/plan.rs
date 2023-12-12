@@ -53,7 +53,7 @@ impl ChanWorkSchedule {
     ) {
         if let Some(tail) = self.work_queue.last_mut() {
             // accumulate same type work_elems
-            if work_func_index == *tail.func_index
+            if work_func_index == tail.func_index
                 && elem.num_warps == tail.work_elems[0].num_warps
                 && tail.work_elems.len() < MCCS_MAX_ELEMENTS_PER_WORK
             {
@@ -145,26 +145,25 @@ impl Communicator {
 
     fn finalize_one_plan(&mut self) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
-        let mut channel_count = 0;
+        let mut chan_list = Vec::with_capacity(MCCS_MAX_ELEMENTS_PER_WORK);
         let mut channel_upper_bound = 0;
         let mut channel_mask = 0u64;
         let mut work_count = 0;
         for (idx, chan) in self.plan_schedule.iter_mut() {
             if !chan.work_queue.is_empty() {
-                channel_count += 1;
-                channel_upper_bound = channel_upper_bound.max(idx.0 + 1);
+                chan_list.push(*idx);
+                channel_upper_bound = idx.0 + 1;
                 channel_mask |= 1 << idx.0;
                 work_count += chan.work_queue.len();
             }
         }
         // todo
-        let dev_work =
-            self.upload_work(channel_count, channel_upper_bound, channel_mask, work_count);
+        let dev_work = self.upload_work(&chan_list, channel_upper_bound, channel_mask, work_count);
         KernelPlan {
             kernel_fn: ptr as _,
             dev_work_head: dev_work,
 
-            channel_count,
+            channel_count: chan_list.len() as u32,
             channel_upper_bound,
             channel_mask,
 
@@ -174,12 +173,13 @@ impl Communicator {
 
     fn upload_work(
         &mut self,
-        channel_count: u32,
+        chan_list: &[ChannelId],
         channel_upper_bound: u32,
         channel_mask: u64,
         work_count: usize,
     ) -> DeviceNonNull<mccsDevWork> {
         let work_queue_mask = self.dev_resources.sync.work_queue_heap.size() as u32 - 1;
+        let channel_count = chan_list.len() as u32;
         let new_first_chan_start = {
             let mut new_start = self.work_queue_next_available;
             if ((new_start + channel_count - 1) & work_queue_mask) < (new_start & work_queue_mask) {
@@ -192,13 +192,72 @@ impl Communicator {
         };
 
         // fill work
-        let new_subsequent_start = new_first_chan_start + channel_count;
-
-        ptr
+        let mut new_subsequent_start = new_first_chan_start + channel_count;
+        let work_queue_heap_ptr = self.dev_resources.sync.work_queue_heap.as_ptr_host();
+        for (nth_chan, chan_id) in chan_list.iter().enumerate() {
+            let chan = self.plan_schedule.get(chan_id).unwrap();
+            let work_len = chan.work_queue.len();
+            chan.work_queue
+                .iter()
+                .enumerate()
+                .for_each(|(work_id, work)| {
+                    let dev_work = if work_id == work_len - 1 {
+                        // todo: update channel's workFifoSent
+                        work_elem_conversion(
+                            work,
+                            true,
+                            false, /*todo:?*/
+                            DevWorkHeaderUnion::DoneAcks(new_subsequent_start + 1),
+                        )
+                    } else {
+                        work_elem_conversion(
+                            work,
+                            false,
+                            false,
+                            DevWorkHeaderUnion::WorkNext(
+                                (if work_id == 0 {
+                                    new_subsequent_start
+                                } else {
+                                    new_subsequent_start + 1
+                                } & work_queue_mask) as i32
+                                    - (new_first_chan_start & work_queue_mask) as i32,
+                            ),
+                        )
+                    };
+                    unsafe {
+                        *work_queue_heap_ptr
+                            .offset((new_subsequent_start & work_queue_mask) as isize) = dev_work;
+                    }
+                    if work_id != 0 {
+                        new_subsequent_start += 1;
+                    }
+                });
+        }
+        self.work_queue_next_available = new_subsequent_start;
+        // todo: GDR fence
+        DeviceNonNull::new(unsafe {
+            self.dev_resources
+                .sync
+                .work_queue_heap
+                .as_ptr_dev()
+                .offset((new_first_chan_start & work_queue_mask) as isize)
+        })
+        .unwrap()
     }
 }
 
-fn work_elem_conversion(work: KernelWork, in_fifo: bool, is_last: bool) -> mccsDevWork {
+#[derive(Clone, Copy)]
+enum DevWorkHeaderUnion {
+    WorkNext(i32),
+    DoneAcks(u32),
+}
+
+fn work_elem_conversion(
+    work: &KernelWork,
+    in_fifo: bool,
+    is_last: bool,
+    union_field: DevWorkHeaderUnion,
+) -> mccsDevWork {
     match work {
         KernelWork {
             func_index,
@@ -233,10 +292,14 @@ fn work_elem_conversion(work: KernelWork, in_fifo: bool, is_last: bool) -> mccsD
             let dev_work_header = unsafe {
                 let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
                 let mut init = uninit.assume_init();
-                init.funcIndex = func_index;
+                init.funcIndex = *func_index;
                 init.type_ = mccsDevWorkType::mccsDevWorkTypeColl;
-                init.set_inFifo(in_fifo);
-                init.set_isLast(is_last);
+                init.set_inFifo(in_fifo as u8);
+                init.set_isLast(is_last as u8);
+                match union_field {
+                    DevWorkHeaderUnion::WorkNext(next) => init.__bindgen_anon_1.workNext = next,
+                    DevWorkHeaderUnion::DoneAcks(acks) => init.__bindgen_anon_1.doneAcks = acks,
+                }
                 init
             };
 

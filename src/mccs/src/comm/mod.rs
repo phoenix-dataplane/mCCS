@@ -1,7 +1,7 @@
 pub mod device;
 
 use collectives_sys::mccsDevWork;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 
 use crate::pattern::RingPattern;
@@ -35,6 +35,7 @@ pub struct PeerInfo {
 }
 
 pub const MCCS_WORK_FIFO_DEPTH: usize = 64 << 10;
+pub const MCCS_MAX_CHANNELS: usize = 32;
 
 pub struct Communicator {
     pub id: CommunicatorId,
@@ -42,14 +43,14 @@ pub struct Communicator {
     pub num_ranks: usize,
     pub peers_info: Vec<PeerInfo>,
     // channel_id -> CommChannel
-    pub channels: HashMap<ChannelId, CommChannel>,
+    pub channels: BTreeMap<ChannelId, CommChannel>,
     pub profile: CommProfile,
     pub dev_resources: CommDevResources,
     pub work_queue_next_available: u32,
 
     // enqueue system intermediate objects
     pub task_queue: TaskQueue,
-    pub plan_schedule: HashMap<ChannelId, ChanWorkSchedule>,
+    pub plan_schedule: BTreeMap<ChannelId, ChanWorkSchedule>,
     pub unlaunched_plans: VecDeque<KernelPlan>,
 
     pub stream: cudaStream_t,

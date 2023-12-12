@@ -48,5 +48,5 @@ pub struct CommChannel {
     pub ring: RingPattern,
 }
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChannelId(pub u32);

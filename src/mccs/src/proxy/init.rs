@@ -1,11 +1,12 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::mem::MaybeUninit;
 
 use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
 
 use crate::comm::device::CommDevResources;
 use crate::comm::{
-    ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo, MCCS_WORK_FIFO_DEPTH,
+    ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo, MCCS_MAX_CHANNELS,
+    MCCS_WORK_FIFO_DEPTH,
 };
 use crate::cuda::alloc::DeviceHostMapped;
 use crate::cuda_warning;
@@ -117,7 +118,7 @@ impl CommInitState {
     }
 
     pub fn finalize_communicator(self) -> Communicator {
-        let mut channels = HashMap::new();
+        let mut channels = BTreeMap::new();
         for chan_pattern in self.comm_patterns {
             let channel = CommChannel {
                 peers: HashMap::new(),
@@ -146,7 +147,7 @@ impl CommInitState {
             &channels,
         );
 
-        let mut plan_schedule = HashMap::new();
+        let mut plan_schedule = BTreeMap::new();
         for chan in channels.keys() {
             let schedule = ChanWorkSchedule {
                 coll_bytes: 0,
@@ -189,6 +190,7 @@ impl CommInitState {
             channels,
             profile: self.profile,
             dev_resources,
+            work_queue_next_available: 0,
             task_queue,
             plan_schedule,
             unlaunched_plans: VecDeque::new(),
