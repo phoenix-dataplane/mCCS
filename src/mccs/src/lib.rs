@@ -6,6 +6,7 @@
 #![feature(int_roundings)]
 #![feature(variant_count)]
 #![feature(is_some_and)]
+#![feature(atomic_from_mut)]
 // todo: temporary
 #![allow(dead_code)]
 #![allow(unused)]

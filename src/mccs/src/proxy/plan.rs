@@ -1,6 +1,8 @@
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::sync::atomic;
+use std::sync::atomic::{AtomicPtr, AtomicU32};
 use std::{collections::VecDeque, mem::MaybeUninit};
 
 use collectives_sys::{
@@ -10,6 +12,7 @@ use collectives_sys::{
 use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpyKind};
 
 use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
+use crate::comm::{MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
 use crate::transport::channel::{ChannelId, CommChannel};
 use crate::transport::task::TransportTask;
 use crate::{
@@ -171,6 +174,51 @@ impl Communicator {
         }
     }
 
+    // See NCCL enqueue.cc:waitWorkFifoAvailable()
+    fn wait_work_queue(&mut self, target: u32) {
+        // wrap around happens
+        if rolling_less_u32(
+            self.work_queue_acked_min + MCCS_WORK_FIFO_DEPTH as u32,
+            target,
+        ) {
+            while true {
+                let done_ptr = self.dev_resources.sync.work_queue_done.as_ptr_host();
+                let mut ackd = [0u32; MCCS_MAX_CHANNELS];
+                for i in 0..MCCS_MAX_CHANNELS {
+                    unsafe {
+                        ackd[i] =
+                            AtomicU32::from_mut(done_ptr.offset(i as isize).as_mut().unwrap())
+                                .load(atomic::Ordering::Relaxed);
+                    }
+                }
+                atomic::compiler_fence(atomic::Ordering::SeqCst);
+                let mut ackd_all = self.work_queue_next_available;
+                for (id, chan) in self.channels.iter() {
+                    if ackd[id.0 as usize] != chan.work_queue_next_available {
+                        ackd_all = rolling_min_u32(ackd_all, ackd[id.0 as usize])
+                    }
+                }
+                atomic::compiler_fence(atomic::Ordering::SeqCst);
+                for (id, chan) in self.channels.iter() {
+                    if ackd[id.0 as usize] == chan.work_queue_next_available {
+                        unsafe {
+                            AtomicU32::from_mut(done_ptr.offset(id.0 as isize).as_mut().unwrap())
+                                .store(ackd_all, atomic::Ordering::Relaxed)
+                        }
+                    }
+                }
+                self.work_queue_acked_min = ackd_all;
+                if !rolling_less_u32(
+                    self.work_queue_acked_min + MCCS_WORK_FIFO_DEPTH as u32,
+                    target,
+                ) {
+                    return;
+                }
+                std::thread::yield_now();
+            }
+        }
+    }
+
     fn upload_work(
         &mut self,
         chan_list: &[ChannelId],
@@ -187,7 +235,7 @@ impl Communicator {
                 new_start = (new_start + work_queue_mask) & !work_queue_mask;
                 self.work_queue_next_available = new_start;
             }
-            todo!("wait work queue available");
+            self.wait_work_queue(new_start + work_count as u32);
             new_start
         };
 
@@ -202,7 +250,10 @@ impl Communicator {
                 .enumerate()
                 .for_each(|(work_id, work)| {
                     let dev_work = if work_id == work_len - 1 {
-                        // todo: update channel's workFifoSent
+                        self.channels
+                            .get(chan_id)
+                            .unwrap()
+                            .work_queue_next_available = new_subsequent_start + 1;
                         work_elem_conversion(
                             work,
                             true,
@@ -398,5 +449,16 @@ impl Ord for ChannelLoad {
             ord => return ord,
         }
         self.id.0.cmp(&other.id.0)
+    }
+}
+
+fn rolling_less_u32(a: u32, b: u32) -> bool {
+    a - b > i32::MAX
+}
+fn rolling_min_u32(a: u32, b: u32) -> u32 {
+    if (b - a) <= i32::MAX {
+        a
+    } else {
+        b
     }
 }

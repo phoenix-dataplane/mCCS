@@ -46,6 +46,8 @@ pub struct Communicator {
     pub channels: BTreeMap<ChannelId, CommChannel>,
     pub profile: CommProfile,
     pub dev_resources: CommDevResources,
+
+    pub work_queue_acked_min: u32,
     pub work_queue_next_available: u32,
 
     // enqueue system intermediate objects

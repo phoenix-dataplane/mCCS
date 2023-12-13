@@ -46,6 +46,7 @@ pub struct CommChannel {
     // peer -> ChannelPeerConn
     pub peers: HashMap<usize, ChannelPeerConn>,
     pub ring: RingPattern,
+    pub work_queue_next_available: u32,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
