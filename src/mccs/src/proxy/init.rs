@@ -123,6 +123,7 @@ impl CommInitState {
             let channel = CommChannel {
                 peers: HashMap::new(),
                 ring: chan_pattern.ring,
+                work_queue_next_available: 0,
             };
             channels.insert(chan_pattern.channel, channel);
         }
@@ -190,6 +191,7 @@ impl CommInitState {
             channels,
             profile: self.profile,
             dev_resources,
+            work_queue_acked_min: 0,
             work_queue_next_available: 0,
             task_queue,
             plan_schedule,
