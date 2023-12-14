@@ -22,6 +22,9 @@ use crate::{
 };
 
 const MCCS_MAX_ELEMENTS_PER_WORK: usize = 10;
+const MCCS_SIMPLE_MAX_N_THREADS: usize = 512;
+const MCCS_SIMPLE_THREAD_THRESHOLD: usize = 64;
+const WARP_SIZE: usize = 32;
 
 #[derive(Clone)]
 pub struct WorkElem {
@@ -107,7 +110,12 @@ impl Communicator {
 
     // convert one task to different WorkElem object to different channel
     fn compute_coll_work(&mut self, task: &CollTask) {
-        let schema = get_task_schema(task);
+        let schema = get_task_schema(
+            task,
+            TaskAlgorithm::Ring,
+            TaskProtocol::Simple,
+            self.channels.len(),
+        );
         let num_wraps = schema.num_threads / 32;
         self.select_best_channels(schema.num_channels)
             .into_iter()
@@ -362,16 +370,18 @@ fn work_elem_conversion(
     }
 }
 
-fn get_task_schema(task: &CollTask) -> TaskSchema {
+fn get_task_schema(
+    task: &CollTask,
+    algo: TaskAlgorithm,
+    proto: TaskProtocol,
+    mut num_channel: usize,
+) -> TaskSchema {
     use super::task::TaskDataType;
 
-    let algorithm = TaskAlgorithm::Ring;
-    let protocol = TaskProtocol::Simple;
     assert_eq!(task.data_type, TaskDataType::Uint8);
-    let mut num_channel = 1;
-    let mut num_thread = 512;
-    let thread_th = 64;
-    while task.count < num_channel * num_thread * thread_th {
+    let mut num_thread = MCCS_SIMPLE_MAX_N_THREADS;
+    let thread_th = MCCS_SIMPLE_THREAD_THRESHOLD;
+    while task.count * task.data_type.count_bytes() < num_channel * num_thread * thread_th {
         if num_channel >= 2 {
             num_channel -= 1;
         } else if (num_thread % 128) == 0 {
@@ -380,14 +390,15 @@ fn get_task_schema(task: &CollTask) -> TaskSchema {
             break;
         }
     }
-    num_thread = if num_thread + 32 > 512 {
-        512
+    // todo: determine if "Extra warp for sync" necessary to be added when exceeding 512
+    num_thread = if num_thread + WARP_SIZE > MCCS_SIMPLE_MAX_N_THREADS {
+        MCCS_SIMPLE_MAX_N_THREADS
     } else {
-        num_thread + 32
-    }; // warning: should not exceed thread_per_block
+        num_thread + WARP_SIZE
+    }; // warning: should not exceed thread_per_block?
     TaskSchema {
-        algorithm,
-        protocol,
+        algorithm: algo,
+        protocol: proto,
         work_func_index: todo!(),
         num_channels: num_channel as _,
         num_threads: num_thread as _,
@@ -453,10 +464,10 @@ impl Ord for ChannelLoad {
 }
 
 fn rolling_less_u32(a: u32, b: u32) -> bool {
-    a - b > i32::MAX
+    a - b > i32::MAX as u32
 }
 fn rolling_min_u32(a: u32, b: u32) -> u32 {
-    if (b - a) <= i32::MAX {
+    if (b - a) <= i32::MAX as u32 {
         a
     } else {
         b
