@@ -55,7 +55,7 @@ pub(crate) struct NetListener<NetHandle> {
 // https://github.com/NVIDIA/nccl/blob/v2.17.1-1/src/include/nccl_net.h#L87
 // closeSend, closeRecv and closeListen should be implemented as Drop of the NetComm types
 #[async_trait]
-pub trait NetProvider: Send + Sync {
+pub(crate) trait NetProvider: Send + Sync {
     type NetError: std::error::Error + Send + Sync + 'static;
     type NetHandle: Serialize + DeserializeOwned + Send + Sync + 'static;
 

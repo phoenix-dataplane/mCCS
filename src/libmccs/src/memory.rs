@@ -36,6 +36,6 @@ pub fn cuda_malloc(device_idx: usize, size: usize) -> Result<DevicePtr, Error> {
     })
 }
 
-pub fn cuda_free(ptr: MccsDeviceMemoryHandle) {
+pub fn cuda_free(_ptr: MccsDeviceMemoryHandle) {
     todo!()
 }

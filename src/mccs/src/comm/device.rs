@@ -51,7 +51,7 @@ fn conn_info_to_dev(conn_info: &PeerConnInfo) -> mccsDevConnInfo {
     }
 }
 
-struct DevHostSyncResources {
+pub(crate) struct DevHostSyncResources {
     pub(crate) work_queue_heap: DeviceHostMapped<mccsDevWork>,
     pub(crate) work_queue_done: DeviceHostMapped<u32>,
     // maps index in work_queue_done to its corresponding channel id

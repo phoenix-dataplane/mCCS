@@ -46,7 +46,7 @@ pub(crate) struct GdrHandle(gdr_t);
 unsafe impl Send for GdrHandle {}
 unsafe impl Sync for GdrHandle {}
 
-pub static GDR_HANDLE: Lazy<GdrHandle> = Lazy::new(|| gdr_init());
+pub(crate) static GDR_HANDLE: Lazy<GdrHandle> = Lazy::new(|| gdr_init());
 
 fn gdr_init() -> GdrHandle {
     let handle = unsafe { gdr_open() };

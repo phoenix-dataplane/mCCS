@@ -193,7 +193,7 @@ impl Communicator {
             self.work_queue_acked_min + MCCS_WORK_FIFO_DEPTH as u32,
             target,
         ) {
-            while true {
+            loop {
                 let done_ptr = self.dev_resources.sync.work_queue_done.as_ptr_host();
                 let mut ackd = [0u32; MCCS_MAX_CHANNELS];
                 for i in 0..MCCS_MAX_CHANNELS {
