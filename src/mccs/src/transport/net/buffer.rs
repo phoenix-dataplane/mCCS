@@ -123,7 +123,9 @@ impl BufferMap {
     }
 
     fn get_buffer_bank(&self, proto: Protocol) -> MemoryBankType {
-        ((self.offsets.buffers[proto as usize] >> 30) as u8).into()
+        ((self.offsets.buffers[proto as usize] >> 30) as u8)
+            .try_into()
+            .unwrap()
     }
 
     fn is_buffer_null(&self, proto: Protocol) -> bool {

@@ -20,7 +20,7 @@ pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 pub const NUM_BUFFER_SLOTS: usize = 8;
 pub const NUM_PROTOCOLS: usize = MCCS_NUM_PROTOCOLS as _;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Clone, Copy)]
 #[repr(usize)]
 pub enum Protocol {
     Simple = MCCS_PROTO_SIMPLE as _,

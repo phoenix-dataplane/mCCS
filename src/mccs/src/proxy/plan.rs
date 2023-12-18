@@ -67,12 +67,12 @@ impl ChanWorkSchedule {
                 return;
             }
         }
+        self.coll_bytes += elem.count * data_type_bytes;
         let work = KernelWork {
             func_index: work_func_index,
             work_elems: vec![elem],
         };
         self.work_queue.push(work);
-        self.coll_bytes += elem.count * data_type_bytes;
     }
 }
 
@@ -95,9 +95,12 @@ impl Communicator {
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
             if first_task.func == coll_task.func
                 && first_task.data_type == coll_task.data_type
-                && first_task
-                    .reduce_op
-                    .is_some_and(|op| coll_task.reduce_op.is_some_and(|op2| op.op == op2.op))
+                && first_task.reduce_op.as_ref().is_some_and(|op| {
+                    coll_task
+                        .reduce_op
+                        .as_ref()
+                        .is_some_and(|op2| op.op == op2.op)
+                })
             {
                 let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
                 self.compute_coll_work(&coll_task);
@@ -105,7 +108,8 @@ impl Communicator {
                 break;
             }
         }
-        self.unlaunched_plans.push_back(self.finalize_one_plan());
+        let plan = self.finalize_one_plan();
+        self.unlaunched_plans.push_back(plan);
     }
 
     // convert one task to different WorkElem object to different channel
@@ -259,7 +263,7 @@ impl Communicator {
                 .for_each(|(work_id, work)| {
                     let dev_work = if work_id == work_len - 1 {
                         self.channels
-                            .get(chan_id)
+                            .get_mut(chan_id)
                             .unwrap()
                             .work_queue_next_available = new_subsequent_start + 1;
                         work_elem_conversion(
@@ -317,56 +321,49 @@ fn work_elem_conversion(
     is_last: bool,
     union_field: DevWorkHeaderUnion,
 ) -> mccsDevWork {
-    match work {
-        KernelWork {
-            func_index,
-            mut work_elems,
-        } => {
-            debug_assert!(work_elems.len() <= MCCS_MAX_ELEMENTS_PER_WORK);
+    debug_assert!(work.work_elems.len() <= MCCS_MAX_ELEMENTS_PER_WORK);
 
-            let elems = unsafe {
-                let elems = [MaybeUninit::zeroed(); MCCS_MAX_ELEMENTS_PER_WORK];
-                let mut elems = MaybeUninit::array_assume_init(elems);
-                for (idx, work_elem) in work_elems.into_iter().enumerate() {
-                    elems[idx] = unsafe {
-                        let mut elem = mccsDevWorkElem {
-                            _bitfield_align_1: Default::default(),
-                            _bitfield_1: Default::default(),
-                            nWarps: work_elem.num_warps,
-                            sendbuff: work_elem.send_buf.as_ptr(),
-                            recvbuff: work_elem.recv_buf.as_ptr(),
-                            count: work_elem.count,
-                            root: work_elem.root,
-                            bid: work_elem.bid,
-                            nChannels: work_elem.num_channels,
-                            redOpArg: 0, // todo
-                        };
-                        elem.set_isUsed(1);
-                        elem
-                    };
-                }
-                elems
+    let elems = unsafe {
+        let elems = [MaybeUninit::zeroed(); MCCS_MAX_ELEMENTS_PER_WORK];
+        let mut elems = MaybeUninit::array_assume_init(elems);
+        for (idx, work_elem) in work.work_elems.iter().enumerate() {
+            elems[idx] = unsafe {
+                let mut elem = mccsDevWorkElem {
+                    _bitfield_align_1: Default::default(),
+                    _bitfield_1: Default::default(),
+                    nWarps: work_elem.num_warps,
+                    sendbuff: work_elem.send_buf.as_ptr(),
+                    recvbuff: work_elem.recv_buf.as_ptr(),
+                    count: work_elem.count,
+                    root: work_elem.root,
+                    bid: work_elem.bid,
+                    nChannels: work_elem.num_channels,
+                    redOpArg: 0, // todo
+                };
+                elem.set_isUsed(1);
+                elem
             };
-            let dev_work_elems = mccsDevWork__bindgen_ty_1 { elems };
-            let dev_work_header = unsafe {
-                let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
-                let mut init = uninit.assume_init();
-                init.funcIndex = *func_index;
-                init.type_ = mccsDevWorkType::mccsDevWorkTypeColl;
-                init.set_inFifo(in_fifo as u8);
-                init.set_isLast(is_last as u8);
-                match union_field {
-                    DevWorkHeaderUnion::WorkNext(next) => init.__bindgen_anon_1.workNext = next,
-                    DevWorkHeaderUnion::DoneAcks(acks) => init.__bindgen_anon_1.doneAcks = acks,
-                }
-                init
-            };
+        }
+        elems
+    };
+    let dev_work_elems = mccsDevWork__bindgen_ty_1 { elems };
+    let dev_work_header = unsafe {
+        let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
+        let mut init = uninit.assume_init();
+        init.funcIndex = work.func_index;
+        init.type_ = mccsDevWorkType::mccsDevWorkTypeColl;
+        init.set_inFifo(in_fifo as u8);
+        init.set_isLast(is_last as u8);
+        match union_field {
+            DevWorkHeaderUnion::WorkNext(next) => init.__bindgen_anon_1.workNext = next,
+            DevWorkHeaderUnion::DoneAcks(acks) => init.__bindgen_anon_1.doneAcks = acks,
+        }
+        init
+    };
 
-            mccsDevWork {
-                header: dev_work_header,
-                __bindgen_anon_1: dev_work_elems,
-            }
-        } // TODO
+    mccsDevWork {
+        header: dev_work_header,
+        __bindgen_anon_1: dev_work_elems,
     }
 }
 
