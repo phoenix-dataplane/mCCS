@@ -157,7 +157,7 @@ impl DaemonEngine {
                     app_ipc_event_handle: all_gather.ipc_event_handle.clone(),
                 };
                 log::debug!(
-                    "[Daemon-{}] allGather ({:p},{:p}) on communicator {}@{}",
+                    "[Daemon-{}] try to issue allGather ({:p},{:p}) on communicator {}@{}",
                     self.id,
                     send_buf_addr as *const c_void,
                     recv_buf_addr as *const c_void,
@@ -176,7 +176,7 @@ impl DaemonEngine {
                     _ => panic!("unexpected result"),
                 };
                 log::debug!(
-                    "[Daemon-{}] SUCCESS for allGather on communicator {}@{}",
+                    "[Daemon-{}] SUCCESS for issuing allGather on communicator {}@{}",
                     self.id,
                     comm.cuda_device_idx,
                     comm.comm_id,
@@ -195,6 +195,7 @@ impl DaemonEngine {
                     Ok(None) => return Ok(Progress(0)),
                     Err(_e) => panic!(),
                 }
+                log::trace!("Send completion back successfully");
                 Ok(Progress(1))
             }
             Err(ipc::TryRecvError::Empty) => Ok(Progress(0)),

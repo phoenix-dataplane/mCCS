@@ -172,6 +172,7 @@ impl Communicator {
                 channel_upper_bound = idx.0 + 1;
                 channel_mask |= 1 << idx.0;
                 work_count += chan.work_queue.len();
+                chan.work_queue.clear();
             }
         }
         let dev_work = self.upload_work(&chan_list, channel_upper_bound, channel_mask, work_count);
@@ -259,7 +260,7 @@ impl Communicator {
             new_start
         };
         log::trace!(
-            "From {} to {}",
+            "work queue ptr from {} to {}",
             new_first_chan_start,
             new_first_chan_start + work_count as u32
         );
