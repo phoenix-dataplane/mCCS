@@ -283,7 +283,7 @@ impl Communicator {
                         work_elem_conversion(
                             work,
                             true,
-                            false, /*todo:?*/
+                            true,
                             DevWorkHeaderUnion::DoneAcks(new_subsequent_start + 1),
                         )
                     } else {
