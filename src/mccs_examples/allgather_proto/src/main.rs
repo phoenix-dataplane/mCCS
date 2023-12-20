@@ -47,6 +47,7 @@ fn main() {
             0 as cudaStream_t,
         )
         .unwrap();
+        println!("rank 1 - all gather completed");
 
         let mut buf = vec![0; BUFFER_SIZE];
         unsafe {
@@ -99,6 +100,7 @@ fn main() {
     );
     let comm = libmccs::init_communicator_rank(comm_id, 0, 2, 0).unwrap();
     libmccs::all_gather(comm, dev_ptr, dev_ptr, BUFFER_SIZE / 2, 0 as cudaStream_t).unwrap();
+    println!("rank 0 - all gather completed");
     let mut buf = vec![0; BUFFER_SIZE];
     unsafe {
         let err = cudaMemcpy(

@@ -9,6 +9,10 @@ use structopt::StructOpt;
 use mccs::config::Config;
 use mccs::control::Control;
 
+use chrono::Timelike;
+use env_logger::fmt::Color;
+use std::io::Write;
+
 #[derive(Debug, Clone, StructOpt)]
 #[structopt(name = "mCCS Service")]
 struct Opts {
@@ -28,7 +32,33 @@ fn main() -> Result<()> {
     // load config
     let opts = Opts::from_args();
     let config = Config::from_path(opts.config)?;
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            let time = chrono::Local::now();
+            let style = buf
+                .style()
+                .set_color(Color::Black)
+                .set_intense(true)
+                .clone();
+            let time = format!(
+                "{}:{}:{}.{}",
+                time.hour() % 24,
+                time.minute(),
+                time.second(),
+                time.timestamp_subsec_millis()
+            );
+            writeln!(
+                buf,
+                "{}{} {} {}{} {}",
+                style.value("["),
+                time,
+                buf.default_styled_level(record.level()),
+                record.module_path().unwrap_or(""),
+                style.value("]"),
+                record.args()
+            )
+        })
+        .init();
 
     // process Ctrl-C event
     let sig_action = signal::SigAction::new(

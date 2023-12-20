@@ -104,6 +104,7 @@ impl Communicator {
             {
                 let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
                 self.compute_coll_work(&coll_task);
+                log::trace!("Compute more coll task");
             } else {
                 break;
             }
@@ -112,7 +113,7 @@ impl Communicator {
         self.unlaunched_plans.push_back(plan);
     }
 
-    // convert one task to different WorkElem object to different channel
+    // convert one task to different WorkElem objects and append them to different channels
     fn compute_coll_work(&mut self, task: &CollTask) {
         let schema = get_task_schema(
             task,
@@ -120,6 +121,7 @@ impl Communicator {
             TaskProtocol::Simple,
             self.channels.len(),
         );
+        log::trace!("task schema: {:?}", schema);
         let num_wraps = schema.num_threads / 32;
         self.select_best_channels(schema.num_channels)
             .into_iter()
@@ -172,8 +174,13 @@ impl Communicator {
                 work_count += chan.work_queue.len();
             }
         }
-        // todo
         let dev_work = self.upload_work(&chan_list, channel_upper_bound, channel_mask, work_count);
+        log::debug!(
+            "Finalized one KernelPlan: [{}/{}/{:b}]",
+            chan_list.len(),
+            channel_upper_bound,
+            channel_mask
+        );
         KernelPlan {
             kernel_fn: ptr as _,
             dev_work_head: dev_work,
@@ -238,6 +245,7 @@ impl Communicator {
         channel_mask: u64,
         work_count: usize,
     ) -> DeviceNonNull<mccsDevWork> {
+        log::trace!("Upload to {:?} with {} works", chan_list, work_count);
         let work_queue_mask = self.dev_resources.sync.work_queue_heap.size() as u32 - 1;
         let channel_count = chan_list.len() as u32;
         let new_first_chan_start = {
@@ -250,6 +258,11 @@ impl Communicator {
             self.wait_work_queue(new_start + work_count as u32);
             new_start
         };
+        log::trace!(
+            "From {} to {}",
+            new_first_chan_start,
+            new_first_chan_start + work_count as u32
+        );
 
         // fill work
         let mut new_subsequent_start = new_first_chan_start + channel_count;
@@ -375,7 +388,7 @@ fn get_task_schema(
 ) -> TaskSchema {
     use super::task::TaskDataType;
 
-    assert_eq!(task.data_type, TaskDataType::Uint8);
+    debug_assert_eq!(task.data_type, TaskDataType::Uint8);
     let mut num_thread = MCCS_SIMPLE_MAX_N_THREADS;
     let thread_th = MCCS_SIMPLE_THREAD_THRESHOLD;
     while task.count * task.data_type.count_bytes() < num_channel * num_thread * thread_th {
@@ -393,10 +406,11 @@ fn get_task_schema(
     } else {
         num_thread + WARP_SIZE
     }; // warning: should not exceed thread_per_block?
+    debug_assert!(num_thread <= MCCS_SIMPLE_MAX_N_THREADS);
     TaskSchema {
         algorithm: algo,
         protocol: proto,
-        work_func_index: todo!(),
+        work_func_index: 0, // FIXME
         num_channels: num_channel as _,
         num_threads: num_thread as _,
     }

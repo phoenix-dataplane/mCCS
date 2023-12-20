@@ -76,6 +76,7 @@ pub enum TaskProtocol {
     Simple = 0,
 }
 
+#[derive(Debug, Clone)]
 pub struct TaskSchema {
     pub algorithm: TaskAlgorithm,
     pub protocol: TaskProtocol,
