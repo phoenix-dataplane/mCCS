@@ -301,12 +301,16 @@ impl Communicator {
                             ),
                         )
                     };
-                    unsafe {
-                        *work_queue_heap_ptr
-                            .offset((new_subsequent_start & work_queue_mask) as isize) = dev_work;
-                    }
-                    if work_id != 0 {
+                    let current_offset = if work_id == 0 {
+                        new_first_chan_start + nth_chan
+                    } else {
+                        let offset = new_subsequent_start;
                         new_subsequent_start += 1;
+                        offset
+                    };
+                    unsafe {
+                        *work_queue_heap_ptr.offset((current_offset & work_queue_mask) as isize) =
+                            dev_work;
                     }
                 });
         }
