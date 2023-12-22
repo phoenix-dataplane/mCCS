@@ -57,6 +57,7 @@ impl ChanWorkSchedule {
         work_func_index: u16,
         data_type_bytes: usize,
     ) {
+        self.coll_bytes += elem.count * data_type_bytes;
         if let Some(tail) = self.work_queue.last_mut() {
             // accumulate same type work_elems
             if work_func_index == tail.func_index
@@ -67,12 +68,16 @@ impl ChanWorkSchedule {
                 return;
             }
         }
-        self.coll_bytes += elem.count * data_type_bytes;
         let work = KernelWork {
             func_index: work_func_index,
             work_elems: vec![elem],
         };
         self.work_queue.push(work);
+    }
+
+    fn clear(&mut self) {
+        self.coll_bytes = 0;
+        self.work_queue.clear();
     }
 }
 
@@ -172,10 +177,12 @@ impl Communicator {
                 channel_upper_bound = idx.0 + 1;
                 channel_mask |= 1 << idx.0;
                 work_count += chan.work_queue.len();
-                chan.work_queue.clear();
             }
         }
         let dev_work = self.upload_work(&chan_list, channel_upper_bound, channel_mask, work_count);
+        self.plan_schedule
+            .iter_mut()
+            .for_each(|(_, schedule)| schedule.clear());
         log::debug!(
             "Finalized one KernelPlan: [{}/{}/{:b}]",
             chan_list.len(),
@@ -275,6 +282,7 @@ impl Communicator {
                 .iter()
                 .enumerate()
                 .for_each(|(work_id, work)| {
+                    log::trace!("Work: channel {}, id {}", nth_chan, work_id);
                     let dev_work = if work_id == work_len - 1 {
                         self.channels
                             .get_mut(chan_id)
@@ -302,13 +310,17 @@ impl Communicator {
                         )
                     };
                     let current_offset = if work_id == 0 {
-                        new_first_chan_start + nth_chan
+                        new_first_chan_start + nth_chan as u32
                     } else {
                         let offset = new_subsequent_start;
                         new_subsequent_start += 1;
                         offset
                     };
                     unsafe {
+                        log::trace!(
+                            "Adding work to {}",
+                            (current_offset & work_queue_mask) as isize
+                        );
                         *work_queue_heap_ptr.offset((current_offset & work_queue_mask) as isize) =
                             dev_work;
                     }
@@ -316,6 +328,33 @@ impl Communicator {
         }
         self.work_queue_next_available = new_subsequent_start;
         // todo: GDR fence
+        // unsafe {
+        //     for i in new_first_chan_start..(new_first_chan_start + work_count as u32) {
+        //         let work = *work_queue_heap_ptr.offset(i as isize);
+        //         let mut s = format!(
+        //             "\n[isLast:{} inFifo:{} {} type:{:?} count:{}]\n",
+        //             work.header.isLast(),
+        //             work.header.inFifo(),
+        //             if work.header.isLast() != 0 {
+        //                 format!("DoneAcks: {}", work.header.__bindgen_anon_1.doneAcks)
+        //             } else {
+        //                 format!("WorkNext: {}", work.header.__bindgen_anon_1.workNext)
+        //             },
+        //             work.header.type_,
+        //             work_count
+        //         );
+        //         for (idx, elem) in work.__bindgen_anon_1.elems.iter().enumerate() {
+        //             if elem.isUsed() != 0 {
+        //                 s += format!(
+        //                     "\t {}: (nWarps:{} count:{} bid:{} nChannels:{} root:{})",
+        //                     idx, elem.nWarps, elem.count, elem.bid, elem.nChannels, elem.root
+        //                 )
+        //                 .as_str();
+        //             }
+        //         }
+        //         log::debug!("Upload work:{}", s);
+        //     }
+        // }
         DeviceNonNull::new(unsafe {
             self.dev_resources
                 .sync
