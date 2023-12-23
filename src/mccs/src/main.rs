@@ -41,7 +41,7 @@ fn main() -> Result<()> {
                 .set_intense(true)
                 .clone();
             let time = format!(
-                "{}:{}:{}.{}",
+                "{:02}:{:02}:{:02}.{:03}",
                 time.hour() % 24,
                 time.minute(),
                 time.second(),
