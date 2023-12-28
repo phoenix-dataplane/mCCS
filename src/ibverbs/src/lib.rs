@@ -455,7 +455,7 @@ impl Context {
         if pd.is_null() {
             Err(())
         } else {
-            Ok(ProtectionDomain { ctx: self, pd })
+            Ok(ProtectionDomain { ctx: PhantomData, pd })
         }
     }
 }
@@ -477,6 +477,11 @@ unsafe impl<'a> Send for CompletionQueue<'a> {}
 unsafe impl<'a> Sync for CompletionQueue<'a> {}
 
 impl<'ctx> CompletionQueue<'ctx> {
+    #[inline]
+    pub fn get_cq(&self) -> *mut ffi::ibv_cq {
+        self.cq
+    }
+
     /// Poll for (possibly multiple) work completions.
     ///
     /// A Work Completion indicates that a Work Request in a Work Queue, and all of the outstanding
@@ -777,7 +782,7 @@ impl<'res> QueuePairBuilder<'res> {
     ///  - `ENOMEM`: Not enough resources to complete this operation.
     ///  - `ENOSYS`: QP with this Transport Service Type isn't supported by this RDMA device.
     ///  - `EPERM`: Not enough permissions to create a QP with this Transport Service Type.
-    pub fn build(&self) -> io::Result<PreparedQueuePair<'res>> {
+    pub fn build(&self, ctx: &'res Context) -> io::Result<PreparedQueuePair<'res>> {
         let mut attr = ffi::ibv_qp_init_attr {
             qp_context: unsafe { ptr::null::<c_void>().offset(self.ctx) } as *mut _,
             send_cq: self.send.cq as *const _ as *mut _,
@@ -799,7 +804,7 @@ impl<'res> QueuePairBuilder<'res> {
             Err(io::Error::last_os_error())
         } else {
             Ok(PreparedQueuePair {
-                ctx: self.pd.ctx,
+                ctx,
                 qp: QueuePair {
                     _phantom: PhantomData,
                     qp,
@@ -1066,14 +1071,25 @@ impl<T> DerefMut for MemoryRegionAlloc<T> {
 }
 
 impl<T> MemoryRegionAlloc<T> {
+    #[inline]
+    pub fn get_mr(&self) -> *mut ffi::ibv_mr {
+        self.mr
+    }
+
     /// Get the remote authentication key used to allow direct remote access to this memory region.
     pub fn rkey(&self) -> RemoteKey {
         RemoteKey(unsafe { &*self.mr }.rkey)
     }
+
+    #[inline]
+    pub fn addr(&self) -> usize {
+        self.data.as_ptr() as usize
+    }
+
 }
 
 /// A key that authorizes direct memory access to a memory region.
-pub struct RemoteKey(u32);
+pub struct RemoteKey(pub u32);
 
 impl<T> Drop for MemoryRegionAlloc<T> {
     fn drop(&mut self) {
@@ -1124,7 +1140,7 @@ impl Drop for MemoryRegionRegister {
 
 /// A protection domain for a device's context.
 pub struct ProtectionDomain<'ctx> {
-    ctx: &'ctx Context,
+    ctx: PhantomData<&'ctx ()>,
     pd: *mut ffi::ibv_pd,
 }
 
@@ -1132,6 +1148,11 @@ unsafe impl<'a> Sync for ProtectionDomain<'a> {}
 unsafe impl<'a> Send for ProtectionDomain<'a> {}
 
 impl<'ctx> ProtectionDomain<'ctx> {
+    #[inline]
+    pub fn get_pd(&self) -> *mut ffi::ibv_pd {
+        self.pd
+    }
+
     /// Creates a queue pair builder associated with this protection domain.
     ///
     /// `send` and `recv` are the device `Context` to associate with the send and receive queues
@@ -1270,17 +1291,13 @@ impl<'ctx> ProtectionDomain<'ctx> {
     ///  - `EINVAL`: Invalid access value.
     ///  - `ENOMEM`: Not enough resources (either in operating system or in RDMA device) to
     ///    complete this operation.
-    pub fn allocate<T: Sized + Copy + Default>(&self, n: usize) -> io::Result<MemoryRegionAlloc<T>> {
+    pub fn allocate<T: Sized + Copy + Default>(&self, n: usize, access: ibv_access_flags) -> io::Result<MemoryRegionAlloc<T>> {
         assert!(n > 0);
         assert!(mem::size_of::<T>() > 0);
 
         let mut data = Vec::with_capacity(n);
         data.resize(n, T::default());
 
-        let access = ffi::ibv_access_flags::IBV_ACCESS_LOCAL_WRITE
-            | ffi::ibv_access_flags::IBV_ACCESS_REMOTE_WRITE
-            | ffi::ibv_access_flags::IBV_ACCESS_REMOTE_READ
-            | ffi::ibv_access_flags::IBV_ACCESS_REMOTE_ATOMIC;
         let mr = unsafe {
             ffi::ibv_reg_mr(
                 self.pd,
@@ -1332,6 +1349,13 @@ unsafe impl<'a> Send for QueuePair<'a> {}
 unsafe impl<'a> Sync for QueuePair<'a> {}
 
 impl<'res> QueuePair<'res> {
+    #[inline]
+    pub fn new(qp: *mut ffi::ibv_qp) -> Self {
+        QueuePair {
+            _phantom: PhantomData,
+            qp,
+        }
+    }
     /// Posts a linked list of Work Requests (WRs) to the Send Queue of this Queue Pair.
     ///
     /// Generates a HW-specific Send Request for the memory at `mr[range]`, and adds it to the tail

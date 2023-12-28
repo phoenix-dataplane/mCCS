@@ -2,29 +2,38 @@ use std::os::fd::RawFd;
 use std::pin::Pin;
 use std::marker::PhantomPinned;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::ffi::c_void;
 
+use async_std::io::{WriteExt, ReadExt};
 use async_std::net::{TcpStream, TcpListener};
 use once_cell::sync::OnceCell;
 use thiserror::Error;
 use socket2::SockAddr;
+use byteorder::{ByteOrder, LittleEndian};
 use volatile::{VolatilePtr, map_field};
 
-use ibverbs::{Context, ibv_access_flags};
+use ibverbs::Context;
 use ibverbs::{ProtectionDomain, CompletionQueue, MemoryRegionAlloc, QueuePair, MemoryRegionRegister};
-use ibverbs::ffi::{ibv_device_attr, ibv_port_attr};
+use ibverbs::ffi::{ibv_create_qp, ibv_modify_qp};
+use ibverbs::ffi::{ibv_device_attr, ibv_port_attr, ibv_qp_init_attr, ibv_qp_attr, ibv_qp_attr_mask};
 use ibverbs::ffi::{ibv_sge, ibv_send_wr};
-use ibverbs::ffi::{ibv_send_flags, ibv_wr_opcode};
+use ibverbs::ffi::{ibv_send_flags, ibv_access_flags, ibv_qp_type, ibv_qp_state, ibv_wr_opcode};
 
 use super::NET_MAX_REQUESTS;
 
 const IB_MAX_RECVS: usize = 8;
-const IB_MAX_QPS: usize = 128;
+const IB_MAX_QPS: usize = 16;
 const IB_MAX_REQUESTS: usize = NET_MAX_REQUESTS * IB_MAX_RECVS;
 
-
+const IB_QPS_PER_CONN: usize = 1;
 const IB_AR_THRESHOLD: usize = 8192;
+const IB_GID_INDEX: u8 = 0;
+const IB_TRAFFIC_CLASS: u8 = 0;
+const IB_SERVICE_LEVEL: u8 = 0;
+const IB_TIMEOUT: u8 = 18;
+const IB_RETRY_COUNT: u8 = 7;
+
 
 macro_rules! ibv_check {
     ($ibv_op:expr) => {{
@@ -43,6 +52,16 @@ pub enum IbError {
     SendOverflow { send: usize, recv: usize },
     #[error("Maximum number of outstanding requests of {} reached", IB_MAX_REQUESTS)]
     RequestBufferFull,
+    #[error("RDMA transport context is not initialized")]
+    ContextUninitalized,
+    #[error("Failed to allocate protection domain")]
+    AllocPd,
+    #[error("Bincode error: {0}")]
+    Bincode(#[from] bincode::Error),
+    #[error("Number of MR handles, data sizes or tags mismatch number of data elements ({0})")]
+    NumElemsMismatch(usize),
+    #[error("Number of receives ({0}) exceeeds maximum {}", IB_MAX_RECVS)]
+    ExceedMaxRecv(usize)
 }
 
 const IBV_WIDTHS: [u32; 5] = [1, 4, 8, 12, 2];
@@ -68,8 +87,8 @@ fn get_ib_speed(active_speed: u8) -> u32 {
 }
 
 pub struct IbDeviceResources {
-    pd: Option<Arc<ProtectionDomain<'static>>>,
-    mr_cache: Vec<Arc<MemoryRegionRegister>>,
+    pd: Weak<ProtectionDomain<'static>>,
+    mr_cache: Vec<Weak<MemoryRegionRegister>>,
 }
 
 pub struct IbDevice {
@@ -163,7 +182,7 @@ fn init_transport_context() -> Result<RdmaTransportContext, IbError> {
             let (pci_path, real_port) = get_pci_path(&device_name, &devices_ctx)?;
             let ar = port_attr.link_layer == ibverbs::ffi::IBV_LINK_LAYER_INFINIBAND as u8;
             let resources = IbDeviceResources {
-                pd: None,
+                pd: Weak::new(),
                 mr_cache: Vec::new(),
             };
             let dev_context = IbDevice {
@@ -224,10 +243,73 @@ pub struct IbRequest {
     send_recv: SendRecvRequest,
 }
 
+#[derive(Clone, Debug)]
+struct IbQpInfo {
+    lid: u32,
+    ib_port: u8,
+    link_layer: u8,
+    qpn: [u32; IB_MAX_QPS],
+
+    spn: u64,
+    iid: u64,
+    mtu: u32,
+
+    fifo_rkey: u32,
+    fifo_addr: u64,
+}
+
+const IB_QP_INFO_SEND_SIZE: usize = 6 + IB_MAX_QPS * 4 + 8 + 8 + 4 + 4 + 8;
+
+impl IbQpInfo {
+    fn write(&self, buf: &mut [u8; IB_QP_INFO_SEND_SIZE]) {
+        LittleEndian::write_u32(&mut buf[0..4], self.lid);
+        buf[4] = self.ib_port;
+        buf[5] = self.link_layer;
+        for q in 0..IB_MAX_QPS {
+            let offset = 6 + q * 4;
+            LittleEndian::write_u32(&mut buf[offset..offset+4], self.qpn[q]);
+        }
+        let offset = 6 + IB_MAX_QPS * 4;
+        LittleEndian::write_u64(&mut buf[offset..offset+8], self.spn);
+        LittleEndian::write_u64(&mut buf[offset+8..offset+16], self.iid);
+        LittleEndian::write_u32(&mut buf[offset+16..offset+20], self.mtu);
+        LittleEndian::write_u32(&mut buf[offset+20..offset+24], self.fifo_rkey);
+        LittleEndian::write_u64(&mut buf[offset+24..offset+32], self.fifo_addr);
+    }
+
+    fn read(buf: &[u8; IB_QP_INFO_SEND_SIZE]) -> IbQpInfo {
+        let lid = LittleEndian::read_u32(&buf[0..4]);
+        let ib_port = buf[4];
+        let link_layer = buf[5];
+        let mut qpn = [0; IB_MAX_QPS];
+        for q in 0..IB_MAX_QPS {
+            let offset = 6 + q * 4;
+            qpn[q] = LittleEndian::read_u32(&buf[offset..offset+4]);
+        }
+        let offset = 6 + IB_MAX_QPS * 4;
+        let spn = LittleEndian::read_u64(&buf[offset..offset+8]);
+        let iid = LittleEndian::read_u64(&buf[offset+8..offset+16]);
+        let mtu = LittleEndian::read_u32(&buf[offset+16..offset+20]);
+        let fifo_rkey = LittleEndian::read_u32(&buf[offset+20..offset+24]);
+        let fifo_addr = LittleEndian::read_u64(&buf[offset+24..offset+32]);
+        IbQpInfo {
+            lid,
+            ib_port,
+            link_layer,
+            qpn,
+            spn,
+            iid,
+            mtu,
+            fifo_rkey,
+            fifo_addr,
+        }
+    }
+}
+
 pub struct IbVerbs<'ctx> {
     device: usize,
     pd: Arc<ProtectionDomain<'ctx>>,
-    cq: Arc<CompletionQueue<'ctx>>,
+    cq: CompletionQueue<'ctx>,
     requests: [IbRequest; IB_MAX_REQUESTS],
 }
 
@@ -278,7 +360,7 @@ pub struct IbRemoteFifo {
     mr: MemoryRegionAlloc<IbSendFifo>,
     fifo_tail: u64,
     addr: u64,
-    rkey: u64,
+    rkey: u32,
     flags: ibv_send_flags,
     sge: ibv_sge,
 }
@@ -298,18 +380,428 @@ pub struct IbRecvComm<'ctx> {
     _pinned: PhantomPinned,
 }
 
+
 pub struct IbConnectHandle {
     connect_addr: SockAddr,
     magic: u64,
 }
 
+pub struct IbListenComm {
+    device: usize,
+    listener: TcpListener,
+    magic: u64,
+}
+
+fn ib_init_verbs(device: usize) -> Result<IbVerbs<'static>, IbError> {
+    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let device_ctx = &transport_ctx.devices[device];
+
+    let mut guard = device_ctx.resources.lock().unwrap();
+
+    // 2*MAX_REQUESTS*ncclParamIbQpsPerConn()
+    let num_cqe = 2 * IB_MAX_REQUESTS * 1;
+    let cq = device_ctx.context.create_cq(num_cqe as i32, 0)?;
+    let requests = std::array::from_fn(|_| {
+        IbRequest {
+            events: 0,
+            num_requests: 0,
+            ty: RequestType::Unused,
+            send_recv: SendRecvRequest {
+                send: SendRequest {
+                    size: 0,
+                    data: std::ptr::null_mut(),
+                    lkey: 0,
+                    offset: 0,
+                }
+            }
+        }
+    });
+    let pd = if let Some(pd) = guard.pd.upgrade() {
+        pd
+    } else {
+        let ctx = &*device_ctx.context;
+        let pd = ctx.alloc_pd().map_err(|_| IbError::AllocPd)?;
+        let pd = Arc::new(pd);
+        guard.pd = Arc::downgrade(&pd);
+        pd
+    };
+    let verbs = IbVerbs {
+        device,
+        pd,
+        cq,
+        requests
+    };
+    Ok(verbs)
+}
+
+pub fn create_qp(
+    port: u8,
+    verbs: &mut IbVerbs<'_>,
+    access_flags: ibv_access_flags,
+) -> Result<QueuePair<'static>, IbError> {
+    let mut qp_init_attr = ibv_qp_init_attr::default();
+    let cq = verbs.cq.get_cq();
+    qp_init_attr.send_cq = cq;
+    qp_init_attr.recv_cq = cq;
+    qp_init_attr.qp_type = ibv_qp_type::IBV_QPT_RC;
+    qp_init_attr.cap.max_send_wr = 2 * IB_MAX_REQUESTS as u32;
+    qp_init_attr.cap.max_recv_wr = IB_MAX_REQUESTS as u32;
+    qp_init_attr.cap.max_send_sge = 1;
+    qp_init_attr.cap.max_recv_sge = 1;
+    // ncclParamIbUseInline() ? sizeof(struct ncclIbSendFifo) : 0;
+    qp_init_attr.cap.max_inline_data = 0;
+    let pd = verbs.pd.get_pd();
+    let qp = unsafe {
+        let qp = ibv_create_qp(pd, &mut qp_init_attr);
+        if qp.is_null() {
+            Err(std::io::Error::last_os_error())?;
+        }
+        qp
+    };
+    let mut qp_attr = ibv_qp_attr::default();
+    qp_attr.qp_state = ibv_qp_state::IBV_QPS_INIT;
+    // ncclParamIbPkey()
+    qp_attr.pkey_index = 0;
+    qp_attr.port_num = port;
+    qp_attr.qp_access_flags = access_flags.0;
+    unsafe {
+        let attr_mask = ibv_qp_attr_mask::IBV_QP_STATE
+            | ibv_qp_attr_mask::IBV_QP_PKEY_INDEX
+            | ibv_qp_attr_mask::IBV_QP_PORT
+            | ibv_qp_attr_mask::IBV_QP_ACCESS_FLAGS;
+        ibv_check!(ibv_modify_qp(qp, &mut qp_attr, attr_mask.0 as i32));
+    }
+    let qp = QueuePair::new(qp);
+    Ok(qp)
+}
+
+fn ib_rtr_qp(
+    qp: *mut ibverbs::ffi::ibv_qp,
+    remote_qpn: u32,
+    remote_qp_info: &IbQpInfo,
+) -> Result<(), IbError> {
+    let mut qp_attr = ibv_qp_attr::default();
+    qp_attr.qp_state = ibv_qp_state::IBV_QPS_RTR;
+    qp_attr.path_mtu = remote_qp_info.mtu;
+    qp_attr.dest_qp_num = remote_qpn;
+    qp_attr.rq_psn = 0;
+    qp_attr.max_dest_rd_atomic = 1;
+    qp_attr.min_rnr_timer = 12;
+    if remote_qp_info.link_layer == ibverbs::ffi::IBV_LINK_LAYER_ETHERNET as u8 {
+        qp_attr.ah_attr.is_global = 1;
+        qp_attr.ah_attr.grh.dgid.global.subnet_prefix = remote_qp_info.spn;
+        qp_attr.ah_attr.grh.dgid.global.interface_id = remote_qp_info.iid;
+        qp_attr.ah_attr.grh.flow_label = 0;
+        qp_attr.ah_attr.grh.sgid_index = IB_GID_INDEX;
+        qp_attr.ah_attr.grh.hop_limit = 255;
+        qp_attr.ah_attr.grh.traffic_class = IB_TRAFFIC_CLASS;
+    } else {
+        qp_attr.ah_attr.is_global = 0;
+        qp_attr.ah_attr.dlid = remote_qp_info.lid as u16;
+    }
+    qp_attr.ah_attr.sl = 0;
+    qp_attr.ah_attr.src_path_bits = 0;
+    qp_attr.ah_attr.port_num = remote_qp_info.ib_port;
+    unsafe {
+        let attr_mask = ibv_qp_attr_mask::IBV_QP_STATE
+            | ibv_qp_attr_mask::IBV_QP_AV
+            | ibv_qp_attr_mask::IBV_QP_PATH_MTU
+            | ibv_qp_attr_mask::IBV_QP_DEST_QPN
+            | ibv_qp_attr_mask::IBV_QP_RQ_PSN
+            | ibv_qp_attr_mask::IBV_QP_MAX_DEST_RD_ATOMIC
+            | ibv_qp_attr_mask::IBV_QP_MIN_RNR_TIMER;
+        ibv_check!(ibv_modify_qp(qp, &mut qp_attr, attr_mask.0 as i32));
+    }
+    Ok(())
+}
+
+fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp) -> Result<(), IbError> {
+    let mut qp_attr = ibv_qp_attr::default();
+    qp_attr.qp_state = ibv_qp_state::IBV_QPS_RTS;
+    qp_attr.timeout = IB_TIMEOUT;
+    
+    qp_attr.retry_cnt = IB_RETRY_COUNT;
+    qp_attr.rnr_retry = 7;
+    qp_attr.sq_psn = 0;
+    qp_attr.max_rd_atomic = 1;
+    unsafe {
+        let attr_mask = ibv_qp_attr_mask::IBV_QP_STATE 
+            | ibv_qp_attr_mask::IBV_QP_TIMEOUT
+            | ibv_qp_attr_mask::IBV_QP_RETRY_CNT
+            | ibv_qp_attr_mask::IBV_QP_RNR_RETRY
+            | ibv_qp_attr_mask::IBV_QP_SQ_PSN
+            | ibv_qp_attr_mask::IBV_QP_MAX_QP_RD_ATOMIC;
+        ibv_check!(ibv_modify_qp(qp, &mut qp_attr, attr_mask.0 as i32));
+    }
+    Ok(())
+}
+
 pub async fn ib_connect(
-    device: u32,
+    device: usize,
     handle: &IbConnectHandle,
 ) -> Result<IbSendComm<'static>, IbError> {
+    // Stage 1: connect to peer and set up QPs
     let connect_addr =  handle.connect_addr.as_socket().unwrap();
-    let stream = TcpStream::connect(&connect_addr);
-    todo!()
+    let mut stream = TcpStream::connect(&connect_addr).await?;
+    let mut buf = [0u8; std::mem::size_of::<u64>()];
+    LittleEndian::write_u64(&mut buf, handle.magic);
+    stream.write_all(&buf).await?;
+
+    let mut verbs = ib_init_verbs(device)?;
+    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let device_ctx = &transport_ctx.devices[device];
+    let ib_port = device_ctx.port;
+    let mut qps = Vec::with_capacity(IB_QPS_PER_CONN);
+    for _ in 0..IB_QPS_PER_CONN {
+        let qp = create_qp(ib_port, &mut verbs, ibv_access_flags::IBV_ACCESS_REMOTE_WRITE)?;
+        qps.push(qp);
+    }
+    let ar = device_ctx.adaptive_routing;
+    let mut port_attr = ibv_port_attr::default();
+    unsafe {
+        let ptr = &mut port_attr as *mut ibv_port_attr as *mut _;
+        ibv_check!(ibverbs::ffi::ibv_query_port(device_ctx.context.ctx, ib_port, ptr));
+    }
+    let mut qp_info = IbQpInfo {
+        lid: port_attr.lid as u32,
+        ib_port,
+        link_layer: port_attr.link_layer,
+        qpn: [0; IB_MAX_QPS],
+        spn: 0,
+        iid: 0,
+        mtu: port_attr.active_mtu,
+        fifo_rkey: 0,
+        fifo_addr: 0,
+    };
+    for (idx, qp) in qps.iter().enumerate() {
+        let qp = unsafe { &*qp.get_qp() };
+        qp_info.qpn[idx] = qp.qp_num;
+    }
+
+    let access_flags = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE
+        | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE
+        | ibv_access_flags::IBV_ACCESS_REMOTE_READ;
+    let fifo = verbs.pd.allocate::<IbSendFifo>(
+        IB_MAX_REQUESTS * IB_MAX_RECVS,
+        access_flags,
+    )?;
+    qp_info.fifo_rkey = fifo.rkey().0;
+    qp_info.fifo_addr = fifo.addr() as u64;
+
+    if qp_info.link_layer == ibverbs::ffi::IBV_LINK_LAYER_ETHERNET as u8 {
+        let mut gid = ibverbs::ffi::ibv_gid::default();
+        unsafe {
+            ibv_check!(ibverbs::ffi::ibv_query_gid(
+                device_ctx.context.ctx,
+                ib_port,
+                IB_GID_INDEX as i32,
+                &mut gid,
+            ));
+            qp_info.spn = gid.global.subnet_prefix;
+            qp_info.iid = gid.global.interface_id;
+        }
+        log::info!(
+            "RDMA transport connect: device={}, port={}, mtu={}, GID={:} ({:x}/{:x})", 
+            device, ib_port, qp_info.mtu, IB_GID_INDEX, qp_info.spn, qp_info.iid
+        );
+    } else {
+        log::info!(
+            "RDMA transport connect: device={}, port={}, mtu={}, LID={}", 
+            device, ib_port, qp_info.mtu, qp_info.lid
+        );
+    }
+    // Stage 2: send QP info to peer
+    let mut buf = [0; IB_QP_INFO_SEND_SIZE];
+    qp_info.write(&mut buf);
+    stream.write_all(buf.as_slice()).await?;
+    
+    // Stage 3: receive peer's QP info
+    stream.read_exact(buf.as_mut_slice()).await?;
+    let remote_qp_info = IbQpInfo::read(&buf);
+
+    for (q, qp) in qps.iter().enumerate() {
+        let qp = qp.get_qp(); 
+        let remote_qpn = remote_qp_info.qpn[q];
+        ib_rtr_qp(qp, remote_qpn, &remote_qp_info)?;
+        ib_rts_qp(qp)?;
+    }
+
+    // Stage 4: signal ready to peer
+    let buf = [1u8; 1];
+    // no need to preserve the TCP connection
+    // it will be dropped when the function exits
+    stream.write_all(&buf.as_slice()).await?;
+
+    let fifo_requests_idx = [[IB_MAX_REQUESTS; IB_MAX_RECVS]; IB_MAX_REQUESTS];
+    let wrs = [ibv_send_wr::default(); IB_MAX_RECVS + 1];
+    let sges = [ibv_sge::default(); IB_MAX_RECVS];
+
+    let send_comm = IbSendComm {
+        verbs,
+        fifo,
+        fifo_head: 0,
+        fifo_requests_idx,
+        wrs,
+        sges,
+        qps,
+        adaptive_routing: ar,
+        _pin: PhantomPinned,
+    };
+    Ok(send_comm)
+}
+
+pub async fn ib_accept(
+    listen_comm: IbListenComm,
+) -> Result<IbRecvComm<'static>, IbError> {
+    
+    let mut buf = [0u8; std::mem::size_of::<u64>()];
+    let mut stream = loop {
+        let (mut stream, _) = listen_comm.listener.accept().await?;
+        stream.read_exact(buf.as_mut_slice()).await?;
+        let magic = LittleEndian::read_u64(&buf);
+        if magic == listen_comm.magic {
+            break stream;
+        } else {
+            log::warn!("RDMA transport accept: invalid magic number {} != {}", magic, listen_comm.magic);
+        }
+    };
+
+    let mut buf = [0u8; IB_QP_INFO_SEND_SIZE];
+    stream.read_exact(buf.as_mut_slice()).await?;
+    let mut remote_qp_info = IbQpInfo::read(&buf);
+
+    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let device_ctx = &transport_ctx.devices[listen_comm.device];
+    let ib_port = device_ctx.port;
+    let mut port_attr = ibv_port_attr::default();
+    unsafe {
+        let ptr = &mut port_attr as *mut ibv_port_attr as *mut _;
+        ibv_check!(ibverbs::ffi::ibv_query_port(device_ctx.context.ctx, ib_port, ptr));
+    }
+    let mut gid = ibverbs::ffi::ibv_gid::default();
+    unsafe {
+        ibv_check!(ibverbs::ffi::ibv_query_gid(
+            device_ctx.context.ctx,
+            ib_port,
+            IB_GID_INDEX as i32,
+            &mut gid,
+        ));
+    }
+
+    let mut verbs = ib_init_verbs(listen_comm.device)?;
+    let mut qps = Vec::with_capacity(IB_QPS_PER_CONN);
+    for _ in 0..IB_QPS_PER_CONN {
+        let qp = create_qp(ib_port, &mut verbs, ibv_access_flags::IBV_ACCESS_REMOTE_WRITE)?;
+        qps.push(qp);
+    }
+
+    remote_qp_info.mtu = std::cmp::min(remote_qp_info.mtu, port_attr.active_mtu);
+
+    for (q, qp) in qps.iter().enumerate() {
+        let qp = qp.get_qp();
+        let remote_qpn = remote_qp_info.qpn[q];
+        ib_rtr_qp(qp, remote_qpn, &remote_qp_info)?;
+        ib_rts_qp(qp)?;
+    }
+
+    let access_flags = ibv_access_flags::IBV_ACCESS_REMOTE_WRITE 
+        | ibv_access_flags::IBV_ACCESS_LOCAL_WRITE
+        | ibv_access_flags::IBV_ACCESS_REMOTE_READ;
+    let fifo_mr = verbs.pd.allocate::<IbSendFifo>(
+        IB_MAX_REQUESTS * IB_MAX_RECVS, 
+        access_flags
+    )?;
+    let fifo_mr_rkey = fifo_mr.rkey();
+    let fifo_mr_addr = fifo_mr.addr();
+
+    let mut fifo_sge = ibv_sge::default();
+    fifo_sge.length = unsafe { &*fifo_mr.get_mr() }.lkey;
+
+    // TODO: check ncclParamIbUseInline()
+    let remote_fifo = IbRemoteFifo {
+        mr: fifo_mr,
+        fifo_tail: 0,
+        addr: remote_qp_info.fifo_addr,
+        rkey: remote_qp_info.fifo_rkey,
+        flags: ibv_send_flags(0),
+        sge: fifo_sge,
+    };
+
+    // Allocate Flush dummy buffer for GPU Direct RDMA
+    // TODO: check GDR support
+    let gpu_flush_enable = false;
+    let gpu_flush = if gpu_flush_enable {
+        let flush_mr = verbs.pd.allocate::<i32>(1, ibv_access_flags::IBV_ACCESS_LOCAL_WRITE)?;
+        let mut sge = ibv_sge::default();
+        sge.addr = flush_mr.addr() as u64;
+        sge.length = 1;
+        let mr = unsafe { &*flush_mr.get_mr() };
+        sge.lkey = mr.lkey;
+        let access_flags = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE
+            | ibv_access_flags::IBV_ACCESS_REMOTE_READ;
+        let flush_qp = create_qp(ib_port, &mut verbs, access_flags)?;
+        let local_qp_info = IbQpInfo {
+            lid: port_attr.lid as u32,
+            ib_port,
+            link_layer: port_attr.link_layer,
+            qpn: [0; IB_MAX_QPS],
+            spn: unsafe { gid.global.subnet_prefix },
+            iid: unsafe { gid.global.interface_id },
+            mtu: port_attr.active_mtu,
+            fifo_rkey: 0,
+            fifo_addr: 0,
+        };
+        let qp_ptr = flush_qp.get_qp();
+        let qpn = unsafe { &*qp_ptr }.qp_num;
+        ib_rtr_qp(qp_ptr, qpn, &local_qp_info)?;
+        ib_rts_qp(qp_ptr)?;
+        let flush = IbGpuFlush {
+            enabled: true,
+            host_mr: Some(flush_mr),
+            sge,
+            qp: Some(flush_qp),
+        };
+        flush
+    } else {
+        let flush = IbGpuFlush {
+            enabled: false,
+            host_mr: None,
+            sge: ibv_sge::default(),
+            qp: None,
+        };
+        flush
+    };
+
+    let mut qp_info = IbQpInfo {
+        lid: port_attr.lid as u32,
+        ib_port,
+        link_layer: port_attr.link_layer,
+        qpn: [0; IB_MAX_QPS],
+        spn: unsafe { gid.global.subnet_prefix },
+        iid: unsafe { gid.global.interface_id },
+        mtu: port_attr.active_mtu,
+        fifo_rkey: fifo_mr_rkey.0,
+        fifo_addr: fifo_mr_addr as u64,
+    };
+    for (idx, qp) in qps.iter().enumerate() {
+        let qp = unsafe { &*qp.get_qp() };
+        qp_info.qpn[idx] = qp.qp_num;
+    }
+    let mut buf = [0; IB_QP_INFO_SEND_SIZE];
+    qp_info.write(&mut buf);
+    stream.write_all(buf.as_slice()).await?;
+
+    let mut buf = [0u8; 1];
+    stream.read_exact(buf.as_mut_slice()).await?;
+
+    let recv_comm = IbRecvComm {
+        verbs,
+        remote_fifo,
+        qps,
+        flush: gpu_flush,
+        _pinned: PhantomPinned,
+    };
+    Ok(recv_comm)
 }
 
 pub struct IbMrHandle(Arc<MemoryRegionRegister>);
@@ -331,20 +823,27 @@ pub fn ib_register_mr_dma_buf(
     let size_aligned = pages * page_size;
 
     let mut guard = device_ctx.resources.lock().unwrap();
-    let cached_mr = guard.mr_cache.iter().find(|mr| {
-        if mr.addr() == addr && mr.size() == size_aligned {
-            true
-        } else {
-            false
+    let cached_mr = guard.mr_cache.iter().find_map(|mr| {
+        let mr = mr.upgrade();
+        if let Some(mr) = mr {
+            if mr.addr() == addr && mr.size() == size_aligned {
+                return Some(mr);
+            }
         }
+        None
     });
+    
+    // Clear unused MRs in MR cache
+    guard.mr_cache.retain(|mr| mr.strong_count() > 0);
+
     if let Some(mr) = cached_mr {
-        let handle = IbMrHandle(Arc::clone(mr));
+        let handle = IbMrHandle(mr);
         Ok(handle)
     } else {
         let flags = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE
             | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE
             | ibv_access_flags::IBV_ACCESS_REMOTE_READ;
+        // TODO: ceheck for relaxed ordering
         let addr = addr as *mut c_void;
         let mr = if fd != -1 {
             verbs.pd.register_dmabuf_mr(addr, size_aligned, offset, fd, flags)?
@@ -353,7 +852,8 @@ pub fn ib_register_mr_dma_buf(
             verbs.pd.register_mr(addr, size_aligned, flags)?
         };
         let mr = Arc::new(mr);
-        guard.mr_cache.push(Arc::clone(&mr));
+        let mr_weak = Arc::downgrade(&mr);
+        guard.mr_cache.push(mr_weak);
         let handle = IbMrHandle(mr);
         Ok(handle)
     }
@@ -386,7 +886,7 @@ fn ib_get_request(verbs: &mut IbVerbs<'_>) -> Option<usize> {
     return None;
 }
 
-pub fn ib_multi_send(
+fn ib_multi_send(
     comm: Pin<&mut IbSendComm<'_>>,
     slot: usize,
 ) -> Result<(), IbError> {
@@ -473,8 +973,8 @@ pub fn ib_multi_send(
         }
         unsafe { 
             let qp_ptr = qp.get_qp();
-            let qp_ref = &mut *qp_ptr;
-            let ctx = &mut *qp_ref.context;
+            let qp_ref = &*qp_ptr;
+            let ctx = &*qp_ref.context;
             let send_fn = ctx.ops.post_send.unwrap();
 
             let mut bad_wr = std::ptr::null_mut();
@@ -575,12 +1075,13 @@ pub fn ib_initiate_send(
     return Ok(None);
 }
 
-pub fn ib_post_fifo(
+fn ib_post_fifo(
     comm: Pin<&mut IbRecvComm<'_>>,
     data: &[*mut c_void],
     sizes: &[usize],
     tags: &[u32], 
     mr_handles: &[&IbMrHandle],
+    request_id: usize,
 ) -> Result<(), IbError> {
     let comm = unsafe { comm.get_unchecked_mut() };
     let mut wr = ibv_send_wr::default();
@@ -598,6 +1099,46 @@ pub fn ib_post_fifo(
         local_elems[i].idx = comm.remote_fifo.fifo_tail + 1;
     }
     wr.wr.rdma.remote_addr = comm.remote_fifo.addr + (slot * IB_MAX_RECVS * std::mem::size_of::<IbSendFifo>()) as u64;
+    wr.wr.rdma.rkey = comm.remote_fifo.rkey;
+    comm.remote_fifo.sge.addr = local_elems.as_ptr() as u64;
+    comm.remote_fifo.sge.length = (num_requests * std::mem::size_of::<IbSendFifo>()) as u32;
+    wr.sg_list = &mut comm.remote_fifo.sge;
+    wr.num_sge = 1;
+    wr.opcode = ibv_wr_opcode::IBV_WR_RDMA_WRITE;
+    wr.send_flags = comm.remote_fifo.flags.0;
+
+    if slot == 0 {
+        wr.send_flags |= ibv_send_flags::IBV_SEND_SIGNALED.0;
+        wr.wr_id = request_id as u64;
+        comm.verbs.requests[request_id].events += 1;
+    }
+    unsafe {
+        let qp_ptr = comm.qps[0].get_qp();
+        let qp_ref = &*qp_ptr;
+        let ctx = &*qp_ref.context;
+        let send_fn = ctx.ops.post_send.unwrap();
+
+        let mut bad_wr = std::ptr::null_mut();
+        ibv_check!(send_fn(qp_ptr, &mut wr, &mut bad_wr));
+    }
+    comm.remote_fifo.fifo_tail += 1;
 
     Ok(())
+}
+
+pub fn ib_post_recv(
+    comm: Pin<&mut IbRecvComm<'_>>,
+    data: &[*mut c_void],
+    sizes: &[usize],
+    tags: &[u32], 
+    mr_handles: &[&IbMrHandle],
+) -> Result<(), IbError> {
+    let num_requests = data.len();
+    if num_requests > IB_MAX_RECVS {
+        Err(IbError::ExceedMaxRecv(num_requests))?;
+    }
+    if sizes.len() != num_requests || tags.len() != num_requests || mr_handles.len() != num_requests {
+        Err(IbError::NumElemsMismatch(num_requests))?;
+    }
+    todo!()
 }
