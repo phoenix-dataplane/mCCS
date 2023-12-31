@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::pin::Pin;
 use std::os::fd::RawFd;
 use std::ffi::c_void;
 
@@ -12,8 +13,8 @@ use crate::transport::transporter::{ConnectHandle, ConnectHandleError};
 
 pub mod rdma;
 
-pub type AnyNetComm = Box<dyn Any + Send>;
-pub type AnyMrHandle = Box<dyn Any + Send>;
+pub type AnyNetComm = dyn Any + Send;
+pub type AnyMrHandle = dyn Any + Send;
 
 pub const NET_MAX_REQUESTS: usize = 32;
 
@@ -50,6 +51,13 @@ pub(crate) enum MrType {
     Device,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum CommType {
+    Send,
+    Recv,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct MemoryRegion {
     pub(crate) data: *mut c_void,
@@ -65,7 +73,7 @@ pub(crate) struct NetRequestId(u32);
 
 pub(crate) struct NetListener<NetHandle> {
     pub(crate) handle: NetHandle,
-    pub(crate) recv_comm: AnyNetComm,
+    pub(crate) recv_comm: Box<AnyNetComm>,
 }
 
 // https://github.com/NVIDIA/nccl/blob/v2.17.1-1/src/include/nccl_net.h#L87
@@ -86,66 +94,71 @@ pub(crate) trait NetProvider: Send + Sync {
     // The handle will be exchanged between ranks to createa a connection
     async fn listen(&self, device: usize) -> Result<NetListener<Self::NetHandle>, Self::NetError>;
     // Connect to a handle and return a sending comm object for that peer.
-    async fn connect(&self, handle: Self::NetHandle) -> Result<AnyNetComm, Self::NetError>;
+    async fn connect(&self, handle: Self::NetHandle) -> Result<Box<AnyNetComm>, Self::NetError>;
     // Finalize connection establishment after remote peer has called connect.
-    async fn accept(&self, listen_comm: AnyNetComm) -> Result<AnyNetComm, Self::NetError>;
+    async fn accept(&self, listen_comm: Box<AnyNetComm>) -> Result<Box<AnyNetComm>, Self::NetError>;
     // Register memory. Comm can be either a sendComm or a recvComm.
     async fn register_mr(
         &self, 
-        comm: &mut AnyNetComm,
-        mr: MemoryRegion
-    ) -> Result<AnyMrHandle, Self::NetError>;
+        comm: Pin<&mut AnyNetComm>,
+        comm_type: CommType,
+        mr: MemoryRegion,
+    ) -> Result<Box<AnyMrHandle>, Self::NetError>;
     // DMA-BUF support
     async fn register_mr_dma_buf(
         &self, 
-        comm: &mut AnyNetComm, 
+        comm: Pin<&mut AnyNetComm>, 
+        comm_type: CommType,
         mr: MemoryRegion,
         offset: u64, fd: RawFd
-    ) -> Result<AnyMrHandle, Self::NetError>;
+    ) -> Result<Box<AnyMrHandle>, Self::NetError>;
     // Deregister memory
     async fn deregister_mr(
         &self,
-        comm: &mut AnyNetComm,
-        handle: AnyMrHandle
+        comm: Pin<&mut AnyNetComm>,
+        comm_type: CommType,
+        handle: Box<AnyMrHandle>,
     ) -> Result<(), Self::NetError>;
     // Initiate an asynchronous send operation to a peer.
     fn initiate_send(
         &self, 
-        send_comm: &mut AnyNetComm, 
+        send_comm: Pin<&mut AnyNetComm>, 
         data: *mut c_void,
         size: usize,
         tag: u32, 
         mr_handle: &AnyMrHandle,
-    ) -> Option<NetRequestId>;
+    ) -> Result<Option<NetRequestId>, Self::NetError>;
     // Initiate an asynchronous recv operation from a eer.
     fn initiate_recv(
         &self, 
-        recv_comm: &mut AnyNetComm, 
+        recv_comm: Pin<&mut AnyNetComm>, 
         data: &[*mut c_void],
         sizes: &[usize],
         tags: &[u32], 
         mr_handles: &[&AnyMrHandle],
-    ) -> Option<NetRequestId>;
+    ) -> Result<Option<NetRequestId>, Self::NetError>;
     // Initiate an asynchronous flush/fence to make sure all data received with
     // MemoryRegionType::Device is visible to the GPU.
     fn initiate_flush(
         &self,
-        recv_comm: &mut AnyNetComm,
+        recv_comm: Pin<&mut AnyNetComm>,
+        comm_type: CommType,
         data: &[*mut c_void],
         sizes: &[usize],
         mr_handle: &[&AnyMrHandle],
-    ) -> Option<NetRequestId>;
+    ) -> Result<Option<NetRequestId>, Self::NetError>;
     // Test whether a request is complete.
     fn test(
         &self,
         request: NetRequestId,
+        comm_type: CommType,
         sizes: &mut [usize],
-    ) -> bool;
+    ) -> Result<bool, ZSelf::NetError>;
 }
 
 pub(crate) struct NetListenerErased {
     pub(crate) handle: ConnectHandle,
-    pub(crate) recv_comm: AnyNetComm,
+    pub(crate) recv_comm: Box<AnyNetComm>,
 }
 
 mod private {
@@ -166,43 +179,43 @@ pub(crate) trait NetProvierWrap: private::Sealed {
     fn get_num_devices(&self) -> usize;
     fn get_properties<'a>(&'a self, device: usize) -> &'a NetProperties;
     async fn listen(&self, device: usize) -> Result<NetListenerErased, NetProviderError>;
-    async fn connect(&self, handle: &ConnectHandle) -> Result<AnyNetComm, NetProviderError>;
-    async fn accept(&self, listen_comm: AnyNetComm) -> Result<AnyNetComm, NetProviderError>;
+    async fn connect(&self, handle: &ConnectHandle) -> Result<Box<AnyNetComm>, NetProviderError>;
+    async fn accept(&self, listen_comm: Box<AnyNetComm>) -> Result<Box<AnyNetComm>, NetProviderError>;
     async fn register_mr(
         &self, 
-        comm: &mut AnyNetComm,
-        mr: MemoryRegion
-    ) -> Result<AnyMrHandle, NetProviderError>;
+        comm: Pin<&mut AnyNetComm>,
+        mr: MemoryRegion,
+    ) -> Result<Box<AnyMrHandle>, NetProviderError>;
     async fn register_mr_dma_buf(
         &self, 
-        comm: &mut AnyNetComm, 
+        comm: Pin<&mut AnyNetComm>, 
         mr: MemoryRegion,
         offset: u64, fd: RawFd
-    ) -> Result<AnyMrHandle, NetProviderError>;
+    ) -> Result<Box<AnyMrHandle>, NetProviderError>;
     async fn deregister_mr(
         &self,
-        comm: &mut AnyNetComm,
-        handle: AnyMrHandle
+        comm: Pin<&mut AnyNetComm>,
+        handle: Box<AnyMrHandle>,
     ) -> Result<(), NetProviderError>; 
     fn initiate_send(
         &self, 
-        send_comm: &mut AnyNetComm, 
+        send_comm: Pin<&mut AnyNetComm>, 
         data: *mut c_void,
         size: usize,
         tag: u32, 
         mr_handle: &AnyMrHandle,
-    ) -> Option<NetRequestId>;
+    ) -> Result<Option<NetRequestId>, NetProviderError>;
     fn initiate_recv(
         &self, 
-        recv_comm: &mut AnyNetComm, 
+        recv_comm: Pin<&mut AnyNetComm>, 
         data: &[*mut c_void],
         sizes: &[usize],
         tags: &[u32], 
         mr_handles: &[&AnyMrHandle],
-    ) -> Option<NetRequestId>;
+    ) -> Result<Option<NetRequestId>, NetProviderError>;
     fn initiate_flush(
         &self,
-        recv_comm: &mut AnyNetComm,
+        recv_comm: Pin<&mut AnyNetComm>,
         data: &[*mut c_void],
         sizes: &[usize],
         mr_handle: &[&AnyMrHandle],
@@ -243,7 +256,7 @@ impl<T: NetProvider> NetProvierWrap for T {
         Ok(erased)
     }
     #[inline]
-    async fn connect(&self, handle: &ConnectHandle) -> Result<AnyNetComm, NetProviderError> {
+    async fn connect(&self, handle: &ConnectHandle) -> Result<Box<AnyNetComm>, NetProviderError> {
         let handle = handle.deserialize_to::<<Self as NetProvider>::NetHandle>()?;
         let send_comm = <Self as NetProvider>::connect(self, handle)
             .await
@@ -251,7 +264,7 @@ impl<T: NetProvider> NetProvierWrap for T {
         Ok(send_comm)
     }
     #[inline]
-    async fn accept(&self, listen_comm: AnyNetComm) -> Result<AnyNetComm, NetProviderError> {
+    async fn accept(&self, listen_comm: Box<AnyNetComm>) -> Result<Box<AnyNetComm>, NetProviderError> {
         let recv_comm = <Self as NetProvider>::accept(self, listen_comm)
             .await
             .map_err(anyhow::Error::new)?;
@@ -260,9 +273,9 @@ impl<T: NetProvider> NetProvierWrap for T {
     #[inline]
     async fn register_mr(
         &self, 
-        comm: &mut AnyNetComm,
+        comm: Pin<&mut AnyNetComm>,
         mr: MemoryRegion
-    ) -> Result<AnyMrHandle, NetProviderError> {
+    ) -> Result<Box<AnyMrHandle>, NetProviderError> {
         let mr_handle = <Self as NetProvider>::register_mr(self, comm, mr)
             .await
             .map_err(anyhow::Error::new)?;
@@ -271,10 +284,10 @@ impl<T: NetProvider> NetProvierWrap for T {
     #[inline]
     async fn register_mr_dma_buf(
         &self,
-        comm: &mut AnyNetComm,
+        comm: Pin<&mut AnyNetComm>,
         mr: MemoryRegion,
         offset: u64, fd: RawFd
-    ) -> Result<AnyMrHandle, NetProviderError> {
+    ) -> Result<Box<AnyMrHandle>, NetProviderError> {
         let mr_handle = <Self as NetProvider>::register_mr_dma_buf(self, comm, mr, offset, fd)
             .await
             .map_err(anyhow::Error::new)?;
@@ -283,8 +296,8 @@ impl<T: NetProvider> NetProvierWrap for T {
     #[inline]
     async fn deregister_mr(
         &self,
-        comm: &mut AnyNetComm,
-        handle: AnyMrHandle
+        comm: Pin<&mut AnyNetComm>,
+        handle: Box<AnyMrHandle>
     ) -> Result<(), NetProviderError> {
         <Self as NetProvider>::deregister_mr(self, comm, handle)
             .await
@@ -294,7 +307,7 @@ impl<T: NetProvider> NetProvierWrap for T {
     #[inline]
     fn initiate_send(
         &self, 
-        send_comm: &mut AnyNetComm, 
+        send_comm: Pin<&mut AnyNetComm>, 
         data: *mut c_void,
         size: usize,
         tag: u32, 
@@ -305,7 +318,7 @@ impl<T: NetProvider> NetProvierWrap for T {
     #[inline]
     fn initiate_recv(
         &self, 
-        recv_comm: &mut AnyNetComm, 
+        recv_comm: Pin<&mut AnyNetComm>, 
         data: &[*mut c_void],
         sizes: &[usize],
         tags: &[u32], 
@@ -316,7 +329,7 @@ impl<T: NetProvider> NetProvierWrap for T {
     #[inline]
     fn initiate_flush(
         &self,
-        recv_comm: &mut AnyNetComm,
+        recv_comm: Pin<&mut AnyNetComm>,
         data: &[*mut c_void],
         sizes: &[usize],
         mr_handle: &[&AnyMrHandle],

@@ -27,7 +27,8 @@ pub async fn net_agent_recv_connect(
     setup_resources: AgentRecvSetup
 ) -> Result<(BufferMap, AgentRecvResources)> {
     let provider = setup_resources.provider;
-    let mut recv_comm = provider.accept(setup_resources.listen_comm).await?;
+    let recv_comm = provider.accept(setup_resources.listen_comm).await?;
+    let mut recv_comm = Box::into_pin(recv_comm);
     let mut map = BufferMap::new();
 
     let buffer_sizes = setup_resources.buffer_sizes;
@@ -87,7 +88,7 @@ pub async fn net_agent_recv_connect(
                         mr_type: MrType::Device,
                     };
                     let mhandle = provider.register_mr_dma_buf(
-                        &mut recv_comm, 
+                        recv_comm.as_mut(), 
                         mr,
                         0, 
                         dmabuf_fd
@@ -127,7 +128,7 @@ pub async fn net_agent_recv_connect(
     todo!()
 }
 
-pub(crate) fn net_agent_recv_progress(
+pub fn net_agent_recv_progress(
     resources: &mut AgentRecvResources,
     op: &mut TransportOp
 ) {
@@ -152,5 +153,15 @@ pub(crate) fn net_agent_recv_progress(
         let mhandles = [mhandle];
         let sizes = [step_size * op.slice_steps as usize];
         let tags = [resources.remote_rank];
+
+    
+    }
+    unsafe {
+        std::arch::asm!(
+            "mov ({0}), %eax",
+            in(reg) resources.gdc_flush,
+            out("eax") _,
+            options(readonly, nostack)
+        );
     }
 }

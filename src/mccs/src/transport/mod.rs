@@ -1,6 +1,7 @@
 use strum::{EnumIter, EnumCount};
 
 use collectives_sys::{MCCS_NUM_PROTOCOLS, MCCS_PROTO_SIMPLE};
+use collectives_sys::MCCS_BUFFER_SLOTS;
 
 use self::shm::transporter::ShmTransporter;
 
@@ -19,7 +20,7 @@ pub mod transporter;
 
 pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 
-pub const NUM_BUFFER_SLOTS: usize = 8;
+pub const NUM_BUFFER_SLOTS: usize = MCCS_BUFFER_SLOTS as _;
 pub const NUM_PROTOCOLS: usize = MCCS_NUM_PROTOCOLS as _;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, EnumIter, EnumCount)]

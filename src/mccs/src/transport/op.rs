@@ -1,4 +1,4 @@
-use super::Protocol;
+use super::{Protocol, NUM_BUFFER_SLOTS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportOpState {
@@ -100,6 +100,7 @@ pub struct TransportOp {
 
     pub state: TransportOpState,
 
+    pub requests_id: [u64; NUM_BUFFER_SLOTS],
     pub base: u64,
     pub posted: u64,
     pub received: u64,

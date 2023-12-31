@@ -5,11 +5,12 @@ use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, Weak};
 use std::ffi::c_void;
 
-use async_std::io::{WriteExt, ReadExt};
-use async_std::net::{TcpStream, TcpListener};
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::net::{TcpStream, TcpListener};
 use once_cell::sync::OnceCell;
 use thiserror::Error;
 use socket2::SockAddr;
+use nix::unistd::{access, AccessFlags};
 use byteorder::{ByteOrder, LittleEndian};
 use volatile::{VolatilePtr, map_field};
 
@@ -17,22 +18,17 @@ use ibverbs::Context;
 use ibverbs::{ProtectionDomain, CompletionQueue, MemoryRegionAlloc, QueuePair, MemoryRegionRegister};
 use ibverbs::ffi::{ibv_create_qp, ibv_modify_qp};
 use ibverbs::ffi::{ibv_device_attr, ibv_port_attr, ibv_qp_init_attr, ibv_qp_attr, ibv_qp_attr_mask};
-use ibverbs::ffi::{ibv_sge, ibv_send_wr};
+use ibverbs::ffi::{ibv_sge, ibv_wc, ibv_send_wr, ibv_recv_wr};
 use ibverbs::ffi::{ibv_send_flags, ibv_access_flags, ibv_qp_type, ibv_qp_state, ibv_wr_opcode};
+use ibverbs::ffi::{ibv_wc_status, ibv_wc_opcode};
 
 use super::NET_MAX_REQUESTS;
+use super::{NetProperties, AnyMrHandle, AnyNetComm, CommType};
+use crate::utils::{tcp, interfaces};
 
 const IB_MAX_RECVS: usize = 8;
 const IB_MAX_QPS: usize = 16;
 const IB_MAX_REQUESTS: usize = NET_MAX_REQUESTS * IB_MAX_RECVS;
-
-const IB_QPS_PER_CONN: usize = 1;
-const IB_AR_THRESHOLD: usize = 8192;
-const IB_GID_INDEX: u8 = 0;
-const IB_TRAFFIC_CLASS: u8 = 0;
-const IB_SERVICE_LEVEL: u8 = 0;
-const IB_TIMEOUT: u8 = 18;
-const IB_RETRY_COUNT: u8 = 7;
 
 
 macro_rules! ibv_check {
@@ -52,16 +48,26 @@ pub enum IbError {
     SendOverflow { send: usize, recv: usize },
     #[error("Maximum number of outstanding requests of {} reached", IB_MAX_REQUESTS)]
     RequestBufferFull,
+    #[error("Invalid address: {0:?}")]
+    InvalidAddr(SockAddr),
     #[error("RDMA transport context is not initialized")]
     ContextUninitalized,
     #[error("Failed to allocate protection domain")]
     AllocPd,
+    #[error("Failed to poll completion queue")]
+    PollCq,
+    #[error("Work completion error, opcode={0}, byte_len={1}, status={2}, vendor_err={3}")]
+    WcError(ibv_wc_opcode::Type, usize, ibv_wc_status::Type, u32),
     #[error("Bincode error: {0}")]
     Bincode(#[from] bincode::Error),
     #[error("Number of MR handles, data sizes or tags mismatch number of data elements ({0})")]
     NumElemsMismatch(usize),
     #[error("Number of receives ({0}) exceeeds maximum {}", IB_MAX_RECVS)]
-    ExceedMaxRecv(usize)
+    ExceedMaxRecv(usize),
+    #[error("Failed to downcast MR handle")]
+    DowncastMrHandle,
+    #[error("Failed to downcast send/recv communicator")]
+    DowncastNetComm,
 }
 
 const IBV_WIDTHS: [u32; 5] = [1, 4, 8, 12, 2];
@@ -104,21 +110,55 @@ pub struct IbDevice {
     max_qp: u32,
     adaptive_routing: bool,
     resources: Mutex<IbDeviceResources>,
+    dma_buf_support: bool,
     _pinned: PhantomPinned,
 }
 
+#[derive(Debug, Clone)]
 pub struct RdmaTransportConfig {
     gid_index: u32,
+    qps_per_conn: usize,
     timeout: u32,
     retry_count: u32,
     pkey: u32,
     use_inline: bool,
+    service_level: u8,
+    traffic_class: u8,
+    adaptive_routing: Option<bool>,
+    ar_threshold: usize,
+    pci_relaxed_ordering: bool,
+    gdr_flush_disable: bool,
+    socket_if_prefix: Option<String>,
+    ib_if_prefix: Option<String>,
+}
+
+impl Default for RdmaTransportConfig {
+    fn default() -> Self {
+        Self {
+            gid_index: 0,
+            qps_per_conn: 1,
+            timeout: 18,
+            retry_count: 7,
+            pkey: 0,
+            use_inline: false,
+            service_level: 0,
+            traffic_class: 0,
+            adaptive_routing: None,
+            ar_threshold: 8192,
+            // TODO: set to true
+            pci_relaxed_ordering: false,
+            // TODO: set to false
+            gdr_flush_disable: true,
+        }
+    }
 }
 
 struct RdmaTransportContext {
     devices: Vec<IbDevice>,
     listen_addr: SockAddr,
     page_size: usize,
+    gdr_support: bool,
+    config: RdmaTransportConfig,
 }
 
 pub struct RdmaTransportProvider(OnceCell<RdmaTransportContext>);
@@ -144,7 +184,36 @@ fn get_pci_path(device_name: &str, current_devices: &Vec<IbDevice>) -> Result<(S
     Ok((p, real_port))
 }   
 
-fn init_transport_context() -> Result<RdmaTransportContext, IbError> {
+
+fn ib_gdr_support() -> bool {
+    const PATH_NV_PEER_MEM: &'static str = "/sys/kernel/mm/memory_peers/nv_mem/version";
+    const PATH_NVIDIA_PEERMEM: &'static str = "/sys/kernel/mm/memory_peers/nvidia-peermem/version";
+    if access(PATH_NV_PEER_MEM, AccessFlags::F_OK).is_ok() 
+        || access(PATH_NVIDIA_PEERMEM, AccessFlags::F_OK).is_ok() {
+        true
+    } else {
+        false
+    }
+}
+
+fn ib_dma_buf_support(context: &Context) -> Result<bool, IbError> {
+    let pd = context.alloc_pd().map_err(|_| IbError::AllocPd)?;
+    unsafe {
+        let pd_ptr = pd.get_pd();
+        let _ = ibverbs::ffi::ibv_reg_dmabuf_mr(pd_ptr, 0u64, 0usize, 0u64, -1, 0);
+        let errno = nix::errno::Errno::last();
+        if errno != nix::errno::Errno::EOPNOTSUPP || errno != nix::errno::Errno::EPROTONOSUPPORT {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+fn ib_init_transport_context(config: &RdmaTransportConfig) -> Result<RdmaTransportContext, IbError> {
+    let interface = interfaces::find_interfaces(
+        specified_prefix, specified_family, max_num_interfaces
+    );
     let devices = ibverbs::devices()?;
     let mut devices_ctx = Vec::with_capacity(devices.len());
     for (idx, dev) in devices.iter().enumerate() {
@@ -198,6 +267,7 @@ fn init_transport_context() -> Result<RdmaTransportContext, IbError> {
                 max_qp: dev_attr.max_qp as _,
                 adaptive_routing: ar,
                 resources: Mutex::new(resources),
+                dma_buf_support: todo!(),
                 _pinned: PhantomPinned,
             };
             devices_ctx.push(dev_context);
@@ -207,6 +277,29 @@ fn init_transport_context() -> Result<RdmaTransportContext, IbError> {
     let page_size = sysconf(SysconfVar::PAGE_SIZE)
         .map_err(|e| std::io::Error::from_raw_os_error(e as i32))?
         .unwrap() as usize;
+    todo!()
+}
+
+
+pub fn ib_get_properties(device: usize) -> NetProperties {
+    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let device_ctx = &transport_ctx.devices[device];
+
+    let mut ptr_support = super::PtrSupport::PTR_HOST;
+    if transport_ctx.gdr_support {
+        ptr_support |= super::PtrSupport::PTR_CUDA;
+    }
+    let props = NetProperties {
+        name: device_ctx.device_name.clone(),
+        pci_path: device_ctx.pci_path.clone(),
+        guid: device_ctx.guid,
+        ptr_support: todo!(),
+        speed: todo!(),
+        port: todo!(),
+        latency: todo!(),
+        max_comms: todo!(),
+        max_recvs: todo!(),
+    };
     todo!()
 }
 
@@ -220,7 +313,7 @@ pub struct SendRequest {
 
 #[derive(Clone, Copy)]
 pub struct RecvRequest {
-    size: [usize; IB_MAX_RECVS],
+    sizes: [usize; IB_MAX_RECVS],
 }
 
 pub union SendRecvRequest {
@@ -541,11 +634,10 @@ pub async fn ib_connect(
     handle: &IbConnectHandle,
 ) -> Result<IbSendComm<'static>, IbError> {
     // Stage 1: connect to peer and set up QPs
-    let connect_addr =  handle.connect_addr.as_socket().unwrap();
-    let mut stream = TcpStream::connect(&connect_addr).await?;
-    let mut buf = [0u8; std::mem::size_of::<u64>()];
-    LittleEndian::write_u64(&mut buf, handle.magic);
-    stream.write_all(&buf).await?;
+    let connect_addr = handle.connect_addr
+        .as_socket()
+        .ok_or(IbError::InvalidAddr(handle.connect_addr.clone()))?;
+    let mut stream = tcp::async_connect(&connect_addr, handle.magic).await?;
 
     let mut verbs = ib_init_verbs(device)?;
     let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
@@ -653,19 +745,8 @@ pub async fn ib_connect(
 pub async fn ib_accept(
     listen_comm: IbListenComm,
 ) -> Result<IbRecvComm<'static>, IbError> {
+    let mut stream = tcp::async_accept(&listen_comm.listener, listen_comm.magic).await?;
     
-    let mut buf = [0u8; std::mem::size_of::<u64>()];
-    let mut stream = loop {
-        let (mut stream, _) = listen_comm.listener.accept().await?;
-        stream.read_exact(buf.as_mut_slice()).await?;
-        let magic = LittleEndian::read_u64(&buf);
-        if magic == listen_comm.magic {
-            break stream;
-        } else {
-            log::warn!("RDMA transport accept: invalid magic number {} != {}", magic, listen_comm.magic);
-        }
-    };
-
     let mut buf = [0u8; IB_QP_INFO_SEND_SIZE];
     stream.read_exact(buf.as_mut_slice()).await?;
     let mut remote_qp_info = IbQpInfo::read(&buf);
@@ -886,6 +967,11 @@ fn ib_get_request(verbs: &mut IbVerbs<'_>) -> Option<usize> {
     return None;
 }
 
+#[inline]
+fn ib_free_request(request: &mut IbRequest) {
+    request.ty = RequestType::Unused;
+}
+
 fn ib_multi_send(
     comm: Pin<&mut IbSendComm<'_>>,
     slot: usize,
@@ -974,8 +1060,8 @@ fn ib_multi_send(
         unsafe { 
             let qp_ptr = qp.get_qp();
             let qp_ref = &*qp_ptr;
-            let ctx = &*qp_ref.context;
-            let send_fn = ctx.ops.post_send.unwrap();
+            let ctx = &mut *qp_ref.context;
+            let send_fn = ctx.ops.post_send.as_mut().unwrap();
 
             let mut bad_wr = std::ptr::null_mut();
             ibv_check!(send_fn(qp_ptr, comm.wrs.as_mut_ptr(), &mut bad_wr));
@@ -1072,7 +1158,7 @@ pub fn ib_initiate_send(
         comm.fifo_head += 1;
         return Ok(Some(handle));
     }
-    return Ok(None);
+    Ok(None)
 }
 
 fn ib_post_fifo(
@@ -1090,7 +1176,7 @@ fn ib_post_fifo(
     
     let num_requests = data.len();
     for i in 0..num_requests {
-        local_elems[i].addr = data[i] as u64;
+        local_elems[i].addr = data[i].addr() as u64;
         let mr = unsafe { &*mr_handles[i].0.get_mr() };
         local_elems[i].rkey = mr.rkey;
         local_elems[i].num_requests = num_requests as u32;
@@ -1115,8 +1201,8 @@ fn ib_post_fifo(
     unsafe {
         let qp_ptr = comm.qps[0].get_qp();
         let qp_ref = &*qp_ptr;
-        let ctx = &*qp_ref.context;
-        let send_fn = ctx.ops.post_send.unwrap();
+        let ctx = &mut *qp_ref.context;
+        let send_fn = ctx.ops.post_send.as_mut().unwrap();
 
         let mut bad_wr = std::ptr::null_mut();
         ibv_check!(send_fn(qp_ptr, &mut wr, &mut bad_wr));
@@ -1126,13 +1212,14 @@ fn ib_post_fifo(
     Ok(())
 }
 
-pub fn ib_post_recv(
+pub fn ib_initiate_recv(
     comm: Pin<&mut IbRecvComm<'_>>,
     data: &[*mut c_void],
     sizes: &[usize],
     tags: &[u32], 
     mr_handles: &[&IbMrHandle],
-) -> Result<(), IbError> {
+) -> Result<Option<IbRequestId>, IbError> {
+    let comm = unsafe { comm.get_unchecked_mut() };
     let num_requests = data.len();
     if num_requests > IB_MAX_RECVS {
         Err(IbError::ExceedMaxRecv(num_requests))?;
@@ -1140,5 +1227,163 @@ pub fn ib_post_recv(
     if sizes.len() != num_requests || tags.len() != num_requests || mr_handles.len() != num_requests {
         Err(IbError::NumElemsMismatch(num_requests))?;
     }
+    
+    let request_id = ib_get_request(&mut comm.verbs)
+        .ok_or_else(|| IbError::RequestBufferFull)?;
+    let request = &mut comm.verbs.requests[request_id];
+    request.ty = RequestType::Recv;
+    request.num_requests = num_requests as u32;
+    for i in 0..num_requests {
+        unsafe { request.send_recv.recv.sizes[i] = 0; }
+    }
+
+    let mut wr = ibv_recv_wr::default();
+    wr.sg_list = std::ptr::null_mut();
+    wr.num_sge = 0;
+    
+    for qp in comm.qps.iter() {
+        unsafe { 
+            let qp_ptr = qp.get_qp();
+            let qp_ref = &*qp_ptr;
+            let ctx = &mut *qp_ref.context;
+            let recv_fn = ctx.ops.post_recv.as_mut().unwrap();
+
+            let mut bad_wr = std::ptr::null_mut();
+            ibv_check!(recv_fn(qp_ptr, &mut wr, &mut bad_wr));
+        }
+    }
+    request.events = comm.qps.len() as u32;
+
+    ib_post_fifo(
+        unsafe { Pin::new_unchecked(comm) },
+        data,
+        sizes,
+        tags,
+        mr_handles,
+        request_id,
+    )?;
+
+    let request_id = IbRequestId(request_id);
+    Ok(Some(request_id))
+}
+
+pub fn ib_initiate_flush(
+    comm: Pin<&mut IbRecvComm<'_>>,
+    data: &[*mut c_void],
+    sizes: &[usize],
+    mr_handles: &[&AnyMrHandle]
+) -> Result<Option<IbRequestId>, IbError> {
+    let comm = unsafe { comm.get_unchecked_mut() };
+    let mut last = None;
+    for (i, size) in sizes.iter().enumerate() {
+        if *size > 0 {
+            last = Some(i);
+        }
+    }
+    if !comm.flush.enabled || last.is_none() {
+        return Ok(None);
+    }
+    let num_requests = data.len();
+    if num_requests > IB_MAX_RECVS {
+        Err(IbError::ExceedMaxRecv(num_requests))?;
+    }
+    if sizes.len() != num_requests || mr_handles.len() != num_requests {
+        Err(IbError::NumElemsMismatch(num_requests))?;
+    }
+    
+    let last = last.unwrap();
+    let request_id = ib_get_request(&mut comm.verbs)
+        .ok_or_else(|| IbError::RequestBufferFull)?;
+    let request = &mut comm.verbs.requests[request_id];
+    request.ty = RequestType::Flush;
+
+    let mr = mr_handles[0].downcast_ref::<IbMrHandle>().ok_or_else(|| IbError::DowncastMrHandle)?;
+    let mr_ptr = mr.0.get_mr();
+    let mr_ref = unsafe { &*mr_ptr };
+    
+    let mut wr = ibv_send_wr::default();
+    wr.wr_id = request_id as u64;
+
+    wr.wr.rdma.remote_addr = data[last].addr() as u64;
+    wr.wr.rdma.rkey = mr_ref.rkey;
+    wr.sg_list = &mut comm.flush.sge;
+    wr.num_sge = 1;
+    wr.opcode = ibv_wr_opcode::IBV_WR_RDMA_READ;
+    wr.send_flags = ibv_send_flags::IBV_SEND_SIGNALED.0;
+
+    unsafe { 
+        let qp_ptr = comm.flush.qp.as_mut().unwrap().get_qp();
+        let qp_ref = &*qp_ptr;
+        let ctx = &mut *qp_ref.context;
+        let send_fn = ctx.ops.post_send.as_mut().unwrap();
+
+        let mut bad_wr = std::ptr::null_mut();
+        ibv_check!(send_fn(qp_ptr, &mut wr, &mut bad_wr));
+    }
     todo!()
+
+}
+
+pub fn ib_test(
+    verbs: &mut IbVerbs<'_>,
+    request_id: IbRequestId, 
+    sizes: Option<&mut [usize]>,
+) -> Result<bool, IbError> {
+    loop {
+        let request = &mut verbs.requests[request_id.0];
+        if request.events == 0 {
+            if sizes.is_some() && request.ty == RequestType::Recv {
+                let sizes = sizes.unwrap();
+                for i in 0..request.num_requests as usize {
+                    sizes[i] = unsafe { request.send_recv.recv.sizes[i] };
+                }
+                ib_free_request(request);
+            }
+            return Ok(true);
+        }
+
+        let mut wcs = [ibv_wc::default(); 4];
+        let cq_ptr = verbs.cq.get_cq();
+        let cq_ref = unsafe { &*cq_ptr };
+        let ctx = unsafe { &mut *cq_ref.context };
+        let poll_fn = ctx.ops.poll_cq.as_mut().unwrap();
+        let wr_done = unsafe { poll_fn(cq_ptr, 1, wcs.as_mut_ptr()) };
+        if wr_done < 0 {
+            Err(IbError::PollCq)?;
+        }
+        if wr_done == 0 {
+            return Ok(false);
+        }
+
+        for wc in wcs[0..wr_done as usize].iter_mut() {
+            if !wc.is_valid() {
+                let (status, vendor_err) = wc.error().unwrap();
+                Err(IbError::WcError(wc.opcode(), wc.len(), status, vendor_err))?;
+            }
+            let wr_id = wc.wr_id();
+            let root_request = &mut verbs.requests[wr_id as usize & 0xff];
+            if root_request.ty == RequestType::Send {
+                for i in 0..root_request.num_requests as usize {
+                    let send_request_id = (wr_id as usize >> (i * 8)) & 0xff;
+                    let send_request = &mut verbs.requests[send_request_id];
+                    assert!(send_request.events > 0, "Request already completed");
+                    send_request.events -= 1;
+                }
+            } else {
+                if wc.opcode() == ibv_wc_opcode::IBV_WC_RECV_RDMA_WITH_IMM {
+                    assert_eq!(root_request.ty, RequestType::Recv, "Unexpected request type");
+                    let imm = wc.imm_data().unwrap();
+                    if root_request.num_requests > 1 {
+                        // In the case of a multi recv, we only set sizes to 0 or 1.
+                        for i in 0..root_request.num_requests as usize {
+                            unsafe { root_request.send_recv.recv.sizes[i] = (imm as usize >> i) & 0x1; }
+                        }
+                    } else {
+                        unsafe { root_request.send_recv.recv.sizes[0] += imm as usize; }
+                    }
+                }
+                root_request.events -= 1;
+            }
+        }
+    }
 }
