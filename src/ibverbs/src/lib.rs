@@ -74,7 +74,6 @@
 #![allow(deref_nullptr)]
 #![feature(strict_provenance)]
 
-
 use std::convert::TryInto;
 use std::ffi::CStr;
 use std::io;
@@ -455,7 +454,10 @@ impl Context {
         if pd.is_null() {
             Err(())
         } else {
-            Ok(ProtectionDomain { ctx: PhantomData, pd })
+            Ok(ProtectionDomain {
+                ctx: PhantomData,
+                pd,
+            })
         }
     }
 }
@@ -1085,7 +1087,6 @@ impl<T> MemoryRegionAlloc<T> {
     pub fn addr(&self) -> usize {
         self.data.as_ptr() as usize
     }
-
 }
 
 /// A key that authorizes direct memory access to a memory region.
@@ -1137,7 +1138,6 @@ impl Drop for MemoryRegionRegister {
     }
 }
 
-
 /// A protection domain for a device's context.
 pub struct ProtectionDomain<'ctx> {
     ctx: PhantomData<&'ctx ()>,
@@ -1183,16 +1183,11 @@ impl<'ctx> ProtectionDomain<'ctx> {
     /// Register an allocated Memory Region to associate with this `ProtectionDomain`.
     pub fn register_mr(
         &self,
-        addr: *mut c_void, 
-        length: usize, 
-        access: ibv_access_flags
+        addr: *mut c_void,
+        length: usize,
+        access: ibv_access_flags,
     ) -> io::Result<MemoryRegionRegister> {
-        let mr = unsafe { ffi::ibv_reg_mr(
-            self.pd,
-            addr,
-            length,
-            access.0 as i32,
-        ) };
+        let mr = unsafe { ffi::ibv_reg_mr(self.pd, addr, length, access.0 as i32) };
         if mr.is_null() {
             return Err(io::Error::last_os_error());
         }
@@ -1207,20 +1202,22 @@ impl<'ctx> ProtectionDomain<'ctx> {
     // Register an DMA-BUF memory region
     pub fn register_dmabuf_mr(
         &self,
-        addr: *mut c_void, 
-        length: usize, 
+        addr: *mut c_void,
+        length: usize,
         offset: u64,
         fd: std::os::unix::io::RawFd,
         access: ibv_access_flags,
     ) -> io::Result<MemoryRegionRegister> {
-        let mr = unsafe { ffi::ibv_reg_dmabuf_mr(
-            self.pd, 
-            offset, 
-            length,
-            addr.addr() as u64, 
-            fd, 
-            access.0 as i32,
-        )};
+        let mr = unsafe {
+            ffi::ibv_reg_dmabuf_mr(
+                self.pd,
+                offset,
+                length,
+                addr.addr() as u64,
+                fd,
+                access.0 as i32,
+            )
+        };
         if mr.is_null() {
             return Err(io::Error::last_os_error());
         }
@@ -1235,17 +1232,11 @@ impl<'ctx> ProtectionDomain<'ctx> {
     // Register memory region with IBV_ACCESS_RELAXED_ORDERING support
     pub fn register_mr_iova2(
         &self,
-        addr: *mut c_void, 
-        length: usize, 
-        access: ibv_access_flags
+        addr: *mut c_void,
+        length: usize,
+        access: ibv_access_flags,
     ) -> io::Result<MemoryRegionRegister> {
-        let mr = unsafe { ffi::ibv_reg_mr_iova2(
-            self.pd,
-            addr,
-            length,
-            addr as u64,
-            access.0,
-        )};
+        let mr = unsafe { ffi::ibv_reg_mr_iova2(self.pd, addr, length, addr as u64, access.0) };
         if mr.is_null() {
             return Err(io::Error::last_os_error());
         }
@@ -1254,7 +1245,7 @@ impl<'ctx> ProtectionDomain<'ctx> {
             ptr: addr,
             size: length,
         };
-        Ok(mr_register) 
+        Ok(mr_register)
     }
 
     /// Allocates and registers a Memory Region (MR) associated with this `ProtectionDomain`.
@@ -1291,7 +1282,11 @@ impl<'ctx> ProtectionDomain<'ctx> {
     ///  - `EINVAL`: Invalid access value.
     ///  - `ENOMEM`: Not enough resources (either in operating system or in RDMA device) to
     ///    complete this operation.
-    pub fn allocate<T: Sized + Copy + Default>(&self, n: usize, access: ibv_access_flags) -> io::Result<MemoryRegionAlloc<T>> {
+    pub fn allocate<T: Sized + Copy + Default>(
+        &self,
+        n: usize,
+        access: ibv_access_flags,
+    ) -> io::Result<MemoryRegionAlloc<T>> {
         assert!(n > 0);
         assert!(mem::size_of::<T>() > 0);
 

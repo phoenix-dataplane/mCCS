@@ -3,28 +3,27 @@ use std::mem::MaybeUninit;
 
 use strum::IntoEnumIterator;
 
-use cuda_driver_sys::CUmemRangeHandleType;
 use cuda_driver_sys::cuMemGetHandleForAddressRange;
+use cuda_driver_sys::CUmemRangeHandleType;
 
 use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
-use crate::transport::NUM_BUFFER_SLOTS;
-use crate::transport::op::TransportOpState;
-use crate::utils::gdr::{GDR_HANDLE, GdrMappedMem};
-use crate::transport::Protocol;
-use crate::transport::meta::{SendBufMeta, RecvBufMeta};
+use crate::transport::meta::{RecvBufMeta, SendBufMeta};
 use crate::transport::op::TransportOp;
+use crate::transport::op::TransportOpState;
+use crate::transport::Protocol;
+use crate::transport::NUM_BUFFER_SLOTS;
+use crate::utils::gdr::{GdrMappedMem, GDR_HANDLE};
 
+use super::buffer::{BufferMap, BufferType, MemoryBankAlloc, MemoryBankType};
+use super::provider::{MemoryRegion, MrType};
+use super::resources::{AgentRecvConnectRequest, AgentRecvResources, AgentRecvSetup};
 use super::AgentError;
-use super::buffer::{BufferMap, BufferType, MemoryBankType, MemoryBankAlloc};
-use super::resources::{AgentRecvConnectRequest, AgentRecvSetup, AgentRecvResources};
-use super::provider::{MrType, MemoryRegion};
-
 
 type Result<T> = std::result::Result<T, AgentError>;
 
 pub async fn net_agent_recv_connect(
-    message: AgentRecvConnectRequest, 
-    setup_resources: AgentRecvSetup
+    message: AgentRecvConnectRequest,
+    setup_resources: AgentRecvSetup,
 ) -> Result<(BufferMap, AgentRecvResources)> {
     let provider = setup_resources.provider;
     let recv_comm = provider.accept(setup_resources.listen_comm).await?;
@@ -34,11 +33,23 @@ pub async fn net_agent_recv_connect(
     let buffer_sizes = setup_resources.buffer_sizes;
     for proto in Protocol::iter() {
         let buffer_type = BufferType::RingBuffer(proto);
-        map.assign_buffer_memory(buffer_type, buffer_sizes[proto as usize], setup_resources.use_gdr)
+        map.assign_buffer_memory(
+            buffer_type,
+            buffer_sizes[proto as usize],
+            setup_resources.use_gdr,
+        )
     }
 
-    map.assign_buffer_memory(BufferType::SendMem, std::mem::size_of::<SendBufMeta>(), false);
-    map.assign_buffer_memory(BufferType::RecvMem, std::mem::size_of::<RecvBufMeta>(), false);
+    map.assign_buffer_memory(
+        BufferType::SendMem,
+        std::mem::size_of::<SendBufMeta>(),
+        false,
+    );
+    map.assign_buffer_memory(
+        BufferType::RecvMem,
+        std::mem::size_of::<RecvBufMeta>(),
+        false,
+    );
 
     let dev_size = map.get_bank_alloc_size(MemoryBankType::DeviceMem);
     if dev_size > 0 {
@@ -61,7 +72,7 @@ pub async fn net_agent_recv_connect(
         let alloc = MemoryBankAlloc::GdcMem(gdc_mem);
         map.register_bank_alloc(alloc);
     }
-    
+
     let mut mr_handles = MaybeUninit::uninit_array();
     for proto in Protocol::iter() {
         if let Some(buffer_ptr) = map.get_buffer_cpu_ptr(proto) {
@@ -76,27 +87,27 @@ pub async fn net_agent_recv_connect(
                 unsafe {
                     let mut dmabuf_fd: i32 = 0;
                     cuMemGetHandleForAddressRange(
-                        (&mut dmabuf_fd) as *mut i32 as *mut c_void, 
+                        (&mut dmabuf_fd) as *mut i32 as *mut c_void,
                         ptr.addr() as _,
                         buffer_size,
                         CUmemRangeHandleType::CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD,
-                        0
+                        0,
                     );
                     let mr = MemoryRegion {
                         data: ptr,
                         size: buffer_size,
                         mr_type: MrType::Device,
                     };
-                    let mhandle = provider.register_mr_dma_buf(
-                        recv_comm.as_mut(), 
-                        mr,
-                        0, 
-                        dmabuf_fd
-                    ).await?;
+                    let mhandle = provider
+                        .register_mr_dma_buf(recv_comm.as_mut(), mr, 0, dmabuf_fd)
+                        .await?;
                     mr_handles[proto as usize].write(mhandle);
-                    nix::unistd::close(dmabuf_fd).map_err(|e|
-                        AgentError::BufferRegistration(format!("Failed to close fd for DMA buffer with errno {}", e))
-                    )?;
+                    nix::unistd::close(dmabuf_fd).map_err(|e| {
+                        AgentError::BufferRegistration(format!(
+                            "Failed to close fd for DMA buffer with errno {}",
+                            e
+                        ))
+                    })?;
                 }
             } else {
             }
@@ -128,13 +139,8 @@ pub async fn net_agent_recv_connect(
     todo!()
 }
 
-pub fn net_agent_recv_progress(
-    resources: &mut AgentRecvResources,
-    op: &mut TransportOp
-) {
-    if op.state == TransportOpState::Init {
-
-    }
+pub fn net_agent_recv_progress(resources: &mut AgentRecvResources, op: &mut TransportOp) {
+    if op.state == TransportOpState::Init {}
 
     let provider = resources.provider;
     let recv_comm = &mut resources.recv_comm;
@@ -153,8 +159,6 @@ pub fn net_agent_recv_progress(
         let mhandles = [mhandle];
         let sizes = [step_size * op.slice_steps as usize];
         let tags = [resources.remote_rank];
-
-    
     }
     unsafe {
         std::arch::asm!(

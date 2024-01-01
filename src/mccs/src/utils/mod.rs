@@ -1,7 +1,7 @@
 pub mod duplex_chan;
-pub mod pool;
 pub mod gdr;
 pub mod interfaces;
+pub mod pool;
 pub mod tcp;
 
 #[macro_export]

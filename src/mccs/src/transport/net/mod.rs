@@ -1,12 +1,11 @@
-pub mod resources;
-pub mod buffer;
 pub mod agent;
-pub mod transporter;
+pub mod buffer;
 pub mod provider;
+pub mod resources;
+pub mod transporter;
 
-use thiserror::Error;
 use provider::NetProviderError;
-
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AgentError {
@@ -15,4 +14,3 @@ pub enum AgentError {
     #[error("Ring buffer registration error: {0}")]
     BufferRegistration(String),
 }
-

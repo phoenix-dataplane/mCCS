@@ -1,7 +1,7 @@
 use atoi::atoi;
+use nix::sys::socket::{AddressFamily, SockaddrLike};
 use socket2::SockAddr;
 use thiserror::Error;
-use nix::sys::socket::{SockaddrLike, AddressFamily};
 
 #[derive(Debug, Clone, Error)]
 pub enum NetInterfaceError {
@@ -31,7 +31,7 @@ pub fn parse_prefix_list(prefix_list: &str) -> Result<Vec<NetInterfaceSpec>, Net
                 if pos == bytes.len() - 1 {
                     return Err(NetInterfaceError::ParsePrefix(prefix_list.to_string()));
                 }
-                let port = atoi::<u16>(&bytes[pos+1..])
+                let port = atoi::<u16>(&bytes[pos + 1..])
                     .ok_or_else(|| NetInterfaceError::ParsePrefix(prefix_list.to_string()))?;
                 let spec = NetInterfaceSpec {
                     prefix: std::mem::take(&mut curr_if_prefix),
@@ -61,7 +61,12 @@ pub fn parse_prefix_list(prefix_list: &str) -> Result<Vec<NetInterfaceSpec>, Net
     Ok(if_specs)
 }
 
-pub fn match_interface_list(string: &str, port: Option<u16>, specs: &[NetInterfaceSpec], match_exact: bool) -> bool {
+pub fn match_interface_list(
+    string: &str,
+    port: Option<u16>,
+    specs: &[NetInterfaceSpec],
+    match_exact: bool,
+) -> bool {
     if specs.is_empty() {
         return true;
     }
@@ -83,10 +88,10 @@ pub fn match_interface_list(string: &str, port: Option<u16>, specs: &[NetInterfa
 }
 
 fn find_interfaces_with_prefix(
-    mut prefix_list: &str, 
+    mut prefix_list: &str,
     sock_family: Option<AddressFamily>,
     max_num_interfaces: usize,
-) -> Result<Vec<(String, SockAddr)>, NetInterfaceError>  {
+) -> Result<Vec<(String, SockAddr)>, NetInterfaceError> {
     if !prefix_list.is_ascii() {
         Err(NetInterfaceError::ParsePrefix(prefix_list.to_string()))?;
     }
@@ -106,24 +111,33 @@ fn find_interfaces_with_prefix(
             let sockaddr_len = addr.len();
             let sock_addr = unsafe {
                 let (_, sock_addr) = SockAddr::try_init(|sockaddr, len| {
-                    std::ptr::copy_nonoverlapping(sockaddr_ptr as *const u8, sockaddr as *mut u8, sockaddr_len as usize);
+                    std::ptr::copy_nonoverlapping(
+                        sockaddr_ptr as *const u8,
+                        sockaddr as *mut u8,
+                        sockaddr_len as usize,
+                    );
                     *len = sockaddr_len;
                     Ok(())
-                }).unwrap();
+                })
+                .unwrap();
                 sock_addr
             };
             let family = sock_addr.family();
-            if family != AddressFamily::Inet as u16|| family != AddressFamily::Inet6 as u16 {
+            if family != AddressFamily::Inet as u16 || family != AddressFamily::Inet6 as u16 {
                 continue;
             }
-            
+
             if let Some(sock_family) = sock_family {
                 if family != sock_family as u16 {
                     continue;
                 }
             }
 
-            log::trace!("Found interface {}:{:?}", interface.interface_name, sock_addr);
+            log::trace!(
+                "Found interface {}:{:?}",
+                interface.interface_name,
+                sock_addr
+            );
 
             if family == AddressFamily::Inet6 as u16 {
                 let sa = sock_addr.as_socket_ipv6().unwrap();
@@ -136,9 +150,7 @@ fn find_interfaces_with_prefix(
             if !(match_interface_list(if_name, None, &specs, search_exact) ^ search_not) {
                 continue;
             }
-            let duplicate = interfaces.iter().any(|(name, _)| {
-                name == if_name
-            });
+            let duplicate = interfaces.iter().any(|(name, _)| name == if_name);
             if !duplicate {
                 interfaces.push((interface.interface_name, sock_addr));
                 if interfaces.len() >= max_num_interfaces {
@@ -156,36 +168,22 @@ pub fn find_interfaces(
     max_num_interfaces: usize,
 ) -> Result<Vec<(String, SockAddr)>, NetInterfaceError> {
     if let Some(prefix_list) = specified_prefix {
-        return find_interfaces_with_prefix(prefix_list, specified_family, max_num_interfaces)
+        return find_interfaces_with_prefix(prefix_list, specified_family, max_num_interfaces);
     } else {
-        let interfaces = find_interfaces_with_prefix(
-            "ib", 
-            specified_family, 
-            max_num_interfaces
-        )?;
+        let interfaces = find_interfaces_with_prefix("ib", specified_family, max_num_interfaces)?;
         if !interfaces.is_empty() {
             return Ok(interfaces);
         }
-        let interfaces = find_interfaces_with_prefix(
-            "^docker,lo",
-            specified_family,
-            max_num_interfaces
-        )?;
+        let interfaces =
+            find_interfaces_with_prefix("^docker,lo", specified_family, max_num_interfaces)?;
         if !interfaces.is_empty() {
             return Ok(interfaces);
         }
-        let interfaces = find_interfaces_with_prefix(
-            "docker",
-            specified_family,
-            max_num_interfaces
-        )?;
+        let interfaces =
+            find_interfaces_with_prefix("docker", specified_family, max_num_interfaces)?;
         if !interfaces.is_empty() {
             return Ok(interfaces);
         }
-        return find_interfaces_with_prefix(
-            "lo",
-            specified_family,
-            max_num_interfaces
-        );
+        return find_interfaces_with_prefix("lo", specified_family, max_num_interfaces);
     }
 }

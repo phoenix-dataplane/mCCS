@@ -3,17 +3,17 @@ use std::marker::PhantomData;
 
 use log::trace;
 
+use gdrcopy_sys::gdr_pin_buffer;
 use gdrcopy_sys::GPU_PAGE_MASK;
 use gdrcopy_sys::GPU_PAGE_OFFSET;
-use gdrcopy_sys::gdr_pin_buffer;
 use once_cell::sync::Lazy;
 
 use gdrcopy_sys::gdr_t;
 use gdrcopy_sys::GPU_PAGE_SIZE;
-use gdrcopy_sys::{gdr_runtime_get_version, gdr_driver_get_version};
-use gdrcopy_sys::{gdr_open, gdr_close};
+use gdrcopy_sys::{gdr_close, gdr_open};
+use gdrcopy_sys::{gdr_driver_get_version, gdr_runtime_get_version};
+use gdrcopy_sys::{gdr_get_info_v2, gdr_map};
 use gdrcopy_sys::{gdr_info_t, gdr_mh_t};
-use gdrcopy_sys::{gdr_map, gdr_get_info_v2};
 use gdrcopy_sys::{gdr_unmap, gdr_unpin_buffer};
 
 use crate::cuda::alloc::DeviceAlloc;
@@ -22,12 +22,17 @@ macro_rules! gdr_warning {
     ($gdr_op:expr) => {{
         let e = $gdr_op;
         if e != 0 {
-            log::error!("GDRCOPY failed with error code {:?} at {}:{}.", e, file!(), line!())
+            log::error!(
+                "GDRCOPY failed with error code {:?} at {}:{}.",
+                e,
+                file!(),
+                line!()
+            )
         }
     }};
 }
 
-macro_rules! align_size  {
+macro_rules! align_size {
     ($size:ident,$align:expr) => {
         $size = (($size + ($align) - 1) / ($align)) * ($align);
     };
@@ -50,13 +55,18 @@ fn gdr_init() -> GdrHandle {
         let mut lib_minor = 0;
         let mut drv_major = 0;
         let mut drv_minor = 0;
-        unsafe { gdr_runtime_get_version(&mut lib_major, &mut lib_minor); }
-        unsafe { gdr_driver_get_version(handle, &mut drv_major, &mut drv_minor); }
-        if (lib_major < 2 || (lib_major == 2 && lib_minor < 1)) ||
-            (drv_major < 2 || (drv_major == 2 && drv_minor < 1)) {
-                if !handle.is_null() {
-                    unsafe { gdr_warning!(gdr_close(handle)) };
-                }
+        unsafe {
+            gdr_runtime_get_version(&mut lib_major, &mut lib_minor);
+        }
+        unsafe {
+            gdr_driver_get_version(handle, &mut drv_major, &mut drv_minor);
+        }
+        if (lib_major < 2 || (lib_major == 2 && lib_minor < 1))
+            || (drv_major < 2 || (drv_major == 2 && drv_minor < 1))
+        {
+            if !handle.is_null() {
+                unsafe { gdr_warning!(gdr_close(handle)) };
+            }
         }
     }
     GdrHandle(handle)
@@ -70,7 +80,7 @@ pub struct GdrMappedMem<T> {
     gdr_map_size: usize,
     gdr_unaligned_size: usize,
     gdr_mh: gdr_mh_t,
-    phantom: PhantomData<T>
+    phantom: PhantomData<T>,
 }
 
 unsafe impl<T> Send for GdrMappedMem<T> {}
@@ -83,13 +93,19 @@ impl<T> GdrMappedMem<T> {
         align_size!(map_size, GPU_PAGE_SIZE as usize);
         let dev_mem = DeviceAlloc::<u8>::new(map_size + GPU_PAGE_SIZE as usize - 1);
         let dev_ptr = dev_mem.as_ptr();
-        let aligned_addr = unsafe { 
-            dev_ptr.add(GPU_PAGE_OFFSET as usize).addr() & GPU_PAGE_MASK as usize 
-        } as u64;
+        let aligned_addr =
+            unsafe { dev_ptr.add(GPU_PAGE_OFFSET as usize).addr() & GPU_PAGE_MASK as usize } as u64;
         let align = aligned_addr as usize - dev_ptr.addr();
-        unsafe { 
+        unsafe {
             let mut mh = std::mem::MaybeUninit::<gdr_mh_t>::uninit();
-            gdr_warning!(gdr_pin_buffer(GDR_HANDLE.0, aligned_addr, map_size, 0, 0, mh.as_mut_ptr()));
+            gdr_warning!(gdr_pin_buffer(
+                GDR_HANDLE.0,
+                aligned_addr,
+                map_size,
+                0,
+                0,
+                mh.as_mut_ptr()
+            ));
             let mh: gdrcopy_sys::gdr_mh_s = mh.assume_init();
             let mut map_va = std::ptr::null_mut::<c_void>();
             gdr_warning!(gdr_map(GDR_HANDLE.0, mh, &mut map_va, map_size));
@@ -97,9 +113,15 @@ impl<T> GdrMappedMem<T> {
             gdr_warning!(gdr_get_info_v2(GDR_HANDLE.0, mh, info.as_mut_ptr()));
             let info = info.assume_init();
             let offset = (info.va - aligned_addr) as isize;
-            trace!("
+            trace!(
+                "
                 GDRCOPY: allocated devMap {:p} gdrMap {:p} offset {:x} mh {:x} mapSize {} at {}",
-                dev_mem.as_ptr(), map_va, offset + align as isize, mh.h, map_size, map_va.addr() + offset as usize
+                dev_mem.as_ptr(),
+                map_va,
+                offset + align as isize,
+                mh.h,
+                map_size,
+                map_va.addr() + offset as usize
             );
             GdrMappedMem {
                 gdr_dev_mem: dev_mem,
@@ -133,7 +155,12 @@ impl<T> GdrMappedMem<T> {
 impl<T> Drop for GdrMappedMem<T> {
     fn drop(&mut self) {
         unsafe {
-            gdr_warning!(gdr_unmap(GDR_HANDLE.0, self.gdr_mh, self.gdr_map, self.gdr_map_size));
+            gdr_warning!(gdr_unmap(
+                GDR_HANDLE.0,
+                self.gdr_mh,
+                self.gdr_map,
+                self.gdr_map_size
+            ));
             gdr_warning!(gdr_unpin_buffer(GDR_HANDLE.0, self.gdr_mh));
         }
     }
