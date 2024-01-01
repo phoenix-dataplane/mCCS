@@ -31,13 +31,13 @@ pub enum ConnectHandleError {
 
 impl ConnectHandle {
     pub fn serialize_from<T: Serialize>(handle: T) -> Result<Self, ConnectHandleError> {
-        let mut uninit = MaybeUninit::<u8>::uninit_array::<CONNECT_HANDLE_SIZE>();
+        let uninit = MaybeUninit::<u8>::uninit_array::<CONNECT_HANDLE_SIZE>();
         let mut serialized = unsafe { MaybeUninit::array_assume_init(uninit) };
         let required_size = bincode::serialized_size(&handle)?;
         if required_size as usize > CONNECT_HANDLE_SIZE {
             return Err(ConnectHandleError::ExceedMaxSize(required_size as usize));
         }
-        bincode::serialize_into(serialized.as_mut_slice(), &handle);
+        bincode::serialize_into(serialized.as_mut_slice(), &handle)?;
         let serialized_handle = ConnectHandle(serialized);
         Ok(serialized_handle)
     }

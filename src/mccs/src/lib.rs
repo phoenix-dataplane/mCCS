@@ -10,6 +10,7 @@
 // todo: temporary
 #![allow(dead_code)]
 #![allow(unused)]
+#![feature(pointer_byte_offsets)]
 
 pub mod comm;
 pub mod config;

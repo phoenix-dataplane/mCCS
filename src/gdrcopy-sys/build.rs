@@ -27,4 +27,5 @@ fn main() {
 
     println!("cargo:rustc-link-lib=dylib=gdrapi");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=wrapper.h");
 }
