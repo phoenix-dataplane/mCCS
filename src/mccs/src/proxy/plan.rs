@@ -14,6 +14,7 @@ use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpy
 use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
 use crate::comm::{MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
 use crate::transport::channel::{ChannelId, CommChannel};
+use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::task::TransportTask;
 use crate::{
     comm::Communicator,
@@ -95,7 +96,6 @@ pub struct KernelPlan {
 impl Communicator {
     pub fn pre_launch_schedule(&mut self) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
-        // todo: proxy
         self.compute_coll_work(&first_task);
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
             if first_task.func == coll_task.func
@@ -117,6 +117,8 @@ impl Communicator {
         let plan = self.finalize_one_plan();
         self.unlaunched_plans.push_back(plan);
     }
+
+    fn create_transport_op(&self, task: &CollTask) -> TransportOp {}
 
     // convert one task to different WorkElem objects and append them to different channels
     fn compute_coll_work(&mut self, task: &CollTask) {
@@ -141,14 +143,20 @@ impl Communicator {
                     bid: block_id as u8,
                     num_channels: schema.num_channels as _,
                 };
-                self.plan_schedule
-                    .get_mut(&chan_id)
-                    .unwrap()
-                    .enqueue_work_elem_coll(
-                        elem,
-                        schema.work_func_index,
-                        task.data_type.count_bytes(),
-                    );
+                let schedule = self.plan_schedule.get_mut(&chan_id).unwrap();
+                // work queue
+                schedule.enqueue_work_elem_coll(
+                    elem,
+                    schema.work_func_index,
+                    task.data_type.count_bytes(),
+                );
+                // proxy queue
+                let tx_op = TransportOp::new(
+                    todo!("in computeColl()"),
+                    task.slice_steps,
+                    task.chunk_steps,
+                    schema.protocol,
+                );
             })
     }
 

@@ -29,3 +29,21 @@ pub struct TransportOp {
     pub transmitted: u64,
     pub done: u64,
 }
+
+impl TransportOp {
+    pub fn new(num_steps: u32, slice_steps: u32, chunk_steps: u32, protocol: Protocol) -> Self {
+        Self {
+            num_steps,
+            slice_steps,
+            chunk_steps,
+            protocol,
+            state: TransportOpState::Init,
+            base: 0,
+            posted: 0,
+            receive: 0,
+            flushed: 0,
+            transmitted: 0,
+            done: 0,
+        }
+    }
+}
