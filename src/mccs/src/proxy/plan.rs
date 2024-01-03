@@ -130,6 +130,25 @@ impl Communicator {
         );
         log::trace!("task schema: {:?}", schema);
         let num_wraps = schema.num_threads / 32;
+
+        let num_step = {
+            // computeColl()
+            let (chunk_steps, slice_steps) = if schema.algorithm == TaskAlgorithm::Ring
+                && schema.protocol == TaskProtocol::Simple
+            {
+                (task.chunk_steps, task.slice_steps)
+            } else {
+                (1, 1)
+            };
+            let chunk_size = chunk_steps * slice_steps;
+            let n_loops = {
+                let per_loop_size = schema.num_channels
+                    * schema.get_num_chunks_per_loop(self.num_ranks)
+                    * chunk_size;
+                (task.count * task.data_type.count_bytes() / (per_loop_size as usize)) as u32
+            };
+            task.chunk_steps * n_loops * schema.get_num_steps_per_loop(self.num_ranks)
+        };
         self.select_best_channels(schema.num_channels)
             .into_iter()
             .enumerate()
@@ -152,11 +171,14 @@ impl Communicator {
                 );
                 // proxy queue
                 let tx_op = TransportOp::new(
-                    todo!("in computeColl()"),
-                    task.slice_steps,
-                    task.chunk_steps,
-                    schema.protocol,
+                    num_step,
+                    slice_steps,
+                    chunk_steps,
+                    match schema.protocol {
+                        TaskProtocol::Simple => crate::transport::Protocol::Simple,
+                    },
                 );
+                todo!("Add tx_op to queue")
             })
     }
 

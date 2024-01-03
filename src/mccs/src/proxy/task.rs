@@ -76,15 +76,58 @@ pub enum TaskProtocol {
     Simple = 0,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskPattern {
+    Ring,
+    RingTwice,
+    PipelineFrom,
+    PipelineTo,
+    TreeUp,
+    TreeDown,
+    TreeUpDown,
+    CollnetChain,
+    CollnetDirect,
+    Send,
+    Recv,
+}
+
 #[derive(Debug, Clone)]
 pub struct TaskSchema {
     pub algorithm: TaskAlgorithm,
     pub protocol: TaskProtocol,
+    pub coll_func: TaskFuncType,
     pub work_func_index: u16,
     pub num_channels: u32,
     pub num_threads: u32,
 }
 
+impl TaskSchema {
+    fn get_pattern(&self) -> TaskPattern {
+        match self.coll_func {
+            TaskFuncType::AllGather => TaskPattern::Ring,
+            TaskFuncType::AllReduce => {
+                // if self.algorithm==TaskAlgorithm::Tree{TaskPattern::TreeUpDown}
+                TaskPattern::RingTwice
+            }
+            _ => unimplemented!(),
+        }
+    }
+    pub fn get_num_chunks_per_loop(&self, n_ranks: u32) -> u32 {
+        match self.get_pattern() {
+            TaskPattern::Ring => n_ranks,
+            TaskPattern::RingTwice => n_ranks,
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn get_num_steps_per_loop(&self, n_ranks: u32) -> u32 {
+        match self.get_pattern() {
+            TaskPattern::Ring => n_ranks - 1,
+            TaskPattern::RingTwice => 2 * (n_ranks - 1),
+            _ => unimplemented!(),
+        }
+    }
+}
 pub struct TaskQueue {
     pub coll_queue: VecDeque<CollTask>,
 }
