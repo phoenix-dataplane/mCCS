@@ -7,7 +7,6 @@ pub enum TransportOpState {
     Completed,
 }
 
-
 /*
 NOTE: ncclProxySubArgs is only used by NCCL proxy
 some elements in ncclProxyOp are duplicated in ncclProxySubArgs and ncclProxyArgs
@@ -27,8 +26,8 @@ struct ncclProxySubArgs {
   int peer;
 
   // not used
-  // sub groupping is only used for P2P 
-  //   if (shared && args->opCount == op->opCount) 
+  // sub groupping is only used for P2P
+  //   if (shared && args->opCount == op->opCount)
   //    NCCLCHECK(ncclProxyOpToArgs(op, args, args->nsubs));
   int groupSize; // Number of consecutive sub operations sharing the same recvComm
   uint64_t base;
@@ -100,7 +99,9 @@ pub struct TransportOp {
 
     pub state: TransportOpState,
 
-    pub requests_id: [u64; NUM_BUFFER_SLOTS],
+    pub requests_id: [Option<u32>; NUM_BUFFER_SLOTS],
+    pub idle: bool,
+
     pub base: u64,
     pub posted: u64,
     pub received: u64,

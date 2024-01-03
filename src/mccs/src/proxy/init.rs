@@ -10,7 +10,7 @@ use crate::transport::channel::{
     ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
 };
 use crate::transport::engine::TransportEngineId;
-use crate::transport::transporter::{AgentMessage, AnyResources, ConnectInfo, Transporter};
+use crate::transport::transporter::{AgentMessage, AnyResources, ConnectHandle, Transporter};
 
 use super::plan::ChanWorkSchedule;
 use super::task::TaskQueue;
@@ -41,7 +41,7 @@ pub struct CommInitState {
 
     pub to_setup: VecDeque<PeerConnId>,
     pub to_setup_agent_cb: VecDeque<(PeerConnId, AgentMessage)>,
-    pub to_connect: VecDeque<(PeerConnId, ConnectInfo)>,
+    pub to_connect: VecDeque<(PeerConnId, ConnectHandle)>,
     pub to_connect_agent_cb: VecDeque<(PeerConnId, AgentMessage)>,
     pub peer_transport_assigned: HashMap<PeerConnId, TransportEngineId>,
 

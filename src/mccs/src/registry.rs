@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use dashmap::DashMap;
 
@@ -43,7 +44,7 @@ impl CommunicatorInfo {
 pub struct GlobalRegistry {
     pub communicators: DashMap<CommunicatorId, CommunicatorInfo>,
     pub transport_delegator: TransportDelegator,
-    pub transport_catalog: TransportCatalog,
+    pub transport_catalog: Arc<TransportCatalog>,
 }
 
 impl GlobalRegistry {

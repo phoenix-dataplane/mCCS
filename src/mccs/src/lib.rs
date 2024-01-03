@@ -6,6 +6,7 @@
 #![feature(int_roundings)]
 #![feature(variant_count)]
 #![feature(pointer_byte_offsets)]
+#![feature(slice_ptr_get)]
 
 #[allow(dead_code)]
 pub mod comm;

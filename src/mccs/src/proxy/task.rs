@@ -1,7 +1,6 @@
 use std::collections::VecDeque;
 
 use crate::cuda::ptr::DeviceNonNull;
-use crate::message::CudaStream;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskFuncType {

@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 use crate::cuda_warning;
 use cuda_runtime_sys::{
     cudaFree, cudaFreeHost, cudaHostAlloc, cudaHostGetDevicePointer, cudaHostRegister,
-    cudaHostUnregister, cudaMalloc,
+    cudaHostUnregister, cudaMalloc, cudaMemset,
 };
 use cuda_runtime_sys::{cudaGetDevice, cudaSetDevice};
 use cuda_runtime_sys::{cudaHostAllocMapped, cudaHostRegisterMapped};
@@ -34,6 +34,7 @@ impl<T> DeviceHostMapped<T> {
         unsafe {
             cudaGetDevice(&mut device);
             cuda_warning!(cudaHostAlloc(&mut ptr_host, size, cudaHostAllocMapped));
+            std::ptr::write_bytes(ptr_host, 0, size);
             cuda_warning!(cudaHostGetDevicePointer(&mut ptr_dev, ptr_host, 0));
         }
         let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host as *mut T, ptr_dev as *mut T) };
@@ -149,6 +150,7 @@ impl<T> DeviceAlloc<T> {
         unsafe {
             cudaGetDevice(&mut device);
             cuda_warning!(cudaMalloc(&mut dev_ptr, size));
+            cuda_warning!(cudaMemset(dev_ptr, 0, size));
         }
         let ptr = unsafe { DeviceNonNull::new_unchecked(dev_ptr as *mut T) };
         DeviceAlloc { ptr, size, device }

@@ -1,4 +1,7 @@
 pub mod device;
+pub mod profile;
+
+pub use profile::CommProfile;
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -7,7 +10,6 @@ use crate::pattern::RingPattern;
 use crate::proxy::plan::{ChanWorkSchedule, KernelPlan};
 use crate::proxy::task::TaskQueue;
 use crate::transport::channel::CommChannel;
-use crate::transport::NUM_PROTOCOLS;
 
 use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use device::CommDevResources;
@@ -58,9 +60,4 @@ pub struct ChannelCommPattern {
     // channel id
     pub channel: u32,
     pub ring: RingPattern,
-}
-
-// comm profile, setting and 
-pub struct CommProfile {
-    pub buff_sizes: [usize; NUM_PROTOCOLS],
 }

@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 
 use super::buffer::TransportBuffer;
@@ -16,6 +18,12 @@ pub struct ShmSendSetupResources {
     pub locality: ShmLocality,
     // use_memcpy_send
     pub use_memcpy: bool,
+    pub recv_use_memcpy: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShmConnectHandle {
+    pub buf_arc_ptr: usize,
 }
 
 #[derive(Clone)]

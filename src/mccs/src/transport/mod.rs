@@ -1,7 +1,7 @@
-use strum::{EnumIter, EnumCount};
+use strum::{EnumCount, EnumIter};
 
-use collectives_sys::{MCCS_NUM_PROTOCOLS, MCCS_PROTO_SIMPLE};
 use collectives_sys::MCCS_BUFFER_SLOTS;
+use collectives_sys::{MCCS_NUM_PROTOCOLS, MCCS_PROTO_SIMPLE};
 
 use self::shm::transporter::ShmTransporter;
 
@@ -11,10 +11,10 @@ pub mod delegator;
 pub mod engine;
 pub mod message;
 pub mod meta;
+pub mod net;
 pub mod op;
 pub mod queue;
 pub mod shm;
-pub mod net;
 pub mod task;
 pub mod transporter;
 
@@ -26,7 +26,7 @@ pub const NUM_PROTOCOLS: usize = MCCS_NUM_PROTOCOLS as _;
 #[derive(Debug, PartialEq, Eq, Clone, Copy, EnumIter, EnumCount)]
 #[repr(usize)]
 pub enum Protocol {
-    Simple = MCCS_PROTO_SIMPLE as _
+    Simple = MCCS_PROTO_SIMPLE as _,
 }
 
 static_assertions::const_assert_eq!(std::mem::variant_count::<Protocol>(), NUM_PROTOCOLS);

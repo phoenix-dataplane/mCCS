@@ -1,8 +1,7 @@
+use byteorder::{ByteOrder, LittleEndian};
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpStream, TcpListener, TcpSocket};
-use byteorder::{ByteOrder, LittleEndian};
-
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 
 pub fn async_listen(addr: &SocketAddr) -> std::io::Result<TcpListener> {
     let socket = if addr.is_ipv4() {
@@ -13,7 +12,7 @@ pub fn async_listen(addr: &SocketAddr) -> std::io::Result<TcpListener> {
     socket.bind(addr.to_owned())?;
     socket.set_reuseaddr(true)?;
     socket.set_reuseport(true)?;
-    
+
     socket.listen(16384)
 }
 
@@ -26,7 +25,11 @@ pub async fn async_accept(listener: &TcpListener, magic: u64) -> std::io::Result
         if recv_magic == magic {
             break stream;
         } else {
-            log::warn!("TCP listener accept: invalid magic {} != {}", recv_magic, magic);
+            log::warn!(
+                "TCP listener accept: invalid magic {} != {}",
+                recv_magic,
+                magic
+            );
         }
     };
     Ok(stream)

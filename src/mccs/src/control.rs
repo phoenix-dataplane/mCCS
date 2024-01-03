@@ -10,9 +10,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
+use cuda_runtime_sys::cudaMalloc;
 use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind;
-use cuda_runtime_sys::{cudaMalloc, cudaStream_t};
 use dashmap::DashMap;
 use nix::libc;
 
@@ -69,7 +69,7 @@ impl Control {
             .expect("set_write_timeout");
 
         let transport_delegator = TransportDelegator::new();
-        let transport_catalog = TransportCatalog::new();
+        let transport_catalog = Arc::new(TransportCatalog::new());
         let shm_config = ShmConfig {
             locality: crate::transport::shm::config::ShmLocality::Sender,
             use_memcpy_send: false,
@@ -258,7 +258,7 @@ impl Control {
             }
         }
         let transport_delegator = TransportDelegator::new();
-        let transport_catalog = TransportCatalog::new();
+        let transport_catalog = Arc::new(TransportCatalog::new());
         let shm_config = ShmConfig {
             locality: crate::transport::shm::config::ShmLocality::Sender,
             use_memcpy_send: false,
