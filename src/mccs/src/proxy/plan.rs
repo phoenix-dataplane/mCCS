@@ -118,8 +118,6 @@ impl Communicator {
         self.unlaunched_plans.push_back(plan);
     }
 
-    fn create_transport_op(&self, task: &CollTask) -> TransportOp {}
-
     // convert one task to different WorkElem objects and append them to different channels
     fn compute_coll_work(&mut self, task: &CollTask) {
         let schema = get_task_schema(
@@ -131,7 +129,7 @@ impl Communicator {
         log::trace!("task schema: {:?}", schema);
         let num_wraps = schema.num_threads / 32;
 
-        let num_step = {
+        let (chunk_steps, slice_steps, num_step) = {
             // computeColl()
             let (chunk_steps, slice_steps) = if schema.algorithm == TaskAlgorithm::Ring
                 && schema.protocol == TaskProtocol::Simple
@@ -143,11 +141,15 @@ impl Communicator {
             let chunk_size = chunk_steps * slice_steps;
             let n_loops = {
                 let per_loop_size = schema.num_channels
-                    * schema.get_num_chunks_per_loop(self.num_ranks)
+                    * schema.get_num_chunks_per_loop(self.num_ranks as u32)
                     * chunk_size;
                 (task.count * task.data_type.count_bytes() / (per_loop_size as usize)) as u32
             };
-            task.chunk_steps * n_loops * schema.get_num_steps_per_loop(self.num_ranks)
+            (
+                chunk_steps,
+                slice_steps,
+                task.chunk_steps * n_loops * schema.get_num_steps_per_loop(self.num_ranks as u32),
+            )
         };
         self.select_best_channels(schema.num_channels)
             .into_iter()
@@ -487,6 +489,7 @@ fn get_task_schema(
         work_func_index: 0, // FIXME
         num_channels: num_channel as _,
         num_threads: num_thread as _,
+        coll_func: task.func,
     }
 }
 

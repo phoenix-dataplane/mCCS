@@ -1,4 +1,3 @@
-use mccs::transport::net::provider::rdma::ib_init_transport_context;
 use mccs::transport::net::provider::rdma::RdmaTransportConfig;
 use mccs::transport::net::provider::NetProvider;
 use mccs::transport::net::provider::RDMA_TRANSPORT;

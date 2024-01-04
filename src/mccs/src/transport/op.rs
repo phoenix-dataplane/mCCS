@@ -119,6 +119,7 @@ impl TransportOp {
             protocol,
             state: TransportOpState::Init,
             requests_id: Default::default(),
+            idle: true,
             base: 0,
             posted: 0,
             received: 0,

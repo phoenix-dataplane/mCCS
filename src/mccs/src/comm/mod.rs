@@ -70,8 +70,3 @@ pub struct ChannelCommPattern {
     pub channel: ChannelId,
     pub ring: RingPattern,
 }
-
-// comm profile, setting and
-pub struct CommProfile {
-    pub buff_sizes: [usize; NUM_PROTOCOLS],
-}

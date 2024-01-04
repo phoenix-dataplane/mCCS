@@ -6,6 +6,7 @@ use super::transporter::Transporter;
 use super::NUM_PROTOCOLS;
 use crate::cuda::ptr::DeviceNonNull;
 use crate::pattern::RingPattern;
+use std::fmt::Display;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ConnType {
@@ -51,3 +52,9 @@ pub struct CommChannel {
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChannelId(pub u32);
+
+impl Display for ChannelId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.to_string().as_str())
+    }
+}
