@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use crate::utils::duplex_chan::DuplexChannel;
 use crossbeam::channel::TryRecvError;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
+use crate::registry::GlobalRegistry;
+use crate::utils::duplex_chan::DuplexChannel;
 use crate::utils::pool::WorkPool;
 
 use super::channel::ConnType;
@@ -46,14 +48,22 @@ fn new_setup_task(
     transporter: &'static dyn Transporter,
     id: TransportAgentId,
     request: AgentMessage,
+    registry: &GlobalRegistry,
 ) -> AsyncTask {
     let setup = match id.peer_conn.conn_type {
-        ConnType::Send => transporter.agent_send_setup(id, request),
-        ConnType::Recv => transporter.agent_recv_setup(id, request),
+        ConnType::Send => {
+            transporter.agent_send_setup(id, request, Arc::clone(&registry.transport_catalog))
+        }
+        ConnType::Recv => {
+            transporter.agent_recv_setup(id, request, Arc::clone(&registry.transport_catalog))
+        }
     };
-    let task = setup.map(|(resources, reply)| AsyncTaskResult::Setup {
-        setup_resources: resources,
-        reply,
+    let task = setup.map(|res| {
+        let (resources, reply) = res.unwrap();
+        AsyncTaskResult::Setup {
+            setup_resources: resources,
+            reply,
+        }
     });
     let pinned = Box::pin(task);
     AsyncTask {
@@ -73,9 +83,12 @@ fn new_connect_task(
         ConnType::Send => transporter.agent_send_connect(id, request, setup_resources),
         ConnType::Recv => transporter.agent_recv_connect(id, request, setup_resources),
     };
-    let task = connect.map(|(resources, reply)| AsyncTaskResult::Connect {
-        agent_resources: resources,
-        reply,
+    let task = connect.map(|res| {
+        let (resources, reply) = res.unwrap();
+        AsyncTaskResult::Connect {
+            agent_resources: resources,
+            reply,
+        }
     });
     let pinned = Box::pin(task);
     AsyncTask {
@@ -89,6 +102,7 @@ struct TransportEngineResources {
     agent_setup: HashMap<TransportAgentId, AnyResources>,
     agent_connected: HashMap<TransportAgentId, TransportAgent>,
     proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
+    global_registry: Arc<GlobalRegistry>,
 }
 
 impl TransportEngineResources {
@@ -162,7 +176,12 @@ impl TransportEngine {
                 Ok(request) => {
                     let task = match request {
                         TransportEngineRequest::AgentSetup(transporter, agent_id, request) => {
-                            new_setup_task(transporter, agent_id, request)
+                            new_setup_task(
+                                transporter,
+                                agent_id,
+                                request,
+                                &self.resources.global_registry,
+                            )
                         }
                         TransportEngineRequest::AgentConnect(transporter, agent_id, request) => {
                             let setup_resources = self.resources.agent_setup.remove(&agent_id);

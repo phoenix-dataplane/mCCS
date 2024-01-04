@@ -2,13 +2,16 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 
 use log::trace;
-
-use gdrcopy_sys::gdr_pin_buffer;
-use gdrcopy_sys::GPU_PAGE_MASK;
-use gdrcopy_sys::GPU_PAGE_OFFSET;
 use once_cell::sync::Lazy;
 
+use cuda_driver_sys::CUdevice;
+use cuda_driver_sys::{cuDeviceGet, cuDeviceGetAttribute, CUdevice_attribute};
+use cuda_runtime_sys::cudaDriverGetVersion;
+
+use gdrcopy_sys::gdr_pin_buffer;
 use gdrcopy_sys::gdr_t;
+use gdrcopy_sys::GPU_PAGE_MASK;
+use gdrcopy_sys::GPU_PAGE_OFFSET;
 use gdrcopy_sys::GPU_PAGE_SIZE;
 use gdrcopy_sys::{gdr_close, gdr_open};
 use gdrcopy_sys::{gdr_driver_get_version, gdr_runtime_get_version};
@@ -17,6 +20,8 @@ use gdrcopy_sys::{gdr_info_t, gdr_mh_t};
 use gdrcopy_sys::{gdr_unmap, gdr_unpin_buffer};
 
 use crate::cuda::alloc::DeviceAlloc;
+use crate::utils::CU_INIT;
+use crate::{cu_warning, cuda_warning};
 
 macro_rules! gdr_warning {
     ($gdr_op:expr) => {{
@@ -163,5 +168,33 @@ impl<T> Drop for GdrMappedMem<T> {
             ));
             gdr_warning!(gdr_unpin_buffer(GDR_HANDLE.0, self.gdr_mh));
         }
+    }
+}
+
+pub fn check_dma_buf_support(cuda_device_idx: i32) -> bool {
+    unsafe {
+        CU_INIT.with(|_| {});
+        let mut cuda_driver_version = 0;
+        cuda_warning!(cudaDriverGetVersion(&mut cuda_driver_version));
+        let mut dev = CUdevice::default();
+        cu_warning!(cuDeviceGet(&mut dev, cuda_device_idx));
+        let mut flag = 0;
+        cu_warning!(cuDeviceGetAttribute(
+            &mut flag,
+            CUdevice_attribute::CU_DEVICE_ATTRIBUTE_DMA_BUF_SUPPORTED,
+            dev
+        ));
+        if flag > 0 {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[cfg(all(target_feature = "sse", target_arch = "x86_64"))]
+pub fn wc_store_fence() {
+    unsafe {
+        core::arch::x86_64::_mm_sfence();
     }
 }

@@ -99,7 +99,9 @@ pub struct TransportOp {
 
     pub state: TransportOpState,
 
-    pub requests_id: [u64; NUM_BUFFER_SLOTS],
+    pub requests_id: [Option<u32>; NUM_BUFFER_SLOTS],
+    pub idle: bool,
+
     pub base: u64,
     pub posted: u64,
     pub received: u64,

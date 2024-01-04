@@ -5,16 +5,22 @@ use std::pin::Pin;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, Weak};
 
+use async_trait::async_trait;
 use byteorder::{ByteOrder, LittleEndian};
 use nix::unistd::{access, AccessFlags};
 use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
 use socket2::SockAddr;
 use thiserror::Error;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use volatile::{map_field, VolatilePtr};
 
+use ibverbs::ffi::ibv_async_event;
 use ibverbs::ffi::{ibv_access_flags, ibv_qp_state, ibv_qp_type, ibv_send_flags, ibv_wr_opcode};
+use ibverbs::ffi::{
+    ibv_ack_async_event, ibv_event_type_str, ibv_get_async_event, IBV_EVENT_COMM_EST,
+};
 use ibverbs::ffi::{ibv_create_qp, ibv_modify_qp};
 use ibverbs::ffi::{
     ibv_device_attr, ibv_port_attr, ibv_qp_attr, ibv_qp_attr_mask, ibv_qp_init_attr,
@@ -27,12 +33,17 @@ use ibverbs::{
 };
 
 use super::NET_MAX_REQUESTS;
-use super::{AnyMrHandle, AnyNetComm, CommType, NetProperties};
-use crate::utils::{interfaces, tcp};
+use super::{AnyMrHandle, AnyNetComm, CommType, NetProvider, NetRequestId};
+use super::{MemoryRegion, NetListener, NetProperties};
+use crate::utils::interfaces;
+use crate::utils::tcp;
 
 const IB_MAX_RECVS: usize = 8;
 const IB_MAX_QPS: usize = 16;
 const IB_MAX_REQUESTS: usize = NET_MAX_REQUESTS * IB_MAX_RECVS;
+
+// request id are encoded in wr_id and we need up to 8 requests ids per completion
+static_assertions::const_assert!(IB_MAX_REQUESTS <= 256);
 
 macro_rules! ibv_check {
     ($ibv_op:expr) => {{
@@ -45,6 +56,10 @@ macro_rules! ibv_check {
 
 #[derive(Debug, Error)]
 pub enum IbError {
+    #[error("RDMA transport context is not initialized")]
+    ContextUninitialized,
+    #[error("RDMA transport context  initialized")]
+    ContextAlreadyInitialized,
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Insufficient recv size {recv} to match send size {send}")]
@@ -54,8 +69,6 @@ pub enum IbError {
         IB_MAX_REQUESTS
     )]
     RequestBufferFull,
-    #[error("Invalid address: {0:?}")]
-    InvalidAddr(SockAddr),
     #[error("RDMA transport context is not initialized")]
     ContextUninitalized,
     #[error("Failed to allocate protection domain")]
@@ -74,6 +87,10 @@ pub enum IbError {
     DowncastMrHandle,
     #[error("Failed to downcast send/recv communicator")]
     DowncastNetComm,
+    #[error("Network interface error: {0}")]
+    Interface(#[from] interfaces::NetInterfaceError),
+    #[error("No IP interface found")]
+    NoIpInterface,
 }
 
 const IBV_WIDTHS: [u32; 5] = [1, 4, 8, 12, 2];
@@ -104,9 +121,11 @@ pub struct IbDeviceResources {
 }
 
 pub struct IbDevice {
+    #[allow(unused)]
     device: usize,
     guid: u64,
     port: u8,
+    #[allow(unused)]
     link: u8,
     speed: u32,
     context: Arc<Context>,
@@ -122,10 +141,11 @@ pub struct IbDevice {
 
 #[derive(Debug, Clone)]
 pub struct RdmaTransportConfig {
-    gid_index: u32,
+    gid_index: u8,
     qps_per_conn: usize,
-    timeout: u32,
-    retry_count: u32,
+    timeout: u8,
+    retry_count: u8,
+    #[allow(unused)]
     pkey: u32,
     use_inline: bool,
     service_level: u8,
@@ -140,7 +160,7 @@ pub struct RdmaTransportConfig {
 
 impl Default for RdmaTransportConfig {
     fn default() -> Self {
-        Self {
+        RdmaTransportConfig {
             gid_index: 0,
             qps_per_conn: 1,
             timeout: 18,
@@ -155,6 +175,8 @@ impl Default for RdmaTransportConfig {
             pci_relaxed_ordering: false,
             // TODO: set to false
             gdr_flush_disable: true,
+            socket_if_prefix: None,
+            ib_if_prefix: None,
         }
     }
 }
@@ -205,6 +227,28 @@ fn ib_gdr_support() -> bool {
     }
 }
 
+fn ib_async_therad(context: Arc<Context>) {
+    let ctx = context.ctx;
+    loop {
+        unsafe {
+            let mut event = ibv_async_event::default();
+            let ret = ibv_get_async_event(ctx, &mut event);
+            if ret == -1 {
+                log::warn!("ibv_get_async_event: failed to get async event");
+            }
+            let type_str = ibv_event_type_str(event.event_type);
+            let c_str = std::ffi::CStr::from_ptr(type_str);
+            if event.event_type != IBV_EVENT_COMM_EST {
+                log::warn!(
+                    "RDMA transport: Got async event {}",
+                    c_str.to_str().unwrap()
+                );
+            }
+            ibv_ack_async_event(&mut event);
+        }
+    }
+}
+
 fn ib_dma_buf_support(context: &Context) -> Result<bool, IbError> {
     let pd = context.alloc_pd().map_err(|_| IbError::AllocPd)?;
     unsafe {
@@ -219,13 +263,37 @@ fn ib_dma_buf_support(context: &Context) -> Result<bool, IbError> {
     }
 }
 
-fn ib_init_transport_context(
-    config: &RdmaTransportConfig,
-) -> Result<RdmaTransportContext, IbError> {
-    let interface =
-        interfaces::find_interfaces(specified_prefix, specified_family, max_num_interfaces);
+fn ib_init_transport_context(config: RdmaTransportConfig) -> Result<RdmaTransportContext, IbError> {
+    let socket_if_prefix = config.socket_if_prefix.as_ref().map(|x| x.as_str());
+    let mut interface = interfaces::find_interfaces(socket_if_prefix, None, 1)?;
+    if interface.is_empty() {
+        Err(IbError::NoIpInterface)?;
+    }
+    let (interface_name, interface_addr) = interface.pop().unwrap();
+    log::info!(
+        "RDMA transport: using interface {}: {:?} for socket bootstrap",
+        interface_name,
+        interface_addr
+    );
     let devices = ibverbs::devices()?;
+    let (ib_if_specs, search_exact, search_not) =
+        if let Some(if_prefix) = config.ib_if_prefix.as_ref() {
+            let mut prefix_list = if_prefix.as_str();
+            let search_not = prefix_list.chars().nth(0) == Some('^');
+            if search_not {
+                prefix_list = &prefix_list[1..];
+            }
+            let search_exact = prefix_list.chars().nth(0) == Some('=');
+            if search_exact {
+                prefix_list = &prefix_list[1..];
+            }
+            let specs = interfaces::parse_prefix_list(prefix_list)?;
+            (Some(specs), search_exact, search_not)
+        } else {
+            (None, false, false)
+        };
     let mut devices_ctx = Vec::with_capacity(devices.len());
+    let mut dev_enabled = false;
     for (idx, dev) in devices.iter().enumerate() {
         let context = Arc::new(dev.open()?);
         let mut dev_attr = ibv_device_attr::default();
@@ -247,12 +315,23 @@ fn ib_init_transport_context(
                 continue;
             }
 
-            // TODO: check against user specified HCAs/ports
             let device_name = if let Some(name) = dev.name() {
                 name.to_str().unwrap().to_string()
             } else {
                 String::new()
             };
+            if let Some(if_specs) = ib_if_specs.as_ref() {
+                let hit = interfaces::match_interface_list(
+                    device_name.as_str(),
+                    Some(port as u16),
+                    if_specs,
+                    search_exact,
+                ) ^ search_not;
+                if !hit {
+                    continue;
+                }
+            }
+
             log::info!(
                 "Initialize RDMA device [{idx}] {device_name}:{port}, {}",
                 if port_attr.link_layer == ibverbs::ffi::IBV_LINK_LAYER_INFINIBAND as u8 {
@@ -264,7 +343,11 @@ fn ib_init_transport_context(
 
             let speed = get_ib_speed(port_attr.active_speed) * get_ib_width(port_attr.active_width);
             let (pci_path, real_port) = get_pci_path(&device_name, &devices_ctx)?;
-            let ar = port_attr.link_layer == ibverbs::ffi::IBV_LINK_LAYER_INFINIBAND as u8;
+            let mut ar = port_attr.link_layer == ibverbs::ffi::IBV_LINK_LAYER_INFINIBAND as u8;
+            if let Some(ar_override) = config.adaptive_routing {
+                ar = ar_override;
+            }
+            let dma_buf_support = ib_dma_buf_support(&context)?;
             let resources = IbDeviceResources {
                 pd: Weak::new(),
                 mr_cache: Vec::new(),
@@ -282,39 +365,64 @@ fn ib_init_transport_context(
                 max_qp: dev_attr.max_qp as _,
                 adaptive_routing: ar,
                 resources: Mutex::new(resources),
-                dma_buf_support: todo!(),
+                dma_buf_support,
                 _pinned: PhantomPinned,
             };
+            dev_enabled = true;
             devices_ctx.push(dev_context);
+        }
+        if dev_enabled {
+            let join_handle = std::thread::spawn(move || {
+                ib_async_therad(context);
+            });
+            std::mem::drop(join_handle);
         }
     }
     use nix::unistd::{sysconf, SysconfVar};
     let page_size = sysconf(SysconfVar::PAGE_SIZE)
         .map_err(|e| std::io::Error::from_raw_os_error(e as i32))?
         .unwrap() as usize;
-    todo!()
+    let gdr_support = ib_gdr_support();
+    let transport_context = RdmaTransportContext {
+        devices: devices_ctx,
+        listen_addr: interface_addr,
+        page_size,
+        gdr_support,
+        config,
+    };
+    Ok(transport_context)
 }
 
-pub fn ib_get_properties(device: usize) -> NetProperties {
-    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+pub fn ib_get_num_devices() -> Result<usize, IbError> {
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
+    let num_devices = transport_ctx.devices.len();
+    Ok(num_devices)
+}
+
+pub fn ib_get_properties(device: usize) -> Result<NetProperties, IbError> {
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
     let device_ctx = &transport_ctx.devices[device];
 
     let mut ptr_support = super::PtrSupport::PTR_HOST;
     if transport_ctx.gdr_support {
         ptr_support |= super::PtrSupport::PTR_CUDA;
     }
+    if device_ctx.dma_buf_support {
+        ptr_support |= super::PtrSupport::PTR_DMA_BUF;
+    }
+
     let props = NetProperties {
         name: device_ctx.device_name.clone(),
         pci_path: device_ctx.pci_path.clone(),
         guid: device_ctx.guid,
-        ptr_support: todo!(),
-        speed: todo!(),
-        port: todo!(),
-        latency: todo!(),
-        max_comms: todo!(),
-        max_recvs: todo!(),
+        ptr_support,
+        speed: device_ctx.speed,
+        port: device_ctx.port as u16 + device_ctx.real_port as u16,
+        latency: 0.0,
+        max_comms: device_ctx.max_qp as usize,
+        max_recvs: IB_MAX_RECVS,
     };
-    todo!()
+    Ok(props)
 }
 
 #[derive(Clone, Copy)]
@@ -350,7 +458,10 @@ pub struct IbRequest {
     send_recv: SendRecvRequest,
 }
 
+unsafe impl Send for IbRequest {}
+
 #[derive(Clone, Debug)]
+#[repr(C)]
 struct IbQpInfo {
     lid: u32,
     ib_port: u8,
@@ -454,8 +565,11 @@ pub struct IbSendComm<'ctx> {
     sges: [ibv_sge; IB_MAX_RECVS],
     qps: Vec<QueuePair<'ctx>>,
     adaptive_routing: bool,
+    ar_threshold: usize,
     _pin: PhantomPinned,
 }
+
+unsafe impl<'ctx> Send for IbSendComm<'ctx> {}
 
 // IbSendFifo needs to be 32-byte aligned and each element needs
 // to be a 32-byte multiple, so that an entry does not get split and
@@ -474,6 +588,7 @@ pub struct IbRemoteFifo {
 
 pub struct IbGpuFlush<'ctx> {
     enabled: bool,
+    #[allow(unused)]
     host_mr: Option<MemoryRegionAlloc<i32>>,
     sge: ibv_sge,
     qp: Option<QueuePair<'ctx>>,
@@ -487,8 +602,11 @@ pub struct IbRecvComm<'ctx> {
     _pinned: PhantomPinned,
 }
 
+unsafe impl<'ctx> Send for IbRecvComm<'ctx> {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IbConnectHandle {
-    connect_addr: SockAddr,
+    connect_addr: std::net::SocketAddr,
     magic: u64,
 }
 
@@ -499,13 +617,13 @@ pub struct IbListenComm {
 }
 
 fn ib_init_verbs(device: usize) -> Result<IbVerbs<'static>, IbError> {
-    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
     let device_ctx = &transport_ctx.devices[device];
 
     let mut guard = device_ctx.resources.lock().unwrap();
 
     // 2*MAX_REQUESTS*ncclParamIbQpsPerConn()
-    let num_cqe = 2 * IB_MAX_REQUESTS * 1;
+    let num_cqe = 2 * IB_MAX_REQUESTS * transport_ctx.config.qps_per_conn;
     let cq = device_ctx.context.create_cq(num_cqe as i32, 0)?;
     let requests = std::array::from_fn(|_| IbRequest {
         events: 0,
@@ -543,6 +661,8 @@ pub fn create_qp(
     verbs: &mut IbVerbs<'_>,
     access_flags: ibv_access_flags,
 ) -> Result<QueuePair<'static>, IbError> {
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
+
     let mut qp_init_attr = ibv_qp_init_attr::default();
     let cq = verbs.cq.get_cq();
     qp_init_attr.send_cq = cq;
@@ -553,7 +673,11 @@ pub fn create_qp(
     qp_init_attr.cap.max_send_sge = 1;
     qp_init_attr.cap.max_recv_sge = 1;
     // ncclParamIbUseInline() ? sizeof(struct ncclIbSendFifo) : 0;
-    qp_init_attr.cap.max_inline_data = 0;
+    qp_init_attr.cap.max_inline_data = if transport_ctx.config.use_inline {
+        std::mem::size_of::<IbSendFifo>() as u32
+    } else {
+        0
+    };
     let pd = verbs.pd.get_pd();
     let qp = unsafe {
         let qp = ibv_create_qp(pd, &mut qp_init_attr);
@@ -584,6 +708,8 @@ fn ib_rtr_qp(
     remote_qpn: u32,
     remote_qp_info: &IbQpInfo,
 ) -> Result<(), IbError> {
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
+
     let mut qp_attr = ibv_qp_attr::default();
     qp_attr.qp_state = ibv_qp_state::IBV_QPS_RTR;
     qp_attr.path_mtu = remote_qp_info.mtu;
@@ -596,14 +722,14 @@ fn ib_rtr_qp(
         qp_attr.ah_attr.grh.dgid.global.subnet_prefix = remote_qp_info.spn;
         qp_attr.ah_attr.grh.dgid.global.interface_id = remote_qp_info.iid;
         qp_attr.ah_attr.grh.flow_label = 0;
-        qp_attr.ah_attr.grh.sgid_index = IB_GID_INDEX;
+        qp_attr.ah_attr.grh.sgid_index = transport_ctx.config.gid_index;
         qp_attr.ah_attr.grh.hop_limit = 255;
-        qp_attr.ah_attr.grh.traffic_class = IB_TRAFFIC_CLASS;
+        qp_attr.ah_attr.grh.traffic_class = transport_ctx.config.traffic_class;
     } else {
         qp_attr.ah_attr.is_global = 0;
         qp_attr.ah_attr.dlid = remote_qp_info.lid as u16;
     }
-    qp_attr.ah_attr.sl = 0;
+    qp_attr.ah_attr.sl = transport_ctx.config.service_level;
     qp_attr.ah_attr.src_path_bits = 0;
     qp_attr.ah_attr.port_num = remote_qp_info.ib_port;
     unsafe {
@@ -620,11 +746,13 @@ fn ib_rtr_qp(
 }
 
 fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp) -> Result<(), IbError> {
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
+
     let mut qp_attr = ibv_qp_attr::default();
     qp_attr.qp_state = ibv_qp_state::IBV_QPS_RTS;
-    qp_attr.timeout = IB_TIMEOUT;
+    qp_attr.timeout = transport_ctx.config.timeout;
 
-    qp_attr.retry_cnt = IB_RETRY_COUNT;
+    qp_attr.retry_cnt = transport_ctx.config.retry_count;
     qp_attr.rnr_retry = 7;
     qp_attr.sq_psn = 0;
     qp_attr.max_rd_atomic = 1;
@@ -640,23 +768,38 @@ fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp) -> Result<(), IbError> {
     Ok(())
 }
 
+pub async fn ib_listen(device: usize) -> Result<(IbConnectHandle, IbListenComm), IbError> {
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
+
+    let listen_addr = transport_ctx.listen_addr.as_socket().unwrap();
+    let listener = tcp::async_listen(&listen_addr)?;
+    let magic = rand::random::<u64>();
+    let handle = IbConnectHandle {
+        connect_addr: transport_ctx.listen_addr.as_socket().unwrap(),
+        magic,
+    };
+    let listen_comm = IbListenComm {
+        device,
+        listener,
+        magic,
+    };
+    Ok((handle, listen_comm))
+}
+
 pub async fn ib_connect(
     device: usize,
     handle: &IbConnectHandle,
 ) -> Result<IbSendComm<'static>, IbError> {
     // Stage 1: connect to peer and set up QPs
-    let connect_addr = handle
-        .connect_addr
-        .as_socket()
-        .ok_or(IbError::InvalidAddr(handle.connect_addr.clone()))?;
+    let connect_addr = handle.connect_addr;
     let mut stream = tcp::async_connect(&connect_addr, handle.magic).await?;
 
     let mut verbs = ib_init_verbs(device)?;
-    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
     let device_ctx = &transport_ctx.devices[device];
     let ib_port = device_ctx.port;
-    let mut qps = Vec::with_capacity(IB_QPS_PER_CONN);
-    for _ in 0..IB_QPS_PER_CONN {
+    let mut qps = Vec::with_capacity(transport_ctx.config.qps_per_conn);
+    for _ in 0..transport_ctx.config.qps_per_conn {
         let qp = create_qp(
             ib_port,
             &mut verbs,
@@ -701,11 +844,12 @@ pub async fn ib_connect(
 
     if qp_info.link_layer == ibverbs::ffi::IBV_LINK_LAYER_ETHERNET as u8 {
         let mut gid = ibverbs::ffi::ibv_gid::default();
+        let gid_index = transport_ctx.config.gid_index;
         unsafe {
             ibv_check!(ibverbs::ffi::ibv_query_gid(
                 device_ctx.context.ctx,
                 ib_port,
-                IB_GID_INDEX as i32,
+                gid_index as i32,
                 &mut gid,
             ));
             qp_info.spn = gid.global.subnet_prefix;
@@ -716,7 +860,7 @@ pub async fn ib_connect(
             device,
             ib_port,
             qp_info.mtu,
-            IB_GID_INDEX,
+            gid_index,
             qp_info.spn,
             qp_info.iid
         );
@@ -764,6 +908,7 @@ pub async fn ib_connect(
         sges,
         qps,
         adaptive_routing: ar,
+        ar_threshold: transport_ctx.config.ar_threshold,
         _pin: PhantomPinned,
     };
     Ok(send_comm)
@@ -776,7 +921,7 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
     stream.read_exact(buf.as_mut_slice()).await?;
     let mut remote_qp_info = IbQpInfo::read(&buf);
 
-    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
     let device_ctx = &transport_ctx.devices[listen_comm.device];
     let ib_port = device_ctx.port;
     let mut port_attr = ibv_port_attr::default();
@@ -789,18 +934,19 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
         ));
     }
     let mut gid = ibverbs::ffi::ibv_gid::default();
+    let gid_index = transport_ctx.config.gid_index;
     unsafe {
         ibv_check!(ibverbs::ffi::ibv_query_gid(
             device_ctx.context.ctx,
             ib_port,
-            IB_GID_INDEX as i32,
+            gid_index as i32,
             &mut gid,
         ));
     }
 
     let mut verbs = ib_init_verbs(listen_comm.device)?;
-    let mut qps = Vec::with_capacity(IB_QPS_PER_CONN);
-    for _ in 0..IB_QPS_PER_CONN {
+    let mut qps = Vec::with_capacity(transport_ctx.config.qps_per_conn);
+    for _ in 0..transport_ctx.config.qps_per_conn {
         let qp = create_qp(
             ib_port,
             &mut verbs,
@@ -824,25 +970,25 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
     let fifo_mr = verbs
         .pd
         .allocate::<IbSendFifo>(IB_MAX_REQUESTS * IB_MAX_RECVS, access_flags)?;
-    let fifo_mr_rkey = fifo_mr.rkey();
-    let fifo_mr_addr = fifo_mr.addr();
-
     let mut fifo_sge = ibv_sge::default();
-    fifo_sge.length = unsafe { &*fifo_mr.get_mr() }.lkey;
-
-    // TODO: check ncclParamIbUseInline()
+    fifo_sge.lkey = unsafe { &*fifo_mr.get_mr() }.lkey;
+    let send_flags = if transport_ctx.config.use_inline {
+        ibv_send_flags::IBV_SEND_INLINE
+    } else {
+        ibv_send_flags(0)
+    };
     let remote_fifo = IbRemoteFifo {
         mr: fifo_mr,
         fifo_tail: 0,
         addr: remote_qp_info.fifo_addr,
         rkey: remote_qp_info.fifo_rkey,
-        flags: ibv_send_flags(0),
+        flags: send_flags,
         sge: fifo_sge,
     };
 
     // Allocate Flush dummy buffer for GPU Direct RDMA
     // TODO: check GDR support
-    let gpu_flush_enable = false;
+    let gpu_flush_enable = transport_ctx.gdr_support && !transport_ctx.config.gdr_flush_disable;
     let gpu_flush = if gpu_flush_enable {
         let flush_mr = verbs
             .pd
@@ -895,8 +1041,8 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
         spn: unsafe { gid.global.subnet_prefix },
         iid: unsafe { gid.global.interface_id },
         mtu: port_attr.active_mtu,
-        fifo_rkey: fifo_mr_rkey.0,
-        fifo_addr: fifo_mr_addr as u64,
+        fifo_rkey: 0,
+        fifo_addr: 0,
     };
     for (idx, qp) in qps.iter().enumerate() {
         let qp = unsafe { &*qp.get_qp() };
@@ -929,7 +1075,7 @@ pub fn ib_register_mr_dma_buf(
     offset: u64,
     fd: RawFd,
 ) -> Result<IbMrHandle, IbError> {
-    let transport_ctx = RDMA_TRANSPORT.0.get().unwrap();
+    let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
     let device_ctx = &transport_ctx.devices[verbs.device];
 
     let page_size = transport_ctx.page_size;
@@ -955,9 +1101,12 @@ pub fn ib_register_mr_dma_buf(
         let handle = IbMrHandle(mr);
         Ok(handle)
     } else {
-        let flags = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE
+        let mut flags = ibv_access_flags::IBV_ACCESS_LOCAL_WRITE
             | ibv_access_flags::IBV_ACCESS_REMOTE_WRITE
             | ibv_access_flags::IBV_ACCESS_REMOTE_READ;
+        if transport_ctx.config.pci_relaxed_ordering {
+            flags |= ibv_access_flags::IBV_ACCESS_RELAXED_ORDERING;
+        }
         // TODO: ceheck for relaxed ordering
         let addr = addr as *mut c_void;
         let mr = if fd != -1 {
@@ -965,8 +1114,11 @@ pub fn ib_register_mr_dma_buf(
                 .pd
                 .register_dmabuf_mr(addr, size_aligned, offset, fd, flags)?
         } else {
-            // TODO: uses ibv_reg_mr_iova2 to support IBV_ACCESS_RELAXED_ORDERING
-            verbs.pd.register_mr(addr, size_aligned, flags)?
+            if transport_ctx.config.pci_relaxed_ordering {
+                verbs.pd.register_mr_iova2(addr, size_aligned, flags)?
+            } else {
+                verbs.pd.register_mr(addr, size_aligned, flags)?
+            }
         };
         let mr = Arc::new(mr);
         let mr_weak = Arc::downgrade(&mr);
@@ -985,7 +1137,7 @@ pub fn ib_register_mr(
     ib_register_mr_dma_buf(verbs, data, size, 0, -1)
 }
 
-pub fn ib_deregister_mr(verbs: &mut IbVerbs<'_>, handle: IbMrHandle) {
+pub fn ib_deregister_mr(handle: IbMrHandle) {
     std::mem::drop(handle);
 }
 
@@ -1061,7 +1213,7 @@ fn ib_multi_send(comm: Pin<&mut IbSendComm<'_>>, slot: usize) -> Result<(), IbEr
     let mut last_wr = &mut comm.wrs[num_requests - 1];
 
     let first_size = unsafe { comm.verbs.requests[requests_idx[0]].send_recv.send.size };
-    if num_requests > 1 || (comm.adaptive_routing && first_size > IB_AR_THRESHOLD) {
+    if num_requests > 1 || (comm.adaptive_routing && first_size > comm.ar_threshold) {
         last_wr = &mut comm.wrs[num_requests];
         unsafe {
             let wr_ptr = last_wr as *mut ibv_send_wr;
@@ -1206,7 +1358,7 @@ fn ib_post_fifo(
     data: &[*mut c_void],
     sizes: &[usize],
     tags: &[u32],
-    mr_handles: &[&IbMrHandle],
+    mr_handles: &[&AnyMrHandle],
     request_id: usize,
 ) -> Result<(), IbError> {
     let comm = unsafe { comm.get_unchecked_mut() };
@@ -1217,7 +1369,12 @@ fn ib_post_fifo(
     let num_requests = data.len();
     for i in 0..num_requests {
         local_elems[i].addr = data[i].addr() as u64;
-        let mr = unsafe { &*mr_handles[i].0.get_mr() };
+        let mr = unsafe {
+            let mr_handle = mr_handles[i]
+                .downcast_ref::<IbMrHandle>()
+                .ok_or_else(|| IbError::DowncastMrHandle)?;
+            &*mr_handle.0.get_mr()
+        };
         local_elems[i].rkey = mr.rkey;
         local_elems[i].num_requests = num_requests as u32;
         local_elems[i].size = sizes[i] as u32;
@@ -1258,7 +1415,7 @@ pub fn ib_initiate_recv(
     data: &[*mut c_void],
     sizes: &[usize],
     tags: &[u32],
-    mr_handles: &[&IbMrHandle],
+    mr_handles: &[&AnyMrHandle],
 ) -> Result<Option<IbRequestId>, IbError> {
     let comm = unsafe { comm.get_unchecked_mut() };
     let num_requests = data.len();
@@ -1390,7 +1547,7 @@ pub fn ib_test(
         let cq_ref = unsafe { &*cq_ptr };
         let ctx = unsafe { &mut *cq_ref.context };
         let poll_fn = ctx.ops.poll_cq.as_mut().unwrap();
-        let wr_done = unsafe { poll_fn(cq_ptr, 1, wcs.as_mut_ptr()) };
+        let wr_done = unsafe { poll_fn(cq_ptr, 4, wcs.as_mut_ptr()) };
         if wr_done < 0 {
             Err(IbError::PollCq)?;
         }
@@ -1436,5 +1593,218 @@ pub fn ib_test(
                 root_request.events -= 1;
             }
         }
+    }
+}
+
+#[async_trait]
+impl NetProvider for RdmaTransportProvider {
+    type NetError = IbError;
+    type NetHandle = IbConnectHandle;
+
+    #[inline]
+    fn init(&self) -> Result<(), Self::NetError> {
+        let config = RdmaTransportConfig::default();
+        let context = ib_init_transport_context(config)?;
+        RDMA_TRANSPORT
+            .0
+            .set(context)
+            .map_err(|_| IbError::ContextAlreadyInitialized)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn get_num_devices(&self) -> Result<usize, Self::NetError> {
+        ib_get_num_devices()
+    }
+
+    #[inline]
+    fn get_properties(&self, device: usize) -> Result<NetProperties, Self::NetError> {
+        ib_get_properties(device)
+    }
+
+    #[inline]
+    async fn listen(&self, device: usize) -> Result<NetListener<Self::NetHandle>, Self::NetError> {
+        let (handle, listen_comm) = ib_listen(device).await?;
+        let listener = NetListener {
+            handle,
+            listen_comm: Box::new(listen_comm),
+        };
+        Ok(listener)
+    }
+
+    async fn connect(
+        &self,
+        device: usize,
+        handle: Self::NetHandle,
+    ) -> Result<Box<AnyNetComm>, Self::NetError> {
+        let send_comm = ib_connect(device, &handle).await?;
+        Ok(Box::new(send_comm))
+    }
+    // Finalize connection establishment after remote peer has called connect.
+    async fn accept(
+        &self,
+        listen_comm: Box<AnyNetComm>,
+    ) -> Result<Box<AnyNetComm>, Self::NetError> {
+        let listen_comm = *listen_comm
+            .downcast::<IbListenComm>()
+            .map_err(|_| IbError::DowncastNetComm)?;
+        let recv_comm = ib_accept(listen_comm).await?;
+        Ok(Box::new(recv_comm))
+    }
+
+    async fn register_mr(
+        &self,
+        comm: Pin<&mut AnyNetComm>,
+        comm_type: CommType,
+        mr: MemoryRegion,
+    ) -> Result<Box<AnyMrHandle>, Self::NetError> {
+        let comm = unsafe { comm.get_unchecked_mut() };
+        let verbs = match comm_type {
+            CommType::Send => {
+                let send_comm = comm
+                    .downcast_mut::<IbSendComm<'static>>()
+                    .ok_or_else(|| IbError::DowncastNetComm)?;
+                &mut send_comm.verbs
+            }
+            CommType::Recv => {
+                let recv_comm = comm
+                    .downcast_mut::<IbRecvComm<'static>>()
+                    .ok_or_else(|| IbError::DowncastNetComm)?;
+                &mut recv_comm.verbs
+            }
+        };
+        let handle = ib_register_mr(verbs, mr.data, mr.size)?;
+        Ok(Box::new(handle))
+    }
+
+    async fn register_mr_dma_buf(
+        &self,
+        comm: Pin<&mut AnyNetComm>,
+        comm_type: CommType,
+        mr: MemoryRegion,
+        offset: u64,
+        fd: RawFd,
+    ) -> Result<Box<AnyMrHandle>, Self::NetError> {
+        let comm = unsafe { comm.get_unchecked_mut() };
+        let verbs = match comm_type {
+            CommType::Send => {
+                let send_comm = comm
+                    .downcast_mut::<IbSendComm<'static>>()
+                    .ok_or_else(|| IbError::DowncastNetComm)?;
+                &mut send_comm.verbs
+            }
+            CommType::Recv => {
+                let recv_comm = comm
+                    .downcast_mut::<IbRecvComm<'static>>()
+                    .ok_or_else(|| IbError::DowncastNetComm)?;
+                &mut recv_comm.verbs
+            }
+        };
+        let handle = ib_register_mr_dma_buf(verbs, mr.data, mr.size, offset, fd)?;
+        Ok(Box::new(handle))
+    }
+
+    async fn deregister_mr(
+        &self,
+        _comm: Pin<&mut AnyNetComm>,
+        _comm_type: CommType,
+        handle: Box<AnyMrHandle>,
+    ) -> Result<(), Self::NetError> {
+        let handle = *handle
+            .downcast::<IbMrHandle>()
+            .map_err(|_| IbError::DowncastMrHandle)?;
+        ib_deregister_mr(handle);
+        Ok(())
+    }
+
+    fn initiate_send(
+        &self,
+        send_comm: Pin<&mut AnyNetComm>,
+        data: *mut c_void,
+        size: usize,
+        tag: u32,
+        mr_handle: &AnyMrHandle,
+    ) -> Result<Option<NetRequestId>, Self::NetError> {
+        let send_comm = unsafe {
+            let comm = send_comm
+                .get_unchecked_mut()
+                .downcast_mut::<IbSendComm<'static>>()
+                .ok_or(IbError::DowncastNetComm)?;
+            Pin::new_unchecked(comm)
+        };
+        let mr_handle = mr_handle
+            .downcast_ref::<IbMrHandle>()
+            .ok_or(IbError::DowncastMrHandle)?;
+        let request_id = ib_initiate_send(send_comm, data, size, tag, mr_handle)?
+            .map(|id| NetRequestId(id.0 as u32));
+        Ok(request_id)
+    }
+
+    // Initiate an asynchronous recv operation from a eer.
+    // If None is returned, then the send request cannot be performed now,
+    // or would block, retry later
+    fn initiate_recv(
+        &self,
+        recv_comm: Pin<&mut AnyNetComm>,
+        data: &[*mut c_void],
+        sizes: &[usize],
+        tags: &[u32],
+        mr_handles: &[&AnyMrHandle],
+    ) -> Result<Option<NetRequestId>, Self::NetError> {
+        let recv_comm = unsafe {
+            let comm = recv_comm
+                .get_unchecked_mut()
+                .downcast_mut::<IbRecvComm<'static>>()
+                .ok_or(IbError::DowncastNetComm)?;
+            Pin::new_unchecked(comm)
+        };
+        let request_id = ib_initiate_recv(recv_comm, data, sizes, tags, mr_handles)?
+            .map(|id| NetRequestId(id.0 as u32));
+        Ok(request_id)
+    }
+
+    fn initiate_flush(
+        &self,
+        recv_comm: Pin<&mut AnyNetComm>,
+        data: &[*mut c_void],
+        sizes: &[usize],
+        mr_handles: &[&AnyMrHandle],
+    ) -> Result<Option<NetRequestId>, Self::NetError> {
+        let recv_comm = unsafe {
+            let comm = recv_comm
+                .get_unchecked_mut()
+                .downcast_mut::<IbRecvComm<'static>>()
+                .ok_or(IbError::DowncastNetComm)?;
+            Pin::new_unchecked(comm)
+        };
+        let request_id = ib_initiate_flush(recv_comm, data, sizes, mr_handles)?
+            .map(|id| NetRequestId(id.0 as u32));
+        Ok(request_id)
+    }
+
+    fn test(
+        &self,
+        comm: Pin<&mut AnyNetComm>,
+        request: NetRequestId,
+        comm_type: CommType,
+        sizes: Option<&mut [usize]>,
+    ) -> Result<bool, Self::NetError> {
+        let comm = unsafe { comm.get_unchecked_mut() };
+        let verbs = match comm_type {
+            CommType::Send => {
+                let send_comm = comm
+                    .downcast_mut::<IbSendComm<'static>>()
+                    .ok_or_else(|| IbError::DowncastNetComm)?;
+                &mut send_comm.verbs
+            }
+            CommType::Recv => {
+                let recv_comm = comm
+                    .downcast_mut::<IbRecvComm<'static>>()
+                    .ok_or_else(|| IbError::DowncastNetComm)?;
+                &mut recv_comm.verbs
+            }
+        };
+        let request_id = IbRequestId(request.0 as usize);
+        ib_test(verbs, request_id, sizes)
     }
 }

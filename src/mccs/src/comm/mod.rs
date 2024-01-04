@@ -1,4 +1,7 @@
 pub mod device;
+pub mod profile;
+
+pub use profile::CommProfile;
 
 use collectives_sys::mccsDevWork;
 use std::collections::{BTreeMap, HashMap, VecDeque};

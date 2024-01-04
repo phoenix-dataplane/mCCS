@@ -25,7 +25,7 @@ use crate::transport::channel::{ConnType, PeerConnId, PeerConnector};
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
 use crate::transport::transporter::{
-    ConnectInfo, TransportAgentId, TransportConnect, TransportSetup,
+    ConnectHandle, TransportAgentId, TransportConnect, TransportSetup,
 };
 use crate::utils::duplex_chan::DuplexChannel;
 use crate::utils::pool::WorkPool;
@@ -108,7 +108,7 @@ impl ProxyResources {
     fn exchange_connect_info(
         comm: &CommInitState,
         peer_conn: &PeerConnId,
-        peer_connect_info: ConnectInfo,
+        peer_connect_info: ConnectHandle,
         peer_proxy_tx: &mut [Sender<ProxyPeerMessage>],
     ) {
         let remote_conn_type = match peer_conn.conn_type {
@@ -204,19 +204,26 @@ impl ProxyResources {
                 .global_registry
                 .arbitrate_conn_transporter(comm_id, comm.rank, &peer_conn);
             let setup_result = match peer_conn.conn_type {
-                ConnType::Send => transporter.send_setup(
-                    &comm.profile,
-                    &peer_conn,
-                    &self.global_registry.transport_catalog,
-                ),
-                ConnType::Recv => transporter.recv_setup(
-                    &comm.profile,
-                    &peer_conn,
-                    &self.global_registry.transport_catalog,
-                ),
+                ConnType::Send => transporter
+                    .send_setup(
+                        comm.rank,
+                        &peer_conn,
+                        &comm.profile,
+                        &self.global_registry.transport_catalog,
+                    )
+                    .unwrap(),
+                ConnType::Recv => transporter
+                    .recv_setup(
+                        comm.rank,
+                        &peer_conn,
+                        &comm.profile,
+                        &self.global_registry.transport_catalog,
+                    )
+                    .unwrap(),
             };
             match setup_result {
                 TransportSetup::PreAgentCb {
+                    agent_cuda_dev,
                     agent_request,
                     setup_resources,
                 } => {
@@ -229,11 +236,7 @@ impl ProxyResources {
                     let transport_engine_idx = self
                         .global_registry
                         .transport_delegator
-                        .assign_transport_engine(
-                            self.device_info.cuda_device_idx,
-                            agent,
-                            &mut self.control_chan.tx,
-                        );
+                        .assign_transport_engine(agent_cuda_dev, agent, &mut self.control_chan.tx);
                     let request = match peer_conn.conn_type {
                         ConnType::Send => {
                             TransportEngineRequest::AgentSetup(transporter, agent, agent_request)
@@ -256,7 +259,7 @@ impl ProxyResources {
                     comm.peer_setup_pre_agent.insert(peer_conn, construct);
                 }
                 TransportSetup::Setup {
-                    peer_connect_info,
+                    peer_connect_handle,
                     setup_resources,
                 } => {
                     let construct = PeerConnConstruct {
@@ -267,7 +270,7 @@ impl ProxyResources {
                     Self::exchange_connect_info(
                         comm,
                         &peer_conn,
-                        peer_connect_info,
+                        peer_connect_handle,
                         &mut self.proxy_peer_tx,
                     );
                 }
@@ -275,23 +278,31 @@ impl ProxyResources {
         } else if let Some((peer_conn, agent_reply)) = comm.to_setup_agent_cb.pop_front() {
             let construct = comm.peer_setup_pre_agent.remove(&peer_conn).unwrap();
             let setup_result = match peer_conn.conn_type {
-                ConnType::Send => construct.transporter.send_setup_agent_callback(
-                    &peer_conn,
-                    agent_reply,
-                    construct.resources,
-                ),
-                ConnType::Recv => construct.transporter.recv_setup_agent_callback(
-                    &peer_conn,
-                    agent_reply,
-                    construct.resources,
-                ),
+                ConnType::Send => construct
+                    .transporter
+                    .send_setup_agent_callback(
+                        comm.rank,
+                        &peer_conn,
+                        agent_reply,
+                        construct.resources,
+                    )
+                    .unwrap(),
+                ConnType::Recv => construct
+                    .transporter
+                    .recv_setup_agent_callback(
+                        comm.rank,
+                        &peer_conn,
+                        agent_reply,
+                        construct.resources,
+                    )
+                    .unwrap(),
             };
             match setup_result {
                 TransportSetup::PreAgentCb { .. } => {
                     panic!("PreAgentCb variant is not expected")
                 }
                 TransportSetup::Setup {
-                    peer_connect_info,
+                    peer_connect_handle,
                     setup_resources,
                 } => {
                     let construct = PeerConnConstruct {
@@ -302,7 +313,7 @@ impl ProxyResources {
                     Self::exchange_connect_info(
                         comm,
                         &peer_conn,
-                        peer_connect_info,
+                        peer_connect_handle,
                         &mut self.proxy_peer_tx,
                     );
                 }
@@ -310,16 +321,14 @@ impl ProxyResources {
         } else if let Some((peer_conn, conn_info)) = comm.to_connect.pop_front() {
             let setup = comm.peer_setup.remove(&peer_conn).unwrap();
             let connect_result = match peer_conn.conn_type {
-                ConnType::Send => {
-                    setup
-                        .transporter
-                        .send_connect(&peer_conn, conn_info, setup.resources)
-                }
-                ConnType::Recv => {
-                    setup
-                        .transporter
-                        .recv_connect(&peer_conn, conn_info, setup.resources)
-                }
+                ConnType::Send => setup
+                    .transporter
+                    .send_connect(&peer_conn, conn_info, setup.resources)
+                    .unwrap(),
+                ConnType::Recv => setup
+                    .transporter
+                    .recv_connect(&peer_conn, conn_info, setup.resources)
+                    .unwrap(),
             };
             match connect_result {
                 TransportConnect::PreAgentCb {
@@ -388,16 +397,14 @@ impl ProxyResources {
         } else if let Some((peer_conn, agent_reply)) = comm.to_connect_agent_cb.pop_front() {
             let construct = comm.peer_connect_pre_agent.remove(&peer_conn).unwrap();
             let connect_result = match peer_conn.conn_type {
-                ConnType::Send => construct.transporter.send_connect_agent_callback(
-                    &peer_conn,
-                    agent_reply,
-                    construct.resources,
-                ),
-                ConnType::Recv => construct.transporter.recv_connect_agent_callback(
-                    &peer_conn,
-                    agent_reply,
-                    construct.resources,
-                ),
+                ConnType::Send => construct
+                    .transporter
+                    .send_connect_agent_callback(&peer_conn, agent_reply, construct.resources)
+                    .unwrap(),
+                ConnType::Recv => construct
+                    .transporter
+                    .recv_connect_agent_callback(&peer_conn, agent_reply, construct.resources)
+                    .unwrap(),
             };
             match connect_result {
                 TransportConnect::PreAgentCb { .. } => {
@@ -478,6 +485,7 @@ impl ProxyResources {
 }
 
 impl ProxyResources {
+    #[allow(unreachable_code, unused_variables)]
     fn process_op(&mut self, op: &mut ProxyOp) -> bool {
         match op {
             ProxyOp::InitCommunicator(daemon_id, comm_id) => {
@@ -538,6 +546,9 @@ impl ProxyEngine {
                     ProxyCommand::InitCommunicator(init) => {
                         let profile = CommProfile {
                             buff_sizes: [8 * 1024 * 1024],
+                            peers_local_rank: Vec::new(),
+                            peers_cuda_device_idx: Vec::new(),
+                            network_devices: Vec::new(),
                         };
                         let comm_init = CommInitState::new(
                             init.communicator_id,

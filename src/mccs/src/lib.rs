@@ -11,7 +11,10 @@
 #![allow(dead_code)]
 #![allow(unused)]
 #![feature(pointer_byte_offsets)]
+#![feature(slice_ptr_get)]
 
+pub mod bootstrap;
+#[allow(dead_code)]
 pub mod comm;
 pub mod config;
 pub mod control;

@@ -15,4 +15,5 @@ members = [
     "src/mccs",
     "src/mccs_examples/cuda_hello",
     "src/mccs_examples/allgather_proto",
+    "src/mccs_tests/rdma_transport",
 ]

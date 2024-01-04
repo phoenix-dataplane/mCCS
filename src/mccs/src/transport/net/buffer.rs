@@ -4,13 +4,6 @@ use std::sync::Arc;
 
 use num_enum::TryFromPrimitive;
 
-use cuda_driver_sys::cuMemGetHandleForAddressRange;
-use cuda_driver_sys::CUmemRangeHandleType;
-
-use super::provider::AnyMrHandle;
-use super::provider::{AnyNetComm, NetProvierWrap};
-use super::provider::{MemoryRegion, MrType};
-use super::AgentError;
 use crate::cuda::alloc::{DeviceAlloc, DeviceHostMapped};
 use crate::cuda::mapped_ptr::DeviceHostPtr;
 use crate::cuda::ptr::DeviceNonNull;
@@ -51,12 +44,17 @@ pub struct BufferBankMem {
     alloc: Option<Arc<MemoryBankAlloc>>,
 }
 
+unsafe impl Send for BufferBankMem {}
+unsafe impl Sync for BufferBankMem {}
+
+#[derive(Clone)]
 pub struct BufferOffset {
     send_mem: u32,
     recv_mem: u32,
     buffers: [u32; NUM_PROTOCOLS],
 }
 
+#[derive(Clone)]
 pub struct BufferMap {
     mems: [BufferBankMem; std::mem::variant_count::<MemoryBankType>()],
     offsets: BufferOffset,
@@ -241,6 +239,30 @@ impl BufferMap {
                     .add(offset)
             } as *mut RecvBufMeta;
             DeviceHostPtr::new(cpu_ptr, gpu_ptr)
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_gdc_mem_cpu_ptr(&self) -> Option<NonNull<u64>> {
+        if self.mems[MemoryBankType::GdcMem as usize].cpu_ptr.is_null() {
+            None
+        } else {
+            Some(
+                NonNull::new(self.mems[MemoryBankType::GdcMem as usize].cpu_ptr as *mut u64)
+                    .unwrap(),
+            )
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_gdc_mem_gpu_ptr(&self) -> Option<DeviceNonNull<u64>> {
+        if self.mems[MemoryBankType::GdcMem as usize].gpu_ptr.is_null() {
+            None
+        } else {
+            Some(
+                DeviceNonNull::new(self.mems[MemoryBankType::GdcMem as usize].gpu_ptr as *mut u64)
+                    .unwrap(),
+            )
         }
     }
 }

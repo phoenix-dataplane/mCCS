@@ -16,6 +16,7 @@ pub enum Error {
     NotFound,
 }
 
+// TODO: temporary solution for async agent setup
 pub struct TransportCatalog {
     config: DashMap<String, AnyConfig>,
 }
