@@ -7,9 +7,9 @@ pub mod transporter;
 
 use thiserror::Error;
 
-pub use transporter::NET_TRANSPORT;
 use crate::transport::transporter::ConnectHandleError;
 use provider::NetProviderError;
+pub use transporter::NET_TRANSPORT;
 
 #[derive(Debug, Error)]
 pub enum NetTransportError {

@@ -1,9 +1,9 @@
+use mccs::transport::net::provider::rdma::ib_init_transport_context;
+use mccs::transport::net::provider::rdma::RdmaTransportConfig;
+use mccs::transport::net::provider::NetProvider;
+use mccs::transport::net::provider::RDMA_TRANSPORT;
 use mccs::transport::net::NET_TRANSPORT;
 use mccs::transport::transporter::Transporter;
-use mccs::transport::net::provider::RDMA_TRANSPORT;
-use mccs::transport::net::provider::rdma::RdmaTransportConfig;
-use mccs::transport::net::provider::rdma::ib_init_transport_context;
-use mccs::transport::net::provider::NetProvider;
 
 fn main() {
     // let config = RdmaTransportConfig {
@@ -22,5 +22,4 @@ fn main() {
     //     socket_if_prefix: todo!(),
     //     ib_if_prefix: todo!(),
     // };
-
 }

@@ -14,10 +14,10 @@ pub mod meta;
 pub mod net;
 pub mod op;
 pub mod queue;
+pub mod setup;
 pub mod shm;
 pub mod task;
 pub mod transporter;
-pub mod setup;
 
 pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 

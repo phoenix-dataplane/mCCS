@@ -8,6 +8,7 @@
 #![feature(pointer_byte_offsets)]
 #![feature(slice_ptr_get)]
 
+pub mod bootstrap;
 #[allow(dead_code)]
 pub mod comm;
 pub mod config;
@@ -20,4 +21,3 @@ pub mod proxy;
 pub mod registry;
 pub mod transport;
 pub mod utils;
-pub mod bootstrap;
