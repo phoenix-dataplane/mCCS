@@ -19,6 +19,7 @@ use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::daemon::DaemonId;
 use crate::message::{ControlCommand, ControlRequest};
+use crate::pattern::{ALLGATHER_CHUNK_STEPS, ALLGATHER_SLICE_STEPS};
 use crate::proxy::init::PeerConnConstruct;
 use crate::registry::GlobalRegistry;
 use crate::transport::channel::{ConnType, PeerConnId, PeerConnector};
@@ -590,8 +591,8 @@ impl ProxyEngine {
                             root: 0,
                             data_type: TaskDataType::Uint8,
                             reduce_op: None,
-                            chunk_steps: 0,
-                            slice_steps: 0,
+                            chunk_steps: ALLGATHER_CHUNK_STEPS,
+                            slice_steps: ALLGATHER_SLICE_STEPS,
                         };
                         comm.task_queue.coll_queue.push_back(task);
                         comm.pre_launch_schedule();

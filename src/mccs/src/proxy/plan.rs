@@ -127,6 +127,7 @@ impl Communicator {
             self.channels.len(),
         );
         log::trace!("task schema: {:?}", schema);
+        log::trace!("CollTask: {:?}", task);
         let num_wraps = schema.num_threads / 32;
 
         let (chunk_steps, slice_steps, num_step) = {
@@ -180,7 +181,7 @@ impl Communicator {
                         TaskProtocol::Simple => crate::transport::Protocol::Simple,
                     },
                 );
-                todo!("Add tx_op to queue")
+                // todo!("Add tx_op to queue")
             })
     }
 

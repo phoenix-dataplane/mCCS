@@ -48,11 +48,13 @@ pub enum TaskReduceOpType {
     SumPostDiv = 5,
 }
 
+#[derive(Debug, Clone)]
 pub struct TaskReduceOp {
     pub op: TaskReduceOpType,
     pub arg: u64,
 }
 
+#[derive(Debug, Clone)]
 pub struct CollTask {
     pub func: TaskFuncType,
     pub send_buf: DeviceNonNull<u8>,

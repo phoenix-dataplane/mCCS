@@ -1,7 +1,7 @@
 use cuda_runtime_sys::{cudaError, cudaMemcpyKind, cudaStream_t};
 use cuda_runtime_sys::{cudaMemcpy, cudaSetDevice};
 
-const BUFFER_SIZE: usize = 8192;
+const BUFFER_SIZE: usize = 512 * 1024 * 1024;
 
 fn main() {
     let comm_id = std::env::args()
