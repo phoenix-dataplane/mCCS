@@ -17,6 +17,7 @@ pub mod queue;
 pub mod shm;
 pub mod task;
 pub mod transporter;
+pub mod setup;
 
 pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 

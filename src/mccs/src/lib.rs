@@ -20,3 +20,4 @@ pub mod proxy;
 pub mod registry;
 pub mod transport;
 pub mod utils;
+pub mod bootstrap;

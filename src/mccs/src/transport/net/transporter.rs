@@ -30,6 +30,7 @@ use crate::transport::transporter::{TransportConnect, TransportSetup};
 use crate::transport::Protocol;
 
 pub struct NetTransport;
+pub static NET_TRANSPORT: NetTransport = NetTransport;
 
 fn net_send_setup(
     rank: usize,
