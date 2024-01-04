@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use crate::comm::{ChannelCommPattern, CommunicatorId, HostIdent, PeerInfo, PeerType};
+use crate::comm::{
+    ChannelCommPattern, CommunicatorId, HostIdent, PeerInfo, PeerType, MCCS_MAX_CHANNELS,
+};
 use crate::pattern;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::channel::{ChannelId, PeerConnId};
@@ -112,33 +114,36 @@ impl GlobalRegistry {
     ) -> Option<Vec<ChannelCommPattern>> {
         use dashmap::try_result::TryResult;
 
-        let comm = match self.communicators.try_get(&comm_id) {
-            TryResult::Present(comm) => comm,
-            TryResult::Absent => panic!("communicator is not registered"),
-            TryResult::Locked => return None,
-        };
-        let ring_next = (rank + 1) % comm.num_ranks;
-        let ring_prev = (rank + comm.num_ranks - 1) % comm.num_ranks;
-        // in current implentation, ring follows the same ordering of ranks
-        let ring_index = rank;
+        let mut channels = vec![];
+        // todo: ring topology
+        for chan_id in 0..(MCCS_MAX_CHANNELS / 2) {
+            let comm = match self.communicators.try_get(&comm_id) {
+                TryResult::Present(comm) => comm,
+                TryResult::Absent => panic!("communicator is not registered"),
+                TryResult::Locked => return None,
+            };
+            let ring_next = (rank + 1) % comm.num_ranks;
+            let ring_prev = (rank + comm.num_ranks - 1) % comm.num_ranks;
+            // in current implentation, ring follows the same ordering of ranks
+            let ring_index = rank;
 
-        let mut user_ranks = Vec::with_capacity(comm.num_ranks);
-        for idx in 0..comm.num_ranks {
-            let ring_rank = (rank + idx) % comm.num_ranks;
-            user_ranks.push(ring_rank);
+            let mut user_ranks = Vec::with_capacity(comm.num_ranks);
+            for idx in 0..comm.num_ranks {
+                let ring_rank = (rank + idx) % comm.num_ranks;
+                user_ranks.push(ring_rank);
+            }
+            let ring_pattern = pattern::RingPattern {
+                prev: ring_prev,
+                next: ring_next,
+                user_ranks,
+                index: ring_index,
+            };
+
+            channels.push(ChannelCommPattern {
+                channel: ChannelId(chan_id as u32),
+                ring: ring_pattern,
+            });
         }
-        let ring_pattern = pattern::RingPattern {
-            prev: ring_prev,
-            next: ring_next,
-            user_ranks,
-            index: ring_index,
-        };
-
-        let channel = ChannelCommPattern {
-            channel: ChannelId(0),
-            ring: ring_pattern,
-        };
-        let channels = vec![channel];
 
         Some(channels)
     }
