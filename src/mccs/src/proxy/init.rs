@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::hash::Hash;
 use std::mem::MaybeUninit;
 
 use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
@@ -11,7 +12,7 @@ use crate::comm::{
 use crate::cuda::alloc::DeviceHostMapped;
 use crate::cuda_warning;
 use crate::transport::channel::{
-    ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
+    ChannelId, ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
 };
 use crate::transport::engine::TransportEngineId;
 use crate::transport::transporter::{AgentMessage, AnyResources, ConnectHandle, Transporter};
@@ -41,7 +42,7 @@ pub struct CommInitState {
     pub peers_info: HashMap<usize, PeerInfo>,
     pub peers_await_exchange: Vec<usize>,
 
-    pub comm_patterns: Vec<ChannelCommPattern>,
+    pub comm_patterns: BTreeMap<ChannelId, ChannelCommPattern>,
 
     pub to_setup: VecDeque<PeerConnId>,
     pub to_setup_agent_cb: VecDeque<(PeerConnId, AgentMessage)>,
@@ -75,7 +76,7 @@ impl CommInitState {
             profile: comm_profile,
             peers_info: HashMap::new(),
             peers_await_exchange: Vec::new(),
-            comm_patterns: Vec::new(),
+            comm_patterns: Default::default(),
             to_setup: VecDeque::new(),
             to_setup_agent_cb: VecDeque::new(),
             to_connect: VecDeque::new(),
@@ -99,7 +100,7 @@ fn new_chan_peer_conn() -> ChannelPeerConn {
 
 impl CommInitState {
     pub fn enqueue_channels_setup(&mut self) {
-        for pattern in self.comm_patterns.iter() {
+        for pattern in self.comm_patterns.values() {
             let ring_send = PeerConnId {
                 peer_rank: pattern.ring.next,
                 channel: pattern.channel,
@@ -119,7 +120,7 @@ impl CommInitState {
 
     pub fn finalize_communicator(self) -> Communicator {
         let mut channels = BTreeMap::new();
-        for chan_pattern in self.comm_patterns {
+        for chan_pattern in self.comm_patterns.into_values() {
             let channel = CommChannel {
                 peers: HashMap::new(),
                 ring: chan_pattern.ring,

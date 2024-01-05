@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -111,10 +111,10 @@ impl GlobalRegistry {
         &self,
         comm_id: CommunicatorId,
         rank: usize,
-    ) -> Option<Vec<ChannelCommPattern>> {
+    ) -> Option<BTreeMap<ChannelId, ChannelCommPattern>> {
         use dashmap::try_result::TryResult;
 
-        let mut channels = vec![];
+        let mut channels = BTreeMap::new();
         // todo: ring topology
         for chan_id in 0..(MCCS_MAX_CHANNELS / 2) {
             let comm = match self.communicators.try_get(&comm_id) {
@@ -139,10 +139,13 @@ impl GlobalRegistry {
                 index: ring_index,
             };
 
-            channels.push(ChannelCommPattern {
-                channel: ChannelId(chan_id as u32),
-                ring: ring_pattern,
-            });
+            channels.insert(
+                ChannelId(chan_id as u32),
+                ChannelCommPattern {
+                    channel: ChannelId(chan_id as u32),
+                    ring: ring_pattern,
+                },
+            );
         }
 
         Some(channels)

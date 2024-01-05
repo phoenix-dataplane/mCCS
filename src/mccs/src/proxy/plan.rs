@@ -14,6 +14,8 @@ use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpy
 use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
 use crate::comm::{MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
 use crate::transport::channel::{ChannelId, CommChannel};
+use crate::transport::engine::TransportEngineId;
+use crate::transport::message::TransportEngineRequest;
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::task::TransportTask;
 use crate::{
@@ -48,7 +50,7 @@ pub struct KernelWork {
 pub struct ChanWorkSchedule {
     pub coll_bytes: usize,
     pub work_queue: Vec<KernelWork>,
-    pub agent_task_queue: Vec<TransportTask>,
+    pub agent_task_queue: Vec<TransportOp>,
 }
 
 impl ChanWorkSchedule {
@@ -94,7 +96,10 @@ pub struct KernelPlan {
 }
 
 impl Communicator {
-    pub fn pre_launch_schedule(&mut self) {
+    pub fn pre_launch_schedule(
+        &mut self,
+        pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+    ) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
         self.compute_coll_work(&first_task);
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
@@ -173,6 +178,7 @@ impl Communicator {
                     task.data_type.count_bytes(),
                 );
                 // proxy queue
+                // todo: check need
                 let tx_op = TransportOp::new(
                     num_step,
                     slice_steps,
@@ -181,7 +187,7 @@ impl Communicator {
                         TaskProtocol::Simple => crate::transport::Protocol::Simple,
                     },
                 );
-                // todo!("Add tx_op to queue")
+                schedule.agent_task_queue.push(tx_op);
             })
     }
 

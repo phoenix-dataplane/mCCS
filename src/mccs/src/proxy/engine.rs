@@ -174,7 +174,7 @@ impl ProxyResources {
                     .arbitrate_comm_patterns(comm_id, comm.rank);
                 if let Some(patterns) = patterns {
                     comm.comm_patterns = patterns;
-                    for pattern in comm.comm_patterns.iter() {
+                    for pattern in comm.comm_patterns.values() {
                         let ring_next = PeerConnId {
                             peer_rank: pattern.ring.next,
                             channel: pattern.channel,
@@ -595,7 +595,7 @@ impl ProxyEngine {
                             slice_steps: ALLGATHER_SLICE_STEPS,
                         };
                         comm.task_queue.coll_queue.push_back(task);
-                        comm.pre_launch_schedule();
+                        comm.pre_launch_schedule(&mut self.resources.transport_submission_pool);
                         comm.launch_plan();
 
                         // record event for daemon_stream
