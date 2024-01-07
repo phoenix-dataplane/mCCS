@@ -595,7 +595,16 @@ impl ProxyEngine {
                             slice_steps: ALLGATHER_SLICE_STEPS,
                         };
                         comm.task_queue.coll_queue.push_back(task);
-                        comm.pre_launch_schedule(&mut self.resources.transport_submission_pool);
+                        comm.pre_launch_schedule(
+                            &mut self.resources.transport_submission_pool,
+                            &self
+                                .resources
+                                .comms_init
+                                .get(&coll.communicator_id)
+                                .unwrap()
+                                .comm_patterns,
+                                self.resources.device_info.cuda_device_idx
+                        );
                         comm.launch_plan();
 
                         // record event for daemon_stream

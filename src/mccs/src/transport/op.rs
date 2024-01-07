@@ -89,6 +89,7 @@ struct ncclProxyArgs {
 // each ncclProxySubArgs could correspond to a different connection
 // (each connection is identified by channel, peer, connIndex)
 // we can also have TransportSubOp, and put AgentResources in each sub op
+#[derive(Clone)]
 pub struct TransportOp {
     pub num_steps: u32,
 

@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_void;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, AtomicU32};
@@ -12,12 +12,13 @@ use collectives_sys::{
 use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpyKind};
 
 use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
-use crate::comm::{MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
-use crate::transport::channel::{ChannelId, CommChannel};
+use crate::comm::{ChannelCommPattern, MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
+use crate::transport::channel::{ChannelId, CommChannel, ConnType, PeerConnId};
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::TransportEngineRequest;
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::task::TransportTask;
+use crate::transport::transporter::TransportAgentId;
 use crate::{
     comm::Communicator,
     cuda::{alloc::DeviceAlloc, ptr::DeviceNonNull},
@@ -50,7 +51,7 @@ pub struct KernelWork {
 pub struct ChanWorkSchedule {
     pub coll_bytes: usize,
     pub work_queue: Vec<KernelWork>,
-    pub agent_task_queue: Vec<TransportOp>,
+    pub agent_task_queue: Vec<TransportTask>,
 }
 
 impl ChanWorkSchedule {
@@ -99,9 +100,11 @@ impl Communicator {
     pub fn pre_launch_schedule(
         &mut self,
         pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+        comm_pattern: &BTreeMap<ChannelId, ChannelCommPattern>,
+        device_id: i32,
     ) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
-        self.compute_coll_work(&first_task);
+        self.compute_coll_work(&first_task, device_id, comm_pattern);
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
             if first_task.func == coll_task.func
                 && first_task.data_type == coll_task.data_type
@@ -113,7 +116,7 @@ impl Communicator {
                 })
             {
                 let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
-                self.compute_coll_work(&coll_task);
+                self.compute_coll_work(&coll_task, device_id, comm_pattern);
                 log::trace!("Compute more coll task");
             } else {
                 break;
@@ -124,7 +127,12 @@ impl Communicator {
     }
 
     // convert one task to different WorkElem objects and append them to different channels
-    fn compute_coll_work(&mut self, task: &CollTask) {
+    fn compute_coll_work(
+        &mut self,
+        task: &CollTask,
+        device_id: i32,
+        comm_pattern: &BTreeMap<ChannelId, ChannelCommPattern>,
+    ) {
         let schema = get_task_schema(
             task,
             TaskAlgorithm::Ring,
@@ -177,17 +185,48 @@ impl Communicator {
                     schema.work_func_index,
                     task.data_type.count_bytes(),
                 );
+                debug_assert!(schema.algorithm == TaskAlgorithm::Ring);
                 // proxy queue
-                // todo: check need
-                let tx_op = TransportOp::new(
-                    num_step,
-                    slice_steps,
-                    chunk_steps,
-                    match schema.protocol {
-                        TaskProtocol::Simple => crate::transport::Protocol::Simple,
-                    },
-                );
-                schedule.agent_task_queue.push(tx_op);
+                {
+                    let tx_op = TransportOp::new(
+                        num_step,
+                        slice_steps,
+                        chunk_steps,
+                        match schema.protocol {
+                            TaskProtocol::Simple => crate::transport::Protocol::Simple,
+                        },
+                    );
+                    let send_agent_id = TransportAgentId {
+                        communicator_id: self.id,
+                        client_rank: self.rank,
+                        client_cuda_dev: device_id,
+                        peer_conn: PeerConnId {
+                            peer_rank: comm_pattern.get(&chan_id).unwrap().ring.next,
+                            channel: chan_id,
+                            conn_index: 0,
+                            conn_type: ConnType::Send,
+                        },
+                    };
+                    let recv_agent_id = TransportAgentId {
+                        communicator_id: self.id,
+                        client_rank: self.rank,
+                        client_cuda_dev: device_id,
+                        peer_conn: PeerConnId {
+                            peer_rank: comm_pattern.get(&chan_id).unwrap().ring.prev,
+                            channel: chan_id,
+                            conn_index: 0,
+                            conn_type: ConnType::Recv,
+                        },
+                    };
+                    schedule.agent_task_queue.push(TransportTask {
+                        agent_id: send_agent_id,
+                        op: tx_op.clone(),
+                    });
+                    schedule.agent_task_queue.push(TransportTask {
+                        agent_id: recv_agent_id,
+                        op: tx_op,
+                    });
+                }
             })
     }
 
