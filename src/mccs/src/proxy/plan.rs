@@ -122,7 +122,7 @@ impl Communicator {
                 break;
             }
         }
-        let plan = self.finalize_one_plan();
+        let plan = self.finalize_one_plan(pool);
         self.unlaunched_plans.push_back(plan);
     }
 
@@ -243,7 +243,7 @@ impl Communicator {
             .collect()
     }
 
-    fn finalize_one_plan(&mut self) -> KernelPlan {
+    fn finalize_one_plan(&mut self, submission_pool:&mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
         let mut chan_list = Vec::with_capacity(MCCS_MAX_ELEMENTS_PER_WORK);
         let mut channel_upper_bound = 0;
@@ -255,6 +255,8 @@ impl Communicator {
                 channel_upper_bound = idx.0 + 1;
                 channel_mask |= 1 << idx.0;
                 work_count += chan.work_queue.len();
+                // upload ProxyOp
+                chan.agent_task_queue.into_iter().for_each(|task|submission_pool.get(k).unwrap().)
             }
         }
         let dev_work = self.upload_work(&chan_list, channel_upper_bound, channel_mask, work_count);
@@ -485,7 +487,7 @@ fn work_elem_conversion(
     let dev_work_header = unsafe {
         let uninit = MaybeUninit::<mccsDevWorkHeader>::zeroed();
         let mut init = uninit.assume_init();
-        init.funcIndex = work.func_index;
+        init.funcIndex = work.func_index; // seems not used in common.h
         init.type_ = mccsDevWorkType::mccsDevWorkTypeColl;
         init.set_inFifo(in_fifo as u8);
         init.set_isLast(is_last as u8);
