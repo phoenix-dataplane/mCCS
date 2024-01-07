@@ -16,9 +16,9 @@ use super::resources::{AgentRecvResources, AgentSendResources};
 use super::resources::{AgentRecvSetup, AgentSendSetup};
 use super::resources::{NetRecvResources, NetSendResources};
 use super::{NetAgentError, NetTransportError};
-use crate::comm::CommProfile;
-use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
+use crate::comm::{PeerInfo, CommProfile};
+use crate::cuda::ptr::DeviceNonNull;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::channel::{PeerConnId, PeerConnInfo};
 use crate::transport::meta::{RecvBufMeta, SendBufMeta};
@@ -33,8 +33,8 @@ pub struct NetTransport;
 pub static NET_TRANSPORT: NetTransport = NetTransport;
 
 fn net_send_setup(
-    rank: usize,
     conn_id: &PeerConnId,
+    
     profile: &CommProfile,
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
@@ -317,6 +317,8 @@ impl Transporter for NetTransport {
         &self,
         rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
@@ -360,6 +362,8 @@ impl Transporter for NetTransport {
         &self,
         rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {

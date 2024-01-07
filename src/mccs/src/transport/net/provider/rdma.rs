@@ -181,7 +181,7 @@ impl Default for RdmaTransportConfig {
     }
 }
 
-struct RdmaTransportContext {
+pub struct RdmaTransportContext {
     devices: Vec<IbDevice>,
     listen_addr: SockAddr,
     page_size: usize,
@@ -263,7 +263,7 @@ fn ib_dma_buf_support(context: &Context) -> Result<bool, IbError> {
     }
 }
 
-fn ib_init_transport_context(config: RdmaTransportConfig) -> Result<RdmaTransportContext, IbError> {
+pub fn ib_init_transport_context(config: RdmaTransportConfig) -> Result<RdmaTransportContext, IbError> {
     let socket_if_prefix = config.socket_if_prefix.as_ref().map(|x| x.as_str());
     let mut interface = interfaces::find_interfaces(socket_if_prefix, None, 1)?;
     if interface.is_empty() {

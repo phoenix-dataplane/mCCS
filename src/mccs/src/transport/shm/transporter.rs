@@ -4,7 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use memoffset::raw_field;
 
-use crate::comm::CommProfile;
+use crate::comm::{CommProfile, PeerInfo};
 use crate::cuda::alloc::DeviceHostMapped;
 use crate::cuda::ptr::DeviceNonNull;
 use crate::transport::catalog::TransportCatalog;
@@ -31,8 +31,9 @@ pub struct ShmTransporter;
 impl Transporter for ShmTransporter {
     fn send_setup(
         &self,
-        _rank: usize,
         _conn_id: &PeerConnId,
+        _my_info: &PeerInfo,
+        _peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
@@ -224,6 +225,8 @@ impl Transporter for ShmTransporter {
         &self,
         _rank: usize,
         _conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {

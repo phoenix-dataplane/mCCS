@@ -603,7 +603,7 @@ pub fn net_agent_recv_progress(
                             "mov ({0}), %eax",
                             in(reg) resources.gdc_flush,
                             out("eax") _,
-                            options(readonly, nostack)
+                            options(readonly, nostack, att_syntax)
                         );
                     }
                 } else {

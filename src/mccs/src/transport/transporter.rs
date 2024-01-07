@@ -10,7 +10,7 @@ use thiserror::Error;
 use super::catalog::TransportCatalog;
 use super::channel::{PeerConnId, PeerConnInfo};
 use super::op::TransportOp;
-use crate::comm::{CommProfile, CommunicatorId};
+use crate::comm::{CommProfile, CommunicatorId, PeerInfo};
 
 pub type AgentMessage = Option<Box<dyn Any + Send>>;
 pub type AnyResources = Box<dyn Any + Send>;
@@ -20,7 +20,7 @@ pub const CONNECT_HANDLE_SIZE: usize = 128;
 
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct ConnectHandle([u8; CONNECT_HANDLE_SIZE]);
+pub struct ConnectHandle(pub [u8; CONNECT_HANDLE_SIZE]);
 
 #[derive(Debug, Error)]
 pub enum ConnectHandleError {
@@ -82,6 +82,17 @@ pub struct TransportAgentId {
 
 #[async_trait]
 pub trait Transporter: Send + Sync {
+    // Determine whether two peers can communicate
+    fn can_connect(
+        &self,
+        send_peer: &PeerInfo,
+        recv_peer: &PeerInfo,
+        profile: &CommProfile,
+        catalog: &TransportCatalog,
+    ) -> bool {
+        false
+    }
+
     // Setup sender transport, prepare any sender-side resources
     // that hold by sender rank,
     // returns PreAgentCb variant of TransportSetup
@@ -91,6 +102,8 @@ pub trait Transporter: Send + Sync {
         &self,
         rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError>;
@@ -138,6 +151,8 @@ pub trait Transporter: Send + Sync {
         &self,
         rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError>;

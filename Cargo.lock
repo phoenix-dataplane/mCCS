@@ -917,6 +917,7 @@ dependencies = [
  "bincode",
  "bitflags 2.4.1",
  "byteorder",
+ "bytes",
  "collectives-sys",
  "crossbeam",
  "cuda-driver-sys",
