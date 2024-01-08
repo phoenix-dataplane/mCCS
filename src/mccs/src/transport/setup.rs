@@ -26,6 +26,10 @@ pub enum TransportConnectError {
     NoTransportFound(usize, usize),
     #[error("Connection {0:?} not found")]
     ConnectionNotFound(PeerConnId),
+    #[error("Current transport connect phase is still in progress")]
+    ConnectPhaseInProgress,
+    #[error("Connection index mismatch: {0} vs {1}")]
+    ConnIndexMismatch(u32, u32),
 }
 
 pub struct PeerTransportSetupTask {
@@ -36,7 +40,8 @@ pub struct PeerTransportSetupTask {
 pub struct PeerTransportSetupAgentCbTask {
     pub id: PeerConnId,
     pub transporter: &'static dyn Transporter,
-    pub agent_message: AgentMessage
+    pub agent_message: AgentMessage,
+    pub setup_resources: Option<AnyResources>,
 }
 
 pub struct PeerTransportConnectTask {
@@ -104,10 +109,39 @@ pub struct TransportConnectState {
     pub transporter_map: HashMap<PeerConnId, &'static dyn Transporter>,
     pub peer_connected: HashMap<PeerConnId, PeerConnected>,
 
-    conn_index: u32,
+    conn_index: Option<u32>,
     // bitmask for which channels to connect to for each peer
     recv_connect_mask: Vec<u64>,
     send_connect_mask: Vec<u64>,
+}
+
+impl TransportConnectState {
+    pub fn new(
+        rank: usize,
+        num_ranks: usize,
+        num_channels: usize,
+    ) -> Self {
+        let recv_connect_mask = vec![0; num_ranks];
+        let send_connect_mask = vec![0; num_ranks];
+        TransportConnectState {
+            num_channels,
+            rank,
+            num_ranks,
+            to_setup: VecDeque::new(),
+            to_setup_agent_cb: VecDeque::new(),
+            to_connect: VecDeque::new(),
+            to_connect_agent_cb: VecDeque::new(),
+            handle_to_exchange: Vec::new(),
+            peer_setup_pre_agent: HashMap::new(),
+            peer_setup: HashMap::new(),
+            peer_connect_pre_agent: HashMap::new(),
+            transporter_map: HashMap::new(),
+            peer_connected: HashMap::new(),
+            conn_index: None,
+            recv_connect_mask,
+            send_connect_mask,
+        }
+    }
 }
 
 // Exchange connection handles with send/recv peers
@@ -295,6 +329,41 @@ fn select_transport(
 }
 
 impl TransportConnectState {
+    fn is_idle(&self) -> bool {
+        self.to_setup.is_empty() && self.to_setup_agent_cb.is_empty() &&
+        self.to_connect.is_empty() && self.to_connect_agent_cb.is_empty() &&
+        self.peer_setup_pre_agent.is_empty() && self.peer_setup.is_empty() &&
+        self.peer_connect_pre_agent.is_empty()
+    }
+
+    pub fn register_connect(
+        &mut self,
+        conn_id: &PeerConnId,
+    ) -> Result<(), TransportConnectError> {
+        if !self.is_idle() {
+            Err(TransportConnectError::ConnectPhaseInProgress)?;
+        }
+        if let Some(conn_index) = self.conn_index {
+            if conn_index != conn_id.conn_index {
+                return Err(TransportConnectError::ConnIndexMismatch(conn_index, conn_id.conn_index));
+            }
+        } else {
+            self.conn_index = Some(conn_id.conn_index);
+        }
+        if self.peer_connected.contains_key(conn_id) {
+            return Ok(())
+        }
+        match conn_id.conn_type {
+            ConnType::Send => {
+                self.send_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel;
+            },
+            ConnType::Recv => {
+                self.recv_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel;
+            },
+        }
+        Ok(())
+    }
+
     pub fn post_setup_tasks(
         &self,
         peers_info: &[PeerInfo],
@@ -317,6 +386,13 @@ impl TransportConnectState {
                         profile,
                         catalog,
                     )?;
+                    let conn_id = PeerConnId {
+                        peer_rank: recv_peer,
+                        conn_type: ConnType::Recv,
+                        channel: c as u32,
+                        conn_index: self.conn_index.unwrap(),
+                    };
+
                 }
             }
 
@@ -343,13 +419,14 @@ impl TransportConnectState {
             TransportConnectTask::PeerTransportSetup(task)
         } else if let Some((conn_id, agent_message)) = self.to_setup_agent_cb.pop_front() {
             // Check if there are setup tasks that agent has completed
-            let transporter = *self.transporter_map
-                .get(&conn_id)
+            let constructor = self.peer_setup_pre_agent
+                .remove(&conn_id)
                 .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
             let task = PeerTransportSetupAgentCbTask {
                 id: conn_id,
-                transporter,
+                transporter: constructor.transporter,
                 agent_message,
+                setup_resources: constructor.resources,
             };
             TransportConnectTask::PeerTransportSetupAgentCb(task)
         } else if !self.peer_setup_pre_agent.is_empty() {
@@ -360,28 +437,45 @@ impl TransportConnectState {
             TransportConnectTask::WaitingOutstandingTask
         } else if !self.handle_to_exchange.is_empty() {
             // all setup tasks have completed, we need to exchange handles
-            let mut handles = Vec::new();
-
+            let mut handles = std::mem::take(&mut self.handle_to_exchange);
             let task = PeerTransportHandleExchangeTask {
                 rank: self.rank,
                 num_ranks: self.num_ranks,
                 num_channels: self.num_channels,
-                conn_index: self.conn_index,
+                conn_index: self.conn_index.unwrap(),
                 connect_recv: self.recv_connect_mask.clone(),
                 connect_send: self.send_connect_mask.clone(),
                 handles: self.handle_to_exchange.clone(),
             };
-
+            TransportConnectTask::PeerTransportConnectHandleExchange(task)
         } else if let Some((conn_id, peer_handle)) = self.to_connect.pop_front() {
-
+            let constructor = self.peer_setup
+                .remove(&conn_id)
+                .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
+            let task = PeerTransportConnectTask {
+                id: conn_id,
+                transporter: constructor.transporter,
+                peer_connect_handle: peer_handle,
+                setup_resources: constructor.resources,
+            };
+            TransportConnectTask::PeerTransportConnect(task)
         } else if let Some((conn_id, agent_message)) = self.to_connect_agent_cb.pop_front() {
-
+            let constructor = self.peer_connect_pre_agent
+                .remove(&conn_id)
+                .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
+            let task = PeerTransportConnectAgentCbTask {
+                id: conn_id,
+                transporter: constructor.transporter,
+                agent_message,
+                transport_resources: constructor.resources,
+            };
+            TransportConnectTask::PeerTransportConnectAgentCb(task)
         } else if !self.peer_connect_pre_agent.is_empty() {
             TransportConnectTask::WaitingOutstandingTask
         } else {
             TransportConnectTask::Idle
         };
-        todo!()
+        Ok(task)
     }
 }
 
@@ -390,7 +484,7 @@ impl TransportConnectState {
         &mut self, 
         conn_id: &PeerConnId,
         handle: ConnectHandle, 
-        setup_resources: Option<AnyResources>
+        setup_resources: Option<AnyResources>,
     ) -> Result<(), TransportConnectError> {
         let round_idx = match conn_id.conn_type {
             ConnType::Send => (self.num_ranks + conn_id.peer_rank - self.rank) % self.num_ranks,
@@ -411,8 +505,17 @@ impl TransportConnectState {
     pub fn put_peer_setup_pre_agent(
         &mut self,
         conn_id: &PeerConnId,
+        setup_resources: Option<AnyResources>,
     ) -> Result<(), TransportConnectError> {
-
+        let transporter = *self.transporter_map
+            .get(conn_id)
+            .ok_or_else(|| TransportConnectError::ConnectionNotFound(*conn_id))?;
+        let constructor = PeerConnConstructor {
+            transporter,
+            resources: setup_resources,
+        };
+        self.peer_setup_pre_agent.insert(*conn_id, constructor);
+        Ok(())
     }
 
     pub fn put_peer_connect(
@@ -430,11 +533,47 @@ impl TransportConnectState {
             resources: transport_resources,
         };
         self.peer_connected.insert(*conn_id, connected);
-        if self.peer_connected.len() == self.num_channels * 2 {
-            // all connections have been established
-            // we can now return the handles to the caller
-            todo!()
+        if self.peer_connect_pre_agent.is_empty() && self.to_connect.is_empty() && self.to_connect_agent_cb.is_empty() {
+            // No more outstanding connect tasks, reset connect masks
+            self.recv_connect_mask.clear();
+            self.send_connect_mask.clear();
+            self.recv_connect_mask.resize(self.num_ranks, 0);
+            self.send_connect_mask.resize(self.num_ranks, 0);
         }
+        Ok(())
+    }
+
+    pub fn put_peer_connect_pre_agent(
+        &mut self,
+        conn_id: &PeerConnId,
+        transport_resources: Option<AnyResources>,
+    ) -> Result<(), TransportConnectError> {
+        let transporter = *self.transporter_map
+            .get(conn_id)
+            .ok_or_else(|| TransportConnectError::ConnectionNotFound(*conn_id))?;
+        let constructor = PeerConnConstructor {
+            transporter,
+            resources: transport_resources,
+        };
+        self.peer_connect_pre_agent.insert(*conn_id, constructor);
+        Ok(())
+    }
+
+    pub fn put_peer_agent_setup_message(
+        &mut self,
+        conn_id: &PeerConnId,
+        agent_message: AgentMessage,
+    ) -> Result<(), TransportConnectError> {
+        self.to_setup_agent_cb.push_back((*conn_id, agent_message));
+        Ok(())
+    }
+
+    pub fn put_peer_agent_connect_message(
+        &mut self,
+        conn_id: &PeerConnId,
+        agent_message: AgentMessage,
+    ) -> Result<(), TransportConnectError> {
+        self.to_connect_agent_cb.push_back((*conn_id, agent_message));
         Ok(())
     }
 

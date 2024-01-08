@@ -151,8 +151,8 @@ impl BootstrapState {
     }
 
     pub async fn init(
-        handle: &BootstrapHandle, 
-        listen_addr: &SocketAddr,
+        handle: BootstrapHandle, 
+        listen_addr: SocketAddr,
         rank: usize, 
         num_ranks: usize
     ) -> Result<BootstrapState, BootstrapError> {
@@ -202,7 +202,8 @@ impl BootstrapState {
 
 impl BootstrapState {
     fn unexpected_enqueue(&self, peer: usize, tag: u32, stream: TcpStream) {
-        let mut connections = self.unexpected_connections.lock().unwrap();
+        let mut connections = self.unexpected_connections.try_lock()
+            .map_err(|_| BootstrapError::MutexAcquire).unwrap();
         let conn = UnexpectedConn {
             peer,
             tag,
@@ -212,7 +213,8 @@ impl BootstrapState {
     }
 
     fn unexpected_dequeue(&self, peer: usize, tag: u32) -> Option<TcpStream> {
-        let mut connections = self.unexpected_connections.lock().unwrap();
+        let mut connections = self.unexpected_connections.try_lock()
+            .map_err(|_| BootstrapError::MutexAcquire).unwrap();
         let idx = connections.iter().position(|c| c.peer == peer && c.tag == tag);
         if let Some(idx) = idx {
             let conn = connections.swap_remove(idx);

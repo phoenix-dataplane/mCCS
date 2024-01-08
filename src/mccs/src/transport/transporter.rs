@@ -100,7 +100,6 @@ pub trait Transporter: Send + Sync {
     // otherwise, returns Setup variant
     fn send_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
         my_info: &PeerInfo,
         peer_info: &PeerInfo,
@@ -149,7 +148,6 @@ pub trait Transporter: Send + Sync {
     // Setup receiver transport
     fn recv_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
         my_info: &PeerInfo,
         peer_info: &PeerInfo,

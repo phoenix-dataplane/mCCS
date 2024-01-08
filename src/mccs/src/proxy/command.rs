@@ -1,8 +1,11 @@
+use std::net::SocketAddr;
+
 use crate::comm::CommunicatorId;
 use ipc::mccs::handle::CudaEventHandle;
 
 pub struct InitCommunicator {
     pub communicator_id: CommunicatorId,
+    pub root_mccs_addr: SocketAddr,
     pub rank: usize,
     pub num_ranks: usize,
 }

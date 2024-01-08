@@ -33,8 +33,8 @@ pub struct NetTransport;
 pub static NET_TRANSPORT: NetTransport = NetTransport;
 
 fn net_send_setup(
+    rank: usize,
     conn_id: &PeerConnId,
-    
     profile: &CommProfile,
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
@@ -315,7 +315,6 @@ fn net_recv_connect_agent_callback(
 impl Transporter for NetTransport {
     fn send_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
         my_info: &PeerInfo,
         peer_info: &PeerInfo,
@@ -323,7 +322,7 @@ impl Transporter for NetTransport {
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
         let config = catalog.get_config::<NetTransportConfig>("NetTransport")?;
-        let setup = net_send_setup(rank, conn_id, profile, &config)?;
+        let setup = net_send_setup(my_info.rank, conn_id, profile, &config)?;
         Ok(setup)
     }
 
@@ -360,7 +359,6 @@ impl Transporter for NetTransport {
 
     fn recv_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
         my_info: &PeerInfo,
         peer_info: &PeerInfo,
@@ -368,7 +366,7 @@ impl Transporter for NetTransport {
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
         let config = catalog.get_config::<NetTransportConfig>("NetTransport")?;
-        let setup = net_recv_setup(rank, conn_id, profile, &config)?;
+        let setup = net_recv_setup(my_info.rank, conn_id, profile, &config)?;
         Ok(setup)
     }
 

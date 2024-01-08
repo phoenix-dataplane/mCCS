@@ -1,9 +1,10 @@
 pub mod task;
 
 use std::net::SocketAddr;
-use std::sync::Mutex;
 
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
+use serde::{Serialize, Deserialize};
 use thiserror::Error;
 
 pub use task::{bootstrap_create_root, bootstrap_root};
@@ -24,6 +25,7 @@ pub enum BootstrapError {
     MutexAcquire,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BootstrapHandle {
     pub addr: SocketAddr,
     pub magic: u64,

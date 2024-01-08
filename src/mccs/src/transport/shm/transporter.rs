@@ -223,10 +223,9 @@ impl Transporter for ShmTransporter {
 
     fn recv_setup(
         &self,
-        _rank: usize,
         _conn_id: &PeerConnId,
-        my_info: &PeerInfo,
-        peer_info: &PeerInfo,
+        _my_info: &PeerInfo,
+        _peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
