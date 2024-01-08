@@ -1,6 +1,7 @@
 use std::ffi::c_void;
 use std::io::ErrorKind;
 use std::marker::PhantomPinned;
+use std::net::{IpAddr, SocketAddr};
 use std::os::fd::RawFd;
 use std::pin::Pin;
 use std::ptr::NonNull;
@@ -184,7 +185,7 @@ impl Default for RdmaTransportConfig {
 
 pub struct RdmaTransportContext {
     devices: Vec<IbDevice>,
-    listen_addr: SockAddr,
+    listen_ip: IpAddr,
     page_size: usize,
     gdr_support: bool,
     config: RdmaTransportConfig,
@@ -395,9 +396,10 @@ pub fn ib_init_transport_context(
         .map_err(|e| std::io::Error::from_raw_os_error(e as i32))?
         .unwrap() as usize;
     let gdr_support = ib_gdr_support();
+    let interface_addr = interface_addr.as_socket().unwrap().ip();
     let transport_context = RdmaTransportContext {
         devices: devices_ctx,
-        listen_addr: interface_addr,
+        listen_ip: interface_addr,
         page_size,
         gdr_support,
         config,
@@ -783,11 +785,14 @@ fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp) -> Result<(), IbError> {
 pub async fn ib_listen(device: usize) -> Result<(IbConnectHandle, IbListenComm), IbError> {
     let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
 
-    let listen_addr = transport_ctx.listen_addr.as_socket().unwrap();
+    let listen_addr = SocketAddr::new(transport_ctx.listen_ip, 0);
     let listener = tcp::async_listen(&listen_addr)?;
+    let listen_addr = listener.local_addr().unwrap();
+    log::debug!("ib_listen: listening address is {listen_addr}");
+
     let magic = rand::random::<u64>();
     let handle = IbConnectHandle {
-        connect_addr: transport_ctx.listen_addr.as_socket().unwrap(),
+        connect_addr: listen_addr,
         magic,
     };
     let listen_comm = IbListenComm {
@@ -802,12 +807,16 @@ pub async fn ib_connect(
     device: usize,
     handle: &IbConnectHandle,
 ) -> Result<IbSendComm<'static>, IbError> {
+    log::debug!("ib_connect: entered");
     // Stage 1: connect to peer and set up QPs
     let connect_addr = handle.connect_addr;
     let mut stream = tcp::async_connect(&connect_addr, handle.magic).await?;
+    log::debug!("ib_connect: tcp connected done");
 
     let mut verbs = ib_init_verbs(device)?;
+    log::debug!("ib_connect: verbs inited");
     let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
+    log::debug!("ib_connect: ctx got");
     let device_ctx = &transport_ctx.devices[device];
     let ib_port = device_ctx.port;
     let mut qps = Vec::with_capacity(transport_ctx.config.qps_per_conn);
@@ -819,6 +828,7 @@ pub async fn ib_connect(
         )?;
         qps.push(qp);
     }
+    log::debug!("ib_connect: qp done");
     let ar = device_ctx.adaptive_routing;
     let mut port_attr = ibv_port_attr::default();
     unsafe {

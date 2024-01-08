@@ -36,6 +36,7 @@ pub async fn async_accept(listener: &TcpListener, magic: u64) -> std::io::Result
 }
 
 pub async fn async_connect(addr: &SocketAddr, magic: u64) -> std::io::Result<TcpStream> {
+    log::debug!("async_connect to {addr}");
     let mut stream = TcpStream::connect(addr).await?;
     let mut buf = [0u8; std::mem::size_of::<u64>()];
     LittleEndian::write_u64(&mut buf, magic);
