@@ -123,7 +123,7 @@ fn find_interfaces_with_prefix(
                 sock_addr
             };
             let family = sock_addr.family();
-            if family != AddressFamily::Inet as u16 || family != AddressFamily::Inet6 as u16 {
+            if family != AddressFamily::Inet as u16 && family != AddressFamily::Inet6 as u16 {
                 continue;
             }
 
