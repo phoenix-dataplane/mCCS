@@ -106,7 +106,7 @@ fn net_recv_setup(
     let setup_request = AgentSetupRequest {
         rank,
         local_rank: rank,
-        remote_rank: rank,
+        remote_rank: conn_id.peer_rank,
         net_device: net_dev,
         use_gdr,
         need_flush,
@@ -239,6 +239,7 @@ fn net_send_connect_agent_callback(
 
 fn net_recv_connect(connect_handle: ConnectHandle) -> Result<TransportConnect, NetTransportError> {
     let send_agent_rank = connect_handle.deserialize_to::<usize>()?;
+    log::debug!("send_agent_rank={send_agent_rank}");
     let request = AgentRecvConnectRequest { send_agent_rank };
     let connect = TransportConnect::PreAgentCb {
         agent_request: Some(Box::new(request)),
