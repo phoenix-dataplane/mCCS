@@ -603,7 +603,7 @@ impl ProxyEngine {
                                 .get(&coll.communicator_id)
                                 .unwrap()
                                 .comm_patterns,
-                                self.resources.device_info.cuda_device_idx
+                            self.resources.device_info.cuda_device_idx,
                         );
                         comm.launch_plan();
 

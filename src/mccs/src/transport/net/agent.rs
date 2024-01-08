@@ -426,6 +426,7 @@ pub fn net_agent_send_progress(
         op.posted = 0;
         op.transmitted = 0;
         op.done = 0;
+        op.state = TransportOpState::InProgress;
     }
     op.idle = true;
     if op.state != TransportOpState::InProgress {
@@ -476,6 +477,7 @@ pub fn net_agent_send_progress(
                     resources.rank as u32,
                     mhandle,
                 )?;
+                log::trace!("request_id = {:?}", request_id);
                 if let Some(request_id) = request_id {
                     op.requests_id[buffer_slot] = Some(request_id.0);
                     size_ptr.write(-1);
