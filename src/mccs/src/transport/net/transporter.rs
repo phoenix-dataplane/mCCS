@@ -57,7 +57,9 @@ fn net_send_setup(
     let setup = TransportSetup::PreAgentCb {
         agent_cuda_dev: proxy_cuda_dev,
         agent_request: Some(Box::new(setup_request)),
-        setup_resources: None,
+        setup_resources: NetSendSetup {
+            agent_rank: todo!(),
+        },
     };
 
     let net_name = provider.get_properties(net_dev)?.name;
@@ -441,8 +443,8 @@ impl Transporter for NetTransport {
             .ok_or(NetAgentError::DowncastAgentRequest)?
             .downcast::<AgentSetupRequest>()
             .map_err(|_| NetAgentError::DowncastAgentRequest)?;
-        let agent_resources = agent::net_agent_recv_setup(request, &catalog).await?;
-        Ok((Box::new(agent_resources), None))
+        let (reply, agent_resources) = agent::net_agent_recv_setup(request, &catalog).await?;
+        Ok((Box::new(agent_resources), Some(Box::new(reply))))
     }
 
     async fn agent_recv_connect(
