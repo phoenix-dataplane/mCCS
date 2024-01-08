@@ -38,7 +38,7 @@ fn net_send_setup(
     profile: &CommProfile,
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
-    let (proxy_rank, net_dev) = profile.get_network_device(rank, conn_id.peer_rank);
+    let (net_dev, proxy_rank) = profile.get_network_device(rank, conn_id.peer_rank);
     let proxy_cuda_dev = profile.get_cuda_device_idx(proxy_rank);
     let local_rank = profile.get_local_rank(rank);
     let use_gdr = profile.check_gdr(rank, net_dev, true) && config.gdr_enable;
@@ -97,7 +97,7 @@ fn net_recv_setup(
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
     // Use myInfo->rank as the receiver uses its own NIC
-    let (proxy_rank, net_dev) = profile.get_network_device(rank, rank);
+    let (net_dev, proxy_rank) = profile.get_network_device(rank, rank);
     let proxy_cuda_dev = profile.get_cuda_device_idx(proxy_rank);
     let use_gdr = profile.check_gdr(rank, net_dev, false) && config.gdr_enable;
     let need_flush = profile.check_gdr_need_flush(rank);
