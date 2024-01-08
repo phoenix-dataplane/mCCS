@@ -1255,7 +1255,7 @@ fn ib_multi_send(comm: Pin<&mut IbSendComm<'_>>, slot: usize) -> Result<(), IbEr
             let send_size = unsafe { comm.verbs.requests[requests_idx[r]].send_recv.send.size };
             let chunk_size = send_size.div_ceil(num_qps).div_ceil(ALIGN) * ALIGN;
             let offset = unsafe { comm.verbs.requests[requests_idx[r]].send_recv.send.offset };
-            if send_size >= offset {
+            if send_size <= offset {
                 comm.wrs[r].sg_list = std::ptr::null_mut();
                 comm.wrs[r].num_sge = 0;
             } else {
