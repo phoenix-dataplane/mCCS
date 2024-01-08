@@ -1,4 +1,5 @@
 use std::ffi::c_void;
+use std::io::ErrorKind;
 use std::marker::PhantomPinned;
 use std::os::fd::RawFd;
 use std::pin::Pin;
@@ -141,7 +142,7 @@ pub struct IbDevice {
 
 #[derive(Debug, Clone)]
 pub struct RdmaTransportConfig {
-    gid_index: u8,
+    pub gid_index: u8,
     qps_per_conn: usize,
     timeout: u8,
     retry_count: u8,
@@ -154,8 +155,8 @@ pub struct RdmaTransportConfig {
     ar_threshold: usize,
     pci_relaxed_ordering: bool,
     gdr_flush_disable: bool,
-    socket_if_prefix: Option<String>,
-    ib_if_prefix: Option<String>,
+    pub socket_if_prefix: Option<String>,
+    pub ib_if_prefix: Option<String>,
 }
 
 impl Default for RdmaTransportConfig {
@@ -181,7 +182,7 @@ impl Default for RdmaTransportConfig {
     }
 }
 
-struct RdmaTransportContext {
+pub struct RdmaTransportContext {
     devices: Vec<IbDevice>,
     listen_addr: SockAddr,
     page_size: usize,
@@ -189,7 +190,7 @@ struct RdmaTransportContext {
     config: RdmaTransportConfig,
 }
 
-pub struct RdmaTransportProvider(OnceCell<RdmaTransportContext>);
+pub struct RdmaTransportProvider(pub OnceCell<RdmaTransportContext>);
 
 pub static RDMA_TRANSPORT: RdmaTransportProvider = RdmaTransportProvider(OnceCell::new());
 
@@ -263,7 +264,9 @@ fn ib_dma_buf_support(context: &Context) -> Result<bool, IbError> {
     }
 }
 
-fn ib_init_transport_context(config: RdmaTransportConfig) -> Result<RdmaTransportContext, IbError> {
+pub fn ib_init_transport_context(
+    config: RdmaTransportConfig,
+) -> Result<RdmaTransportContext, IbError> {
     let socket_if_prefix = config.socket_if_prefix.as_ref().map(|x| x.as_str());
     let mut interface = interfaces::find_interfaces(socket_if_prefix, None, 1)?;
     if interface.is_empty() {
@@ -295,7 +298,16 @@ fn ib_init_transport_context(config: RdmaTransportConfig) -> Result<RdmaTranspor
     let mut devices_ctx = Vec::with_capacity(devices.len());
     let mut dev_enabled = false;
     for (idx, dev) in devices.iter().enumerate() {
-        let context = Arc::new(dev.open()?);
+        let context = Arc::new(match dev.open() {
+            Ok(v) => v,
+            Err(e) => {
+                if e.kind() == ErrorKind::Other {
+                    continue;
+                } else {
+                    Err(e)?
+                }
+            }
+        });
         let mut dev_attr = ibv_device_attr::default();
         unsafe {
             ibv_check!(ibverbs::ffi::ibv_query_device(context.ctx, &mut dev_attr));
