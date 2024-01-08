@@ -1354,7 +1354,7 @@ pub fn ib_initiate_send(
         comm.fifo_requests_idx[slot][r] = request_id;
 
         let handle = IbRequestId(request_id);
-        if comm.fifo_requests_idx[slot]
+        if comm.fifo_requests_idx[slot][0..num_requests]
             .iter()
             .any(|id| *id == IB_MAX_REQUESTS)
         {

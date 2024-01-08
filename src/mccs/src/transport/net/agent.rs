@@ -477,7 +477,6 @@ pub fn net_agent_send_progress(
                     resources.rank as u32,
                     mhandle,
                 )?;
-                log::trace!("request_id = {:?}", request_id);
                 if let Some(request_id) = request_id {
                     op.requests_id[buffer_slot] = Some(request_id.0);
                     size_ptr.write(-1);
