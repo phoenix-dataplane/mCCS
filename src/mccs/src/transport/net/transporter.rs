@@ -57,9 +57,7 @@ fn net_send_setup(
     let setup = TransportSetup::PreAgentCb {
         agent_cuda_dev: proxy_cuda_dev,
         agent_request: Some(Box::new(setup_request)),
-        setup_resources: NetSendSetup {
-            agent_rank: todo!(),
-        },
+        setup_resources: Some(Box::new(NetSendSetup { agent_rank: rank })),
     };
 
     let net_name = provider.get_properties(net_dev)?.name;
