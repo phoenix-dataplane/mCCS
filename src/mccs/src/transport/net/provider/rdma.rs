@@ -1460,6 +1460,7 @@ pub fn ib_initiate_recv(
     }
 
     let mut wr = ibv_recv_wr::default();
+    wr.wr_id = request_id as u64;
     wr.sg_list = std::ptr::null_mut();
     wr.num_sge = 0;
 
