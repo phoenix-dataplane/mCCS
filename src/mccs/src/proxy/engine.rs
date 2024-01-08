@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
@@ -18,10 +18,12 @@ use super::init::{CommInitStage, CommInitState};
 use super::op::ProxyOp;
 use super::task::{CollTask, TaskDataType, TaskFuncType};
 use super::DeviceInfo;
-use crate::bootstrap::BootstrapState; 
+use crate::bootstrap::BootstrapState;
 use crate::bootstrap::{bootstrap_create_root, bootstrap_root};
-use crate::comm::{CommProfile, Communicator, CommunicatorId, PeerInfo, PeerType, PeerInfoExchange};
 use crate::comm::PEER_INFO_EXCHANGE_SEND_SIZE;
+use crate::comm::{
+    CommProfile, Communicator, CommunicatorId, PeerInfo, PeerInfoExchange, PeerType,
+};
 use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::daemon::DaemonId;
@@ -31,11 +33,11 @@ use crate::registry::GlobalRegistry;
 use crate::transport::channel::{ConnType, PeerConnId};
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
+use crate::transport::setup::exchange_connect_handle;
+use crate::transport::setup::{TransportConnectState, TransportConnectTask};
 use crate::transport::transporter::{
     ConnectHandle, TransportAgentId, TransportConnect, TransportSetup,
 };
-use crate::transport::setup::{TransportConnectTask, TransportConnectState};
-use crate::transport::setup::exchange_connect_handle;
 use crate::utils::duplex_chan::DuplexChannel;
 use crate::utils::pool::WorkPool;
 
@@ -56,8 +58,8 @@ pub struct ProxyResources {
     pub transport_engines_tx: HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
     pub transport_engines_rx: Vec<(TransportEngineId, Receiver<TransportEngineReply>)>,
     pub transport_submission_pool: HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
-    pub task_submit_pool: Vec<AsyncTask>,
     pub mccs_addr: SocketAddr,
+    pub task_submit_pool: Vec<AsyncTask>,
 }
 
 enum AsyncTaskOutput {
@@ -67,10 +69,10 @@ enum AsyncTaskOutput {
     AllGatherPeerInfo(Vec<PeerInfoExchange>),
 }
 
-struct AsyncTask {
+pub struct AsyncTask {
     comm_id: CommunicatorId,
     fut: BoxFuture<'static, Result<AsyncTaskOutput, anyhow::Error>>,
-} 
+}
 
 impl ProxyResources {
     fn progress_async_task(&mut self, task: &mut AsyncTask) -> bool {
@@ -84,31 +86,34 @@ impl ProxyResources {
                 match output {
                     AsyncTaskOutput::BootstrapInit(state) => {
                         comm.bootstrap_state = Some(Arc::new(state));
-                    },
+                    }
                     AsyncTaskOutput::HandleExchange(handles) => {
                         let transport_connect = comm.transport_connect.as_mut().unwrap();
                         transport_connect.put_peer_connect_handles(handles);
-                    },
+                    }
                     AsyncTaskOutput::AllGatherPeerInfo(info) => {
                         assert_eq!(info.len(), comm.num_ranks);
-                        let peers_info = info.into_iter().map(|x| {
-                            let peer_type = if x.rank == comm.rank {
-                                PeerType::Local
-                            } else if x.host == self.device_info.host {
-                                PeerType::IntraNode
-                            } else {
-                                PeerType::InterNode
-                            };
-                            PeerInfo {
-                                rank: x.rank,
-                                peer_type,
-                                host: x.host,
-                                cuda_device_idx: x.cuda_device_idx,
-                            }
-                        }).collect::<Vec<_>>();
+                        let peers_info = info
+                            .into_iter()
+                            .map(|x| {
+                                let peer_type = if x.rank == comm.rank {
+                                    PeerType::Local
+                                } else if x.host == self.device_info.host {
+                                    PeerType::IntraNode
+                                } else {
+                                    PeerType::InterNode
+                                };
+                                PeerInfo {
+                                    rank: x.rank,
+                                    peer_type,
+                                    host: x.host,
+                                    cuda_device_idx: x.cuda_device_idx,
+                                }
+                            })
+                            .collect::<Vec<_>>();
                         comm.peers_info = Some(peers_info);
-                    },
-                    AsyncTaskOutput::BootstrapRoot => {},
+                    }
+                    AsyncTaskOutput::BootstrapRoot => {}
                 }
                 true
             }
@@ -188,10 +193,13 @@ impl ProxyResources {
             if let Some(handle) = comm.bootstrap_handle.take() {
                 let mut listen_addr = self.mccs_addr.clone();
                 listen_addr.set_port(0);
-                let fut = BootstrapState::init(handle, listen_addr, comm.rank, comm.num_ranks)
-                    .map(|state| state.map(|s| AsyncTaskOutput::BootstrapInit(s))
-                        .map_err(|e| anyhow::Error::new(e))
-                    );
+                let fut = BootstrapState::init(handle, listen_addr, comm.rank, comm.num_ranks).map(
+                    |state| {
+                        state
+                            .map(|s| AsyncTaskOutput::BootstrapInit(s))
+                            .map_err(|e| anyhow::Error::new(e))
+                    },
+                );
                 let task = AsyncTask {
                     comm_id,
                     fut: Box::pin(fut),
@@ -203,22 +211,26 @@ impl ProxyResources {
                     host: self.device_info.host.clone(),
                     cuda_device_idx: self.device_info.cuda_device_idx,
                 };
-                let buf = vec![0u8; PEER_INFO_EXCHANGE_SEND_SIZE];
-                let fut = state.bootstrap_all_gather(buf)
-                    .map(|x| {
-                        x.map(|all_data| {
-                            let peers_info = Vec::with_capacity(comm.num_ranks);
-                            for r in 0..comm.num_ranks {
-                                let mut buf = &all_data[r * PEER_INFO_EXCHANGE_SEND_SIZE..(r + 1) * PEER_INFO_EXCHANGE_SEND_SIZE];
-                                let peer_info = PeerInfoExchange::decode(&mut buf);
-                                peers_info.push(peer_info);
-                            }
-                            AsyncTaskOutput::AllGatherPeerInfo(peers_info)
-                        }).map_err(|e| anyhow::Error::new(e))
+                let mut slice = vec![0u8; PEER_INFO_EXCHANGE_SEND_SIZE];
+                let mut buf = slice.as_mut_slice();
+                peer_info_exchange.encode(&mut buf);
+                let num_ranks = comm.num_ranks;
+                let fut = Arc::clone(state).bootstrap_all_gather(slice).map(move |x| {
+                    x.map(|all_data| {
+                        let mut peers_info = Vec::with_capacity(num_ranks);
+                        for r in 0..num_ranks {
+                            let mut buf = &all_data[r * PEER_INFO_EXCHANGE_SEND_SIZE
+                                ..(r + 1) * PEER_INFO_EXCHANGE_SEND_SIZE];
+                            let peer_info = PeerInfoExchange::decode(&mut buf);
+                            peers_info.push(peer_info);
+                        }
+                        AsyncTaskOutput::AllGatherPeerInfo(peers_info)
+                    })
+                    .map_err(|e| anyhow::Error::new(e))
                 });
                 let task = AsyncTask {
                     comm_id,
-                    fut: Box::pin(fut)
+                    fut: Box::pin(fut),
                 };
                 self.task_submit_pool.push(task);
                 comm.stage = CommInitStage::AllGatherPeerInfo;
@@ -230,7 +242,7 @@ impl ProxyResources {
                 let ring_prev = (comm.rank + comm.num_ranks - 1) % comm.num_ranks;
                 // in current implentation, ring follows the same ordering of ranks
                 let ring_index = comm.rank;
-        
+
                 let mut user_ranks = Vec::with_capacity(comm.num_ranks);
                 for idx in 0..comm.num_ranks {
                     let ring_rank = (comm.rank + idx) % comm.num_ranks;
@@ -242,17 +254,14 @@ impl ProxyResources {
                     user_ranks,
                     index: ring_index,
                 };
-        
+
                 let channel = crate::comm::ChannelCommPattern {
                     channel: 0,
                     ring: ring_pattern,
                 };
                 let channels = vec![channel];
-                let mut transport_connect = TransportConnectState::new(
-                    comm.rank,
-                    comm.num_ranks,
-                    channels.len(),
-                );
+                let mut transport_connect =
+                    TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
                 for pattern in channels.iter() {
                     let ring_next = PeerConnId {
                         peer_rank: pattern.ring.next,
@@ -271,11 +280,13 @@ impl ProxyResources {
                 }
                 comm.comm_patterns = Some(channels);
                 let peers_info = comm.peers_info.as_ref().unwrap();
-                transport_connect.post_setup_tasks(
-                    peers_info.as_slice(), 
-                    &comm.profile,
-                    &self.global_registry.transport_catalog,
-                ).unwrap();
+                transport_connect
+                    .post_setup_tasks(
+                        peers_info.as_slice(),
+                        &comm.profile,
+                        &self.global_registry.transport_catalog,
+                    )
+                    .unwrap();
                 comm.transport_connect = Some(transport_connect);
                 comm.stage = CommInitStage::ConnectRing;
             }
@@ -285,8 +296,8 @@ impl ProxyResources {
             match task {
                 TransportConnectTask::Idle => {
                     comm.stage = CommInitStage::Finished;
-                },
-                TransportConnectTask::WaitingOutstandingTask => {},
+                }
+                TransportConnectTask::WaitingOutstandingTask => {}
                 TransportConnectTask::PeerTransportSetup(setup) => {
                     let peer_conn = &setup.id;
                     let transporter = setup.transporter;
@@ -299,7 +310,8 @@ impl ProxyResources {
                                 &peers_info[peer_conn.peer_rank],
                                 &comm.profile,
                                 &self.global_registry.transport_catalog,
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                         ConnType::Recv => transporter
                             .recv_setup(
                                 peer_conn,
@@ -307,7 +319,8 @@ impl ProxyResources {
                                 &peers_info[peer_conn.peer_rank],
                                 &comm.profile,
                                 &self.global_registry.transport_catalog,
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                     };
                     match setup_result {
                         TransportSetup::PreAgentCb {
@@ -324,16 +337,25 @@ impl ProxyResources {
                             let transport_engine_idx = self
                                 .global_registry
                                 .transport_delegator
-                                .assign_transport_engine(agent_cuda_dev, agent, &mut self.control_chan.tx);
-                            comm.transport_engine_assignment.insert(*peer_conn, transport_engine_idx);
+                                .assign_transport_engine(
+                                    agent_cuda_dev,
+                                    agent,
+                                    &mut self.control_chan.tx,
+                                );
+                            comm.transport_engine_assignment
+                                .insert(*peer_conn, transport_engine_idx);
 
                             let request = match peer_conn.conn_type {
-                                ConnType::Send => {
-                                    TransportEngineRequest::AgentSetup(transporter, agent, agent_request)
-                                }
-                                ConnType::Recv => {
-                                    TransportEngineRequest::AgentSetup(transporter, agent, agent_request)
-                                }
+                                ConnType::Send => TransportEngineRequest::AgentSetup(
+                                    transporter,
+                                    agent,
+                                    agent_request,
+                                ),
+                                ConnType::Recv => TransportEngineRequest::AgentSetup(
+                                    transporter,
+                                    agent,
+                                    agent_request,
+                                ),
                             };
                             Self::send_transport_request(
                                 request,
@@ -341,18 +363,20 @@ impl ProxyResources {
                                 &mut self.transport_engines_tx,
                                 &mut self.transport_submission_pool,
                             );
-                            transport_connect.put_peer_setup_pre_agent(peer_conn, setup_resources)
+                            transport_connect
+                                .put_peer_setup_pre_agent(peer_conn, setup_resources)
                                 .unwrap();
                         }
                         TransportSetup::Setup {
                             peer_connect_handle,
                             setup_resources,
                         } => {
-                            transport_connect.put_peer_setup(peer_conn, peer_connect_handle, setup_resources)
+                            transport_connect
+                                .put_peer_setup(peer_conn, peer_connect_handle, setup_resources)
                                 .unwrap();
                         }
                     }
-                },
+                }
                 TransportConnectTask::PeerTransportSetupAgentCb(setup_cb) => {
                     let peer_conn = &setup_cb.id;
                     let transporter = setup_cb.transporter;
@@ -365,14 +389,16 @@ impl ProxyResources {
                                 &peer_conn,
                                 agent_reply,
                                 setup_resources,
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                         ConnType::Recv => transporter
                             .recv_setup_agent_callback(
                                 comm.rank,
                                 &peer_conn,
                                 agent_reply,
                                 setup_resources,
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                     };
                     match setup_result {
                         TransportSetup::PreAgentCb { .. } => {
@@ -382,11 +408,12 @@ impl ProxyResources {
                             peer_connect_handle,
                             setup_resources,
                         } => {
-                            transport_connect.put_peer_setup(peer_conn, peer_connect_handle, setup_resources)
+                            transport_connect
+                                .put_peer_setup(peer_conn, peer_connect_handle, setup_resources)
                                 .unwrap();
                         }
                     }
-                },
+                }
                 TransportConnectTask::PeerTransportConnect(connect) => {
                     let peer_conn = &connect.id;
                     let transporter = connect.transporter;
@@ -394,17 +421,11 @@ impl ProxyResources {
                     let setup_resources = connect.setup_resources;
                     let connect_result = match peer_conn.conn_type {
                         ConnType::Send => transporter
-                            .send_connect(
-                                &peer_conn,
-                                handle, 
-                                setup_resources
-                            ).unwrap(),
+                            .send_connect(&peer_conn, handle, setup_resources)
+                            .unwrap(),
                         ConnType::Recv => transporter
-                            .recv_connect(
-                                &peer_conn,
-                                handle, 
-                                setup_resources
-                            ).unwrap(),
+                            .recv_connect(&peer_conn, handle, setup_resources)
+                            .unwrap(),
                     };
                     match connect_result {
                         TransportConnect::PreAgentCb {
@@ -447,18 +468,20 @@ impl ProxyResources {
                                 &mut self.transport_engines_tx,
                                 &mut self.transport_submission_pool,
                             );
-                            transport_connect.put_peer_connect_pre_agent(peer_conn, transport_resources)
+                            transport_connect
+                                .put_peer_connect_pre_agent(peer_conn, transport_resources)
                                 .unwrap();
                         }
                         TransportConnect::Connect {
                             conn_info,
                             transport_resources,
                         } => {
-                            transport_connect.put_peer_connect(peer_conn, conn_info, transport_resources)
+                            transport_connect
+                                .put_peer_connect(peer_conn, conn_info, transport_resources)
                                 .unwrap();
                         }
                     }
-                },
+                }
                 TransportConnectTask::PeerTransportConnectAgentCb(connect_cb) => {
                     let peer_conn = &connect_cb.id;
                     let transporter = connect_cb.transporter;
@@ -470,13 +493,15 @@ impl ProxyResources {
                                 &peer_conn,
                                 agent_reply,
                                 transport_resources,
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                         ConnType::Recv => transporter
                             .recv_connect_agent_callback(
                                 &peer_conn,
                                 agent_reply,
                                 transport_resources,
-                            ).unwrap(),
+                            )
+                            .unwrap(),
                     };
                     match connect_result {
                         TransportConnect::PreAgentCb { .. } => {
@@ -486,25 +511,28 @@ impl ProxyResources {
                             conn_info,
                             transport_resources,
                         } => {
-                            transport_connect.put_peer_connect(peer_conn, conn_info, transport_resources)
+                            transport_connect
+                                .put_peer_connect(peer_conn, conn_info, transport_resources)
                                 .unwrap();
                         }
                     }
-                },
+                }
                 TransportConnectTask::PeerTransportConnectHandleExchange(exchange_task) => {
                     let fut = exchange_connect_handle(
                         Arc::clone(comm.bootstrap_state.as_ref().unwrap()),
-                        0, 
-                        exchange_task
-                    ).map(|o| o.map(|handles| AsyncTaskOutput::HandleExchange(handles))
-                        .map_err(|e| anyhow::Error::new(e))
-                    );
+                        0,
+                        exchange_task,
+                    )
+                    .map(|o| {
+                        o.map(|handles| AsyncTaskOutput::HandleExchange(handles))
+                            .map_err(|e| anyhow::Error::new(e))
+                    });
                     let task = AsyncTask {
                         comm_id: comm.id,
                         fut: Box::pin(fut),
                     };
                     self.task_submit_pool.push(task);
-                },
+                }
             }
         }
 
@@ -528,7 +556,8 @@ impl ProxyResources {
                         let peer_conn = agent_id.peer_conn;
                         let comm = self.comms_init.get_mut(&agent_id.communicator_id).unwrap();
                         comm.transport_connect
-                            .as_mut().unwrap()
+                            .as_mut()
+                            .unwrap()
                             .put_peer_agent_setup_message(&peer_conn, reply)
                             .unwrap();
                     }
@@ -536,7 +565,8 @@ impl ProxyResources {
                         let peer_conn = agent_id.peer_conn;
                         let comm = self.comms_init.get_mut(&agent_id.communicator_id).unwrap();
                         comm.transport_connect
-                            .as_mut().unwrap()
+                            .as_mut()
+                            .unwrap()
                             .put_peer_agent_connect_message(&peer_conn, reply)
                             .unwrap();
                     }
@@ -627,13 +657,11 @@ impl ProxyEngine {
 
     pub fn check_exchange_reply(&mut self) {
         match self.resources.exchange_rx.try_recv() {
-            Ok(msg) => {
-                match msg {
-                    ExchangeCompletion::RegisterBootstrapHandle => {},
-                    ExchangeCompletion::RecvBootstrapHandle(comm_id, handle) => {
-                        let comm = self.resources.comms_init.get_mut(&comm_id).unwrap();
-                        comm.bootstrap_handle = Some(handle);
-                    },
+            Ok(msg) => match msg {
+                ExchangeCompletion::RegisterBootstrapHandle => {}
+                ExchangeCompletion::RecvBootstrapHandle(comm_id, handle) => {
+                    let comm = self.resources.comms_init.get_mut(&comm_id).unwrap();
+                    comm.bootstrap_handle = Some(handle);
                 }
             },
             Err(TryRecvError::Empty) => (),
@@ -655,25 +683,28 @@ impl ProxyEngine {
                             peers_cuda_device_idx: Vec::new(),
                             network_devices: Vec::new(),
                         };
-                        let comm_init = CommInitState::new(
+                        let mut comm_init = CommInitState::new(
                             init.communicator_id,
                             init.rank,
                             init.num_ranks,
                             profile,
                         );
                         if init.rank == 0 {
-                            let listen_addr = init.root_mccs_addr;
+                            let mut listen_addr = init.root_mccs_addr;
                             listen_addr.set_port(0);
-                            let (root_socket, bootstrap_handle) = bootstrap_create_root(&listen_addr).unwrap(); 
+                            let (root_socket, bootstrap_handle) =
+                                bootstrap_create_root(&listen_addr).unwrap();
                             let cmd = ExchangeCommand::RegisterBootstrapHandle(
-                                init.communicator_id, 
-                                bootstrap_handle.clone()
+                                init.communicator_id,
+                                bootstrap_handle.clone(),
                             );
                             self.resources.exchange_tx.send(cmd).unwrap();
-                            let fut = bootstrap_root(root_socket, bootstrap_handle.magic)
-                                .map(|state| state.map(|_| AsyncTaskOutput::BootstrapRoot)
-                                    .map_err(|e| anyhow::Error::new(e))
-                                );
+                            let fut =
+                                bootstrap_root(root_socket, bootstrap_handle.magic).map(|state| {
+                                    state
+                                        .map(|_| AsyncTaskOutput::BootstrapRoot)
+                                        .map_err(|e| anyhow::Error::new(e))
+                                });
                             let task = AsyncTask {
                                 comm_id: init.communicator_id,
                                 fut: Box::pin(fut),
@@ -682,7 +713,7 @@ impl ProxyEngine {
                             comm_init.bootstrap_handle = Some(bootstrap_handle);
                         } else {
                             let cmd = ExchangeCommand::RecvBootstrapHandle(
-                                init.communicator_id, 
+                                init.communicator_id,
                                 init.root_mccs_addr,
                             );
                             self.resources.exchange_tx.send(cmd).unwrap();

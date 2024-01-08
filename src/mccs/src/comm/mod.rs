@@ -6,8 +6,8 @@ pub use profile::CommProfile;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 
-use serde::{Serialize, Deserialize};
 use bytes::{Buf, BufMut};
+use serde::{Deserialize, Serialize};
 
 use crate::pattern::RingPattern;
 use crate::proxy::plan::{ChanWorkSchedule, KernelPlan};
@@ -17,7 +17,6 @@ use crate::utils::tcp;
 
 use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use device::CommDevResources;
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CommunicatorId(pub u32);

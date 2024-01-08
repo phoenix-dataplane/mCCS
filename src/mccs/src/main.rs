@@ -42,5 +42,6 @@ fn main() -> Result<()> {
     // the Control now takes over
     let mut control = Control::new(config);
     log::info!("Started mCCS");
-    control.mainloop(&TERMINATE)
+
+    // control.mainloop(&TERMINATE)
 }

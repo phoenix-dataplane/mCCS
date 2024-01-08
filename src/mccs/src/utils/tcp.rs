@@ -1,11 +1,10 @@
 use std::net::SocketAddr;
-use std::net::{SocketAddrV4, SocketAddrV6, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 
 use byteorder::{ByteOrder, LittleEndian};
-use bytes::{BufMut, Buf};
+use bytes::{Buf, BufMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
-
 
 pub fn async_listen(addr: &SocketAddr) -> std::io::Result<TcpListener> {
     let socket = if addr.is_ipv4() {

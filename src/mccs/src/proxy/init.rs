@@ -1,9 +1,10 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 use std::mem::MaybeUninit;
+use std::sync::Arc;
 
 use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
 
+use crate::bootstrap::{BootstrapHandle, BootstrapState};
 use crate::comm::device::CommDevResources;
 use crate::comm::{ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo};
 use crate::cuda_warning;
@@ -12,11 +13,9 @@ use crate::transport::channel::{
 };
 use crate::transport::engine::TransportEngineId;
 use crate::transport::setup::TransportConnectState;
-use crate::bootstrap::{BootstrapState, BootstrapHandle};
 
 use super::plan::ChanWorkSchedule;
 use super::task::TaskQueue;
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CommInitStage {
@@ -79,7 +78,7 @@ fn new_chan_peer_conn() -> ChannelPeerConn {
 }
 
 impl CommInitState {
-    pub fn finalize_communicator(self) -> Communicator {
+    pub fn finalize_communicator(mut self) -> Communicator {
         let mut channels = HashMap::new();
         for chan_pattern in self.comm_patterns.unwrap() {
             let channel = CommChannel {

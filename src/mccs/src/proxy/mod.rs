@@ -8,7 +8,6 @@ pub mod op;
 pub mod plan;
 pub mod task;
 
-
 pub struct DeviceInfo {
     pub host: SocketAddr,
     pub cuda_device_idx: i32,

@@ -21,7 +21,6 @@ use net::transporter::NetTransport;
 use shm::transporter::ShmTransporter;
 use transporter::Transporter;
 
-
 pub static SHM_TRANSPORTER: ShmTransporter = ShmTransporter;
 pub static NET_TRANSPORTER: NetTransport = NetTransport;
 pub static ALL_TRANSPORTERS: &[&'static dyn Transporter] = &[&SHM_TRANSPORTER, &NET_TRANSPORTER];

@@ -1,8 +1,7 @@
 use std::net::SocketAddr;
 
-use crate::comm::CommunicatorId;
 use crate::bootstrap::BootstrapHandle;
-
+use crate::comm::CommunicatorId;
 
 pub enum ExchangeCommand {
     RegisterBootstrapHandle(CommunicatorId, BootstrapHandle),

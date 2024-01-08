@@ -1,18 +1,17 @@
-use std::sync::Arc;
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
-use std::collections::{VecDeque, HashMap};
+use std::sync::Arc;
 
 use thiserror::Error;
 
-use super::channel::{ConnType, PeerConnId, PeerConnInfo};
-use super::transporter::{Transporter, AgentMessage, ConnectHandle, AnyResources};
-use super::transporter::CONNECT_HANDLE_SIZE;
 use super::catalog::TransportCatalog;
+use super::channel::{ConnType, PeerConnId, PeerConnInfo};
 use super::transporter::TransporterError;
+use super::transporter::CONNECT_HANDLE_SIZE;
+use super::transporter::{AgentMessage, AnyResources, ConnectHandle, Transporter};
 use super::ALL_TRANSPORTERS;
-use crate::bootstrap::{BootstrapState, BootstrapError};
-use crate::comm::{PeerInfo, CommProfile};
-
+use crate::bootstrap::{BootstrapError, BootstrapState};
+use crate::comm::{CommProfile, PeerInfo};
 
 #[derive(Debug, Error)]
 pub enum TransportConnectError {
@@ -59,7 +58,7 @@ pub struct PeerTransportConnectAgentCbTask {
     pub transport_resources: Option<AnyResources>,
 }
 
-pub struct PeerTransportHandleExchangeTask { 
+pub struct PeerTransportHandleExchangeTask {
     pub rank: usize,
     pub num_ranks: usize,
     pub num_channels: usize,
@@ -116,11 +115,7 @@ pub struct TransportConnectState {
 }
 
 impl TransportConnectState {
-    pub fn new(
-        rank: usize,
-        num_ranks: usize,
-        num_channels: usize,
-    ) -> Self {
+    pub fn new(rank: usize, num_ranks: usize, num_channels: usize) -> Self {
         let recv_connect_mask = vec![0; num_ranks];
         let send_connect_mask = vec![0; num_ranks];
         TransportConnectState {
@@ -183,7 +178,8 @@ pub async fn exchange_connect_handle(
                     channel: c,
                     conn_index,
                 };
-                let handle = round_handles.remove(&conn_id)
+                let handle = round_handles
+                    .remove(&conn_id)
                     .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
                 recv_handles.push(handle);
             }
@@ -194,7 +190,8 @@ pub async fn exchange_connect_handle(
                     channel: c,
                     conn_index,
                 };
-                let handle = round_handles.remove(&conn_id)
+                let handle = round_handles
+                    .remove(&conn_id)
                     .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
                 send_handles.push(handle);
             }
@@ -210,28 +207,29 @@ pub async fn exchange_connect_handle(
             for handle in send_handles.into_iter() {
                 send_data.write_all(handle.0.as_slice())?;
             }
-            assert_eq!(send_data.len() / CONNECT_HANDLE_SIZE, recv_channels + send_channels);
-            bootstrap_state.bootstrap_send_internal(
-                recv_peer, 
-                bootstrap_tag, 
-                send_data.as_slice(),
-            ).await?;
+            assert_eq!(
+                send_data.len() / CONNECT_HANDLE_SIZE,
+                recv_channels + send_channels
+            );
+            bootstrap_state
+                .bootstrap_send_internal(recv_peer, bootstrap_tag, send_data.as_slice())
+                .await?;
             let mut recv_data = vec![0u8; CONNECT_HANDLE_SIZE * (recv_channels + send_channels)];
-            bootstrap_state.bootstrap_recv_internal(
-                recv_peer, 
-                bootstrap_tag, 
-                recv_data.as_mut_slice(),
-            ).await?;
-            
+            bootstrap_state
+                .bootstrap_recv_internal(recv_peer, bootstrap_tag, recv_data.as_mut_slice())
+                .await?;
+
             let mut peer_recv_handles = Vec::new();
             let mut peer_send_handles = Vec::new();
             for idx in 0..recv_channels {
-                let data = &recv_data.as_slice()[idx * CONNECT_HANDLE_SIZE..(idx+1) * CONNECT_HANDLE_SIZE];
+                let data = &recv_data.as_slice()
+                    [idx * CONNECT_HANDLE_SIZE..(idx + 1) * CONNECT_HANDLE_SIZE];
                 let handle = ConnectHandle(data.try_into().unwrap());
                 peer_recv_handles.push(handle);
             }
-            for idx in recv_channels..(recv_channels+send_channels) {
-                let data = &recv_data.as_slice()[idx * CONNECT_HANDLE_SIZE..(idx+1) * CONNECT_HANDLE_SIZE];
+            for idx in recv_channels..(recv_channels + send_channels) {
+                let data = &recv_data.as_slice()
+                    [idx * CONNECT_HANDLE_SIZE..(idx + 1) * CONNECT_HANDLE_SIZE];
                 let handle = ConnectHandle(data.try_into().unwrap());
                 peer_send_handles.push(handle);
             }
@@ -243,48 +241,64 @@ pub async fn exchange_connect_handle(
             let send_channels = send_handles.len();
             for handle in recv_handles.into_iter() {
                 send_data_recv_handles.write_all(handle.0.as_slice())?;
-            } 
+            }
             for handle in send_handles.into_iter() {
                 send_data_send_handles.write_all(handle.0.as_slice())?;
-            } 
-            assert_eq!(send_data_recv_handles.len() / CONNECT_HANDLE_SIZE, recv_channels);
-            assert_eq!(send_data_send_handles.len() / CONNECT_HANDLE_SIZE, send_channels);
-            bootstrap_state.bootstrap_send_internal(
-                recv_peer, 
-                bootstrap_tag, 
-                send_data_recv_handles.as_slice(),
-            ).await?;
-            bootstrap_state.bootstrap_send_internal(
-                send_peer, 
-                bootstrap_tag, 
-                send_data_send_handles.as_slice(),
-            ).await?;
+            }
+            assert_eq!(
+                send_data_recv_handles.len() / CONNECT_HANDLE_SIZE,
+                recv_channels
+            );
+            assert_eq!(
+                send_data_send_handles.len() / CONNECT_HANDLE_SIZE,
+                send_channels
+            );
+            bootstrap_state
+                .bootstrap_send_internal(
+                    recv_peer,
+                    bootstrap_tag,
+                    send_data_recv_handles.as_slice(),
+                )
+                .await?;
+            bootstrap_state
+                .bootstrap_send_internal(
+                    send_peer,
+                    bootstrap_tag,
+                    send_data_send_handles.as_slice(),
+                )
+                .await?;
 
             let mut recv_data_send_handles = vec![0u8; CONNECT_HANDLE_SIZE * send_channels];
             let mut recv_data_recv_handles = vec![0u8; CONNECT_HANDLE_SIZE * recv_channels];
-            bootstrap_state.bootstrap_recv_internal(
-                send_peer,
-                bootstrap_tag,
-                recv_data_send_handles.as_mut_slice(),
-            ).await?;
-            bootstrap_state.bootstrap_recv_internal(
-                recv_peer,
-                bootstrap_tag,
-                recv_data_recv_handles.as_mut_slice(),
-            ).await?;
+            bootstrap_state
+                .bootstrap_recv_internal(
+                    send_peer,
+                    bootstrap_tag,
+                    recv_data_send_handles.as_mut_slice(),
+                )
+                .await?;
+            bootstrap_state
+                .bootstrap_recv_internal(
+                    recv_peer,
+                    bootstrap_tag,
+                    recv_data_recv_handles.as_mut_slice(),
+                )
+                .await?;
 
             let mut peer_recv_handles = Vec::new();
             let mut peer_send_handles = Vec::new();
             for idx in 0..recv_channels {
-                let data = &recv_data_recv_handles.as_slice()[idx * CONNECT_HANDLE_SIZE..(idx+1) * CONNECT_HANDLE_SIZE];
+                let data = &recv_data_recv_handles.as_slice()
+                    [idx * CONNECT_HANDLE_SIZE..(idx + 1) * CONNECT_HANDLE_SIZE];
                 let handle = ConnectHandle(data.try_into().unwrap());
                 peer_recv_handles.push(handle);
             }
             for idx in 0..send_channels {
-                let data = &recv_data_send_handles.as_slice()[idx * CONNECT_HANDLE_SIZE..(idx+1) * CONNECT_HANDLE_SIZE];
+                let data = &recv_data_send_handles.as_slice()
+                    [idx * CONNECT_HANDLE_SIZE..(idx + 1) * CONNECT_HANDLE_SIZE];
                 let handle = ConnectHandle(data.try_into().unwrap());
                 peer_send_handles.push(handle);
-            } 
+            }
             (peer_recv_handles, peer_send_handles)
         };
 
@@ -325,53 +339,60 @@ fn select_transport(
             return Ok(*transporter);
         }
     }
-    Err(TransportConnectError::NoTransportFound(send_peer.rank, recv_peer.rank))
+    Err(TransportConnectError::NoTransportFound(
+        send_peer.rank,
+        recv_peer.rank,
+    ))
 }
 
 impl TransportConnectState {
     fn is_idle(&self) -> bool {
-        self.to_setup.is_empty() && self.to_setup_agent_cb.is_empty() &&
-        self.to_connect.is_empty() && self.to_connect_agent_cb.is_empty() &&
-        self.peer_setup_pre_agent.is_empty() && self.peer_setup.is_empty() &&
-        self.peer_connect_pre_agent.is_empty()
+        self.to_setup.is_empty()
+            && self.to_setup_agent_cb.is_empty()
+            && self.to_connect.is_empty()
+            && self.to_connect_agent_cb.is_empty()
+            && self.peer_setup_pre_agent.is_empty()
+            && self.peer_setup.is_empty()
+            && self.peer_connect_pre_agent.is_empty()
     }
 
-    pub fn register_connect(
-        &mut self,
-        conn_id: &PeerConnId,
-    ) -> Result<(), TransportConnectError> {
+    pub fn register_connect(&mut self, conn_id: &PeerConnId) -> Result<(), TransportConnectError> {
         if !self.is_idle() {
             Err(TransportConnectError::ConnectPhaseInProgress)?;
         }
         if let Some(conn_index) = self.conn_index {
             if conn_index != conn_id.conn_index {
-                return Err(TransportConnectError::ConnIndexMismatch(conn_index, conn_id.conn_index));
+                return Err(TransportConnectError::ConnIndexMismatch(
+                    conn_index,
+                    conn_id.conn_index,
+                ));
             }
         } else {
             self.conn_index = Some(conn_id.conn_index);
         }
         if self.peer_connected.contains_key(conn_id) {
-            return Ok(())
+            return Ok(());
         }
         match conn_id.conn_type {
             ConnType::Send => {
                 self.send_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel;
-            },
+            }
             ConnType::Recv => {
                 self.recv_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel;
-            },
+            }
         }
         Ok(())
     }
 
     pub fn post_setup_tasks(
-        &self,
+        &mut self,
         peers_info: &[PeerInfo],
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<(), TransportConnectError> {
         self.handle_to_exchange.clear();
-        self.handle_to_exchange.resize_with(self.num_ranks-1, || HashMap::new());
+        self.handle_to_exchange
+            .resize_with(self.num_ranks - 1, || HashMap::new());
         for i in 1..self.num_ranks {
             let recv_peer = (self.rank - i + self.num_ranks) % self.num_ranks;
             let send_peer = (self.rank + i) % self.num_ranks;
@@ -381,8 +402,8 @@ impl TransportConnectState {
             for c in 0..self.num_channels {
                 if recv_mask & (1u64 << c) > 0 {
                     let transporter = select_transport(
-                        &peers_info[send_peer],
                         &peers_info[recv_peer],
+                        &peers_info[self.rank],
                         profile,
                         catalog,
                     )?;
@@ -392,24 +413,41 @@ impl TransportConnectState {
                         channel: c as u32,
                         conn_index: self.conn_index.unwrap(),
                     };
-
+                    self.transporter_map.insert(conn_id, transporter);
+                    self.to_setup.push_back(conn_id);
+                }
+                if send_mask & (1u64 << c) > 0 {
+                    let transporter = select_transport(
+                        &peers_info[self.rank],
+                        &peers_info[send_peer],
+                        profile,
+                        catalog,
+                    )?;
+                    let conn_id = PeerConnId {
+                        peer_rank: send_peer,
+                        conn_type: ConnType::Send,
+                        channel: c as u32,
+                        conn_index: self.conn_index.unwrap(),
+                    };
+                    self.transporter_map.insert(conn_id, transporter);
+                    self.to_setup.push_back(conn_id);
                 }
             }
-
         }
-        todo!()
+        Ok(())
     }
 
     // Each synchronized task must be immediately processed by the caller
     // i.e., proxy engine<
     // and corresponding results must be registered via
     // put_peer_setup, put_peer_setup_pre_agent, ...
-    pub fn get_task(&self) -> Result<TransportConnectTask, TransportConnectError> {
+    pub fn get_task(&mut self) -> Result<TransportConnectTask, TransportConnectError> {
         let task = if let Some(conn_id) = self.to_setup.pop_front() {
             // First, setup tasks are posted
             // we check whether there is still setup tasks to be issued
             // some of these tasks directly completed, some require agent calls
-            let transporter = *self.transporter_map
+            let transporter = *self
+                .transporter_map
                 .get(&conn_id)
                 .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
             let task = PeerTransportSetupTask {
@@ -419,7 +457,8 @@ impl TransportConnectState {
             TransportConnectTask::PeerTransportSetup(task)
         } else if let Some((conn_id, agent_message)) = self.to_setup_agent_cb.pop_front() {
             // Check if there are setup tasks that agent has completed
-            let constructor = self.peer_setup_pre_agent
+            let constructor = self
+                .peer_setup_pre_agent
                 .remove(&conn_id)
                 .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
             let task = PeerTransportSetupAgentCbTask {
@@ -437,7 +476,7 @@ impl TransportConnectState {
             TransportConnectTask::WaitingOutstandingTask
         } else if !self.handle_to_exchange.is_empty() {
             // all setup tasks have completed, we need to exchange handles
-            let mut handles = std::mem::take(&mut self.handle_to_exchange);
+            let handles = std::mem::take(&mut self.handle_to_exchange);
             let task = PeerTransportHandleExchangeTask {
                 rank: self.rank,
                 num_ranks: self.num_ranks,
@@ -445,11 +484,12 @@ impl TransportConnectState {
                 conn_index: self.conn_index.unwrap(),
                 connect_recv: self.recv_connect_mask.clone(),
                 connect_send: self.send_connect_mask.clone(),
-                handles: self.handle_to_exchange.clone(),
+                handles,
             };
             TransportConnectTask::PeerTransportConnectHandleExchange(task)
         } else if let Some((conn_id, peer_handle)) = self.to_connect.pop_front() {
-            let constructor = self.peer_setup
+            let constructor = self
+                .peer_setup
                 .remove(&conn_id)
                 .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
             let task = PeerTransportConnectTask {
@@ -460,7 +500,8 @@ impl TransportConnectState {
             };
             TransportConnectTask::PeerTransportConnect(task)
         } else if let Some((conn_id, agent_message)) = self.to_connect_agent_cb.pop_front() {
-            let constructor = self.peer_connect_pre_agent
+            let constructor = self
+                .peer_connect_pre_agent
                 .remove(&conn_id)
                 .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
             let task = PeerTransportConnectAgentCbTask {
@@ -481,9 +522,9 @@ impl TransportConnectState {
 
 impl TransportConnectState {
     pub fn put_peer_setup(
-        &mut self, 
+        &mut self,
         conn_id: &PeerConnId,
-        handle: ConnectHandle, 
+        handle: ConnectHandle,
         setup_resources: Option<AnyResources>,
     ) -> Result<(), TransportConnectError> {
         let round_idx = match conn_id.conn_type {
@@ -491,7 +532,8 @@ impl TransportConnectState {
             ConnType::Recv => (self.num_ranks + self.rank - conn_id.peer_rank) % self.num_ranks,
         } - 1;
         self.handle_to_exchange[round_idx].insert(*conn_id, handle);
-        let transporter = *self.transporter_map
+        let transporter = *self
+            .transporter_map
             .get(conn_id)
             .ok_or_else(|| TransportConnectError::ConnectionNotFound(*conn_id))?;
         let constructor = PeerConnConstructor {
@@ -507,7 +549,8 @@ impl TransportConnectState {
         conn_id: &PeerConnId,
         setup_resources: Option<AnyResources>,
     ) -> Result<(), TransportConnectError> {
-        let transporter = *self.transporter_map
+        let transporter = *self
+            .transporter_map
             .get(conn_id)
             .ok_or_else(|| TransportConnectError::ConnectionNotFound(*conn_id))?;
         let constructor = PeerConnConstructor {
@@ -524,7 +567,8 @@ impl TransportConnectState {
         conn_info: PeerConnInfo,
         transport_resources: AnyResources,
     ) -> Result<(), TransportConnectError> {
-        let transporter = *self.transporter_map
+        let transporter = *self
+            .transporter_map
             .get(conn_id)
             .ok_or_else(|| TransportConnectError::ConnectionNotFound(*conn_id))?;
         let connected = PeerConnected {
@@ -533,7 +577,10 @@ impl TransportConnectState {
             resources: transport_resources,
         };
         self.peer_connected.insert(*conn_id, connected);
-        if self.peer_connect_pre_agent.is_empty() && self.to_connect.is_empty() && self.to_connect_agent_cb.is_empty() {
+        if self.peer_connect_pre_agent.is_empty()
+            && self.to_connect.is_empty()
+            && self.to_connect_agent_cb.is_empty()
+        {
             // No more outstanding connect tasks, reset connect masks
             self.recv_connect_mask.clear();
             self.send_connect_mask.clear();
@@ -548,7 +595,8 @@ impl TransportConnectState {
         conn_id: &PeerConnId,
         transport_resources: Option<AnyResources>,
     ) -> Result<(), TransportConnectError> {
-        let transporter = *self.transporter_map
+        let transporter = *self
+            .transporter_map
             .get(conn_id)
             .ok_or_else(|| TransportConnectError::ConnectionNotFound(*conn_id))?;
         let constructor = PeerConnConstructor {
@@ -573,14 +621,12 @@ impl TransportConnectState {
         conn_id: &PeerConnId,
         agent_message: AgentMessage,
     ) -> Result<(), TransportConnectError> {
-        self.to_connect_agent_cb.push_back((*conn_id, agent_message));
+        self.to_connect_agent_cb
+            .push_back((*conn_id, agent_message));
         Ok(())
     }
 
-    pub fn put_peer_connect_handles(
-        &mut self,
-        handles: HashMap<PeerConnId, ConnectHandle>
-    ) {
+    pub fn put_peer_connect_handles(&mut self, handles: HashMap<PeerConnId, ConnectHandle>) {
         for (conn_id, handle) in handles.into_iter() {
             self.to_connect.push_back((conn_id, handle));
         }

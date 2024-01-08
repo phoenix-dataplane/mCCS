@@ -1,10 +1,9 @@
 use std::net::SocketAddr;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::bootstrap::BootstrapHandle;
 use crate::comm::CommunicatorId;
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExchangeMessage {

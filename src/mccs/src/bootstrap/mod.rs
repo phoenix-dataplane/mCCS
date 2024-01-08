@@ -2,10 +2,10 @@ pub mod task;
 
 use std::net::SocketAddr;
 
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
-use serde::{Serialize, Deserialize};
-use thiserror::Error;
 
 pub use task::{bootstrap_create_root, bootstrap_root};
 
@@ -21,7 +21,9 @@ pub enum BootstrapError {
     RankOverflow(usize),
     #[error("Received {0} bytes instead of {1} bytes")]
     RecvSizeMismatch(u32, u32),
-    #[error("Could not acquire Mutex in bootstrap state, only a single outstanding task is allowed")]
+    #[error(
+        "Could not acquire Mutex in bootstrap state, only a single outstanding task is allowed"
+    )]
     MutexAcquire,
 }
 

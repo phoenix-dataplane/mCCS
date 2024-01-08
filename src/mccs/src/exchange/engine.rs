@@ -1,22 +1,21 @@
-use std::sync::Arc;
-use std::net::SocketAddr;
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use crossbeam::channel::{Sender, Receiver, TryRecvError};
+use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use super::ExchangeError;
 use super::command::{ExchangeCommand, ExchangeCompletion};
 use super::message::ExchangeMessage;
-use crate::comm::CommunicatorId;
+use super::ExchangeError;
 use crate::bootstrap::BootstrapHandle;
+use crate::comm::CommunicatorId;
 use crate::utils::pool::WorkPool;
 use crate::utils::tcp;
-
 
 struct CommunicatorInfo {
     bootstrap_handle: BootstrapHandle,
@@ -38,7 +37,7 @@ struct ExchangeEngineResources {
     submit_pool: Vec<AsyncTask>,
 }
 
-async fn send_message(msg: ExchangeMessage, addr: SocketAddr) -> Result<(), ExchangeError>  {
+async fn send_message(msg: ExchangeMessage, addr: SocketAddr) -> Result<(), ExchangeError> {
     let encode = bincode::serialize(&msg).unwrap();
     let mut stream = tcp::async_connect(&addr, EXCHANGE_MAGIC).await?;
     stream.write_u32(encode.len() as u32).await?;
@@ -47,7 +46,7 @@ async fn send_message(msg: ExchangeMessage, addr: SocketAddr) -> Result<(), Exch
 }
 
 async fn recv_message(listener: Arc<TcpListener>) -> Result<ExchangeMessage, ExchangeError> {
-    let mut stream  = tcp::async_accept(&listener, EXCHANGE_MAGIC).await?;
+    let mut stream = tcp::async_accept(&listener, EXCHANGE_MAGIC).await?;
     let len = stream.read_u32().await?;
     let mut buf = vec![0u8; len as usize];
     stream.read_exact(&mut buf).await?;
@@ -60,8 +59,7 @@ enum AsyncTaskOutput {
     Recv(ExchangeMessage),
 }
 
-pub type AsyncTask = BoxFuture<'static, Result<AsyncTaskOutput, ExchangeError>>;
-
+type AsyncTask = BoxFuture<'static, Result<AsyncTaskOutput, ExchangeError>>;
 
 impl ExchangeEngineResources {
     fn progress_async_task(&mut self, task: &mut AsyncTask) -> bool {
@@ -73,27 +71,27 @@ impl ExchangeEngineResources {
                 let output = result.unwrap();
                 let mut new_recv = false;
                 let additional_task = match output {
-                    AsyncTaskOutput::Send => {
-                        None
-                    },
+                    AsyncTaskOutput::Send => None,
                     AsyncTaskOutput::Recv(msg) => {
                         new_recv = true;
                         match msg {
                             ExchangeMessage::BootstrapHandle(comm_id, handle) => {
-                                let requests = self.outstanding_requests.drain_filter(|x| {
-                                    match x {
+                                let requests =
+                                    self.outstanding_requests.drain_filter(|x| match x {
                                         OutstandingRequest::BootstrapHandleRecv((id, _)) => {
                                             id == &comm_id
-                                        },
+                                        }
                                         _ => false,
-                                    }
-                                });
+                                    });
                                 for req in requests {
                                     match req {
                                         OutstandingRequest::BootstrapHandleRecv((id, cuda_dev)) => {
-                                            let reply = ExchangeCompletion::RecvBootstrapHandle(id, handle.clone());
+                                            let reply = ExchangeCompletion::RecvBootstrapHandle(
+                                                id,
+                                                handle.clone(),
+                                            );
                                             self.proxy_tx[cuda_dev as usize].send(reply).unwrap();
-                                        },
+                                        }
                                         _ => unreachable!(),
                                     }
                                 }
@@ -102,22 +100,27 @@ impl ExchangeEngineResources {
                                 };
                                 self.comm_info.insert(comm_id, info);
                                 None
-                            },
+                            }
                             ExchangeMessage::BootstrapHandleRequest(comm_id, reply_addr) => {
                                 if let Some(info) = self.comm_info.get(&comm_id) {
-                                    let msg = ExchangeMessage::BootstrapHandle(comm_id, info.bootstrap_handle.clone());
+                                    let msg = ExchangeMessage::BootstrapHandle(
+                                        comm_id,
+                                        info.bootstrap_handle.clone(),
+                                    );
                                     let task = send_message(msg, reply_addr)
                                         .map(|x| x.map(|_| AsyncTaskOutput::Send));
                                     let fut = Box::pin(task) as AsyncTask;
                                     Some(fut)
                                 } else {
-                                    let request = OutstandingRequest::BootstrapHandleSend((comm_id, reply_addr));
+                                    let request = OutstandingRequest::BootstrapHandleSend((
+                                        comm_id, reply_addr,
+                                    ));
                                     self.outstanding_requests.push(request);
                                     None
                                 }
-                            },
+                            }
                         }
-                    },
+                    }
                 };
                 let recv_task = if new_recv {
                     let task = recv_message(self.listener.clone())
@@ -148,9 +151,7 @@ pub struct ExchangeEngine {
 impl ExchangeEngine {
     fn progress_async_tasks(&mut self) {
         self.async_tasks
-            .progress(|x| {
-                self.resources.progress_async_task(x)
-        });
+            .progress(|x| self.resources.progress_async_task(x));
         for task in self.resources.submit_pool.drain(..) {
             self.async_tasks.enqueue(task);
         }
@@ -159,52 +160,55 @@ impl ExchangeEngine {
     fn check_proxy_requests(&mut self) {
         for (cuda_dev, rx) in self.resources.proxy_rx.iter().enumerate() {
             match rx.try_recv() {
-                Ok(cmd) => {
-                    match cmd {
-                        ExchangeCommand::RegisterBootstrapHandle(comm_id, handle) => {
-                            let requests = self.resources.outstanding_requests.drain_filter(|x| {
-                                match x {
+                Ok(cmd) => match cmd {
+                    ExchangeCommand::RegisterBootstrapHandle(comm_id, handle) => {
+                        let requests =
+                            self.resources
+                                .outstanding_requests
+                                .drain_filter(|x| match x {
                                     OutstandingRequest::BootstrapHandleSend((id, _)) => {
                                         id == &comm_id
-                                    },
+                                    }
                                     _ => false,
+                                });
+                        for req in requests {
+                            match req {
+                                OutstandingRequest::BootstrapHandleSend((comm_id, addr)) => {
+                                    let msg =
+                                        ExchangeMessage::BootstrapHandle(comm_id, handle.clone());
+                                    let task = send_message(msg, addr)
+                                        .map(|x| x.map(|_| AsyncTaskOutput::Send));
+                                    let fut = Box::pin(task);
+                                    self.async_tasks.enqueue(fut);
                                 }
-                            });
-                            for req in requests {
-                                match req {
-                                    OutstandingRequest::BootstrapHandleSend((comm_id, addr)) => {
-                                        let msg = ExchangeMessage::BootstrapHandle(comm_id, handle.clone());
-                                        let task = send_message(msg, addr)
-                                            .map(|x| x.map(|_| AsyncTaskOutput::Send));
-                                        let fut = Box::pin(task);
-                                        self.async_tasks.enqueue(fut);
-                                    },
-                                    _ => unreachable!(),
-                                }
+                                _ => unreachable!(),
                             }
-                            let info = CommunicatorInfo {
-                                bootstrap_handle: handle,
-                            };
-                            self.resources.comm_info.insert(comm_id, info);
-                        },
-                        ExchangeCommand::RecvBootstrapHandle(comm_id, root_addr) => {
-                            if let Some(info) = self.resources.comm_info.get(&comm_id) {
-                                let msg = ExchangeCompletion::RecvBootstrapHandle(comm_id, info.bootstrap_handle.clone());
-                                self.resources.proxy_tx[cuda_dev]
-                                    .send(msg)
-                                    .unwrap();
-                            } else {
-                                let reply_addr = self.resources.listener.local_addr().unwrap();
-                                let msg = ExchangeMessage::BootstrapHandleRequest(comm_id, reply_addr);
-                                let task = send_message(msg, root_addr)
-                                    .map(|x| x.map(|_| AsyncTaskOutput::Send));
-                                let fut = Box::pin(task);
-                                self.async_tasks.enqueue(fut);
-                                self.resources.outstanding_requests.push(OutstandingRequest::BootstrapHandleRecv((comm_id, cuda_dev as i32)));
-                            }
-                        },
+                        }
+                        let info = CommunicatorInfo {
+                            bootstrap_handle: handle,
+                        };
+                        self.resources.comm_info.insert(comm_id, info);
                     }
-                }
+                    ExchangeCommand::RecvBootstrapHandle(comm_id, root_addr) => {
+                        if let Some(info) = self.resources.comm_info.get(&comm_id) {
+                            let msg = ExchangeCompletion::RecvBootstrapHandle(
+                                comm_id,
+                                info.bootstrap_handle.clone(),
+                            );
+                            self.resources.proxy_tx[cuda_dev].send(msg).unwrap();
+                        } else {
+                            let reply_addr = self.resources.listener.local_addr().unwrap();
+                            let msg = ExchangeMessage::BootstrapHandleRequest(comm_id, reply_addr);
+                            let task = send_message(msg, root_addr)
+                                .map(|x| x.map(|_| AsyncTaskOutput::Send));
+                            let fut = Box::pin(task);
+                            self.async_tasks.enqueue(fut);
+                            self.resources.outstanding_requests.push(
+                                OutstandingRequest::BootstrapHandleRecv((comm_id, cuda_dev as i32)),
+                            );
+                        }
+                    }
+                },
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => {
                     unreachable!("Proxy engines shall never shutdown")
@@ -232,7 +236,7 @@ impl ExchangeEngine {
             outstanding_requests: Vec::new(),
             submit_pool: Vec::new(),
         };
-        let work_pool = WorkPool::new();
+        let mut work_pool = WorkPool::new();
         let task = recv_message(resources.listener.clone())
             .map(|x| x.map(|msg| AsyncTaskOutput::Recv(msg)));
         let fut = Box::pin(task) as AsyncTask;

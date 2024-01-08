@@ -50,50 +50,50 @@ pub struct Control {
 }
 
 impl Control {
-    // pub fn new(config: Config) -> Self {
-    //     let mccs_prefix = &config.control.prefix;
-    //     fs::create_dir_all(mccs_prefix)
-    //         .unwrap_or_else(|e| panic!("Failed to create directory for {mccs_prefix:?}: {e}"));
+    pub fn new(config: Config) -> Self {
+        let mccs_prefix = &config.control.prefix;
+        fs::create_dir_all(mccs_prefix)
+            .unwrap_or_else(|e| panic!("Failed to create directory for {mccs_prefix:?}: {e}"));
 
-    //     let mccs_path = mccs_prefix.join(&config.control.path);
-    //     if mccs_path.exists() {
-    //         fs::remove_file(&mccs_path).expect("remove_file");
-    //     }
-    //     let sock = DomainSocket::bind(&mccs_path)
-    //         .unwrap_or_else(|e| panic!("Cannot bind domain socket at {mccs_path:?}: {e}"));
+        let mccs_path = mccs_prefix.join(&config.control.path);
+        if mccs_path.exists() {
+            fs::remove_file(&mccs_path).expect("remove_file");
+        }
+        let sock = DomainSocket::bind(&mccs_path)
+            .unwrap_or_else(|e| panic!("Cannot bind domain socket at {mccs_path:?}: {e}"));
 
-    //     sock.set_read_timeout(Some(Duration::from_millis(1)))
-    //         .expect("set_read_timeout");
-    //     sock.set_write_timeout(Some(Duration::from_millis(1)))
-    //         .expect("set_write_timeout");
+        sock.set_read_timeout(Some(Duration::from_millis(1)))
+            .expect("set_read_timeout");
+        sock.set_write_timeout(Some(Duration::from_millis(1)))
+            .expect("set_write_timeout");
 
-    //     let transport_delegator = TransportDelegator::new();
-    //     let transport_catalog = Arc::new(TransportCatalog::new());
-    //     let shm_config = ShmConfig {
-    //         locality: crate::transport::shm::config::ShmLocality::Sender,
-    //         use_memcpy_send: false,
-    //         use_memcpy_recv: false,
-    //     };
-    //     transport_catalog.register_config(String::from("ShmTransport"), shm_config);
-    //     let registry = GlobalRegistry {
-    //         communicators: DashMap::new(),
-    //         transport_delegator,
-    //         transport_catalog,
-    //     };
-    //     let registry = Arc::new(registry);
+        let transport_delegator = TransportDelegator::new();
+        let transport_catalog = Arc::new(TransportCatalog::new());
+        let shm_config = ShmConfig {
+            locality: crate::transport::shm::config::ShmLocality::Sender,
+            use_memcpy_send: false,
+            use_memcpy_recv: false,
+        };
+        transport_catalog.register_config(String::from("ShmTransport"), shm_config);
+        let registry = GlobalRegistry {
+            transport_delegator,
+            transport_catalog,
+        };
+        let registry = Arc::new(registry);
 
-    //     // FIXME: problematic, should be checked whenever encountered a bug with inter-host
-    //     let sock_addr = "127.0.0.1:8000".parse().unwrap();
+        // FIXME: problematic, should be checked whenever encountered a bug with inter-host
+        // let sock_addr = "127.0.0.1:8000".parse().unwrap();
 
-    //     let chan = Self::create_proxies(registry, sock_addr).expect("Create proxies failed");
+        // let chan = Self::create_proxies(registry, sock_addr).expect("Create proxies failed");
 
-    //     Control {
-    //         sock,
-    //         config,
-    //         daemon_cnt: 0,
-    //         proxy_channels: chan,
-    //     }
-    // }
+        // Control {
+        //     sock,
+        //     config,
+        //     daemon_cnt: 0,
+        //     proxy_channels: chan,
+        // }
+        todo!()
+    }
 
     // pub fn mainloop(&mut self, exit_flag: &AtomicBool) -> anyhow::Result<()> {
     //     let mut buf = vec![0u8; 65536];
