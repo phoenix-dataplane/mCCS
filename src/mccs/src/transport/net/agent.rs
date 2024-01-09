@@ -433,6 +433,8 @@ pub fn net_agent_send_progress(
         return Ok(());
     }
 
+    log::trace!("Send op: {:?}", op);
+
     let provider = resources.provider;
     let proto = op.protocol;
     let num_steps = op.num_steps as u64;
@@ -548,6 +550,7 @@ pub fn net_agent_recv_progress(
     if op.state != TransportOpState::InProgress {
         return Ok(());
     }
+    log::trace!("Recv op: {:?}", op);
 
     let provider = resources.provider;
     let recv_comm = resources.recv_comm.as_mut();

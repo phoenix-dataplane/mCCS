@@ -107,6 +107,7 @@ pub struct TransportEngineResources {
 
 impl TransportEngineResources {
     fn progress_op(&mut self, agent_id: &TransportAgentId, op: &mut TransportOp) -> bool {
+        log::debug!("Progress TxEngine Op {:?} {:?}", agent_id, op);
         let agent = self.agent_connected.get_mut(agent_id).unwrap();
         match agent_id.peer_conn.conn_type {
             ConnType::Send => agent
@@ -183,25 +184,26 @@ impl TransportEngine {
         for rx in self.resources.proxy_chan.iter_mut().map(|c| &mut c.rx) {
             match rx.try_recv() {
                 Ok(request) => {
-                    let task = match request {
+                    match request {
                         TransportEngineRequest::AgentSetup(transporter, agent_id, request) => {
-                            new_setup_task(
+                            let task = new_setup_task(
                                 transporter,
                                 agent_id,
                                 request,
                                 &self.resources.global_registry,
-                            )
+                            );
+                            self.async_tasks.enqueue(task);
                         }
                         TransportEngineRequest::AgentConnect(transporter, agent_id, request) => {
                             let setup_resources = self.resources.agent_setup.remove(&agent_id);
-                            new_connect_task(transporter, agent_id, request, setup_resources)
+                            let task =
+                                new_connect_task(transporter, agent_id, request, setup_resources);
+                            self.async_tasks.enqueue(task);
                         }
                         TransportEngineRequest::AgentTransportOp(agent_id, tx_op) => {
                             self.op_queue.submit_op(agent_id, tx_op);
-                            todo!()
                         }
                     };
-                    self.async_tasks.enqueue(task);
                 }
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => {

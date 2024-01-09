@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
@@ -57,7 +57,7 @@ pub struct ProxyResources {
     pub global_registry: Arc<GlobalRegistry>,
     pub transport_engines_tx: HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
     pub transport_engines_rx: Vec<(TransportEngineId, Receiver<TransportEngineReply>)>,
-    pub transport_submission_pool: HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+    pub transport_submission_pool: HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
     pub task_submit_pool: Vec<AsyncTask>,
 }
 
@@ -166,14 +166,14 @@ impl ProxyResources {
         request: TransportEngineRequest,
         transport_engine: TransportEngineId,
         transport_tx: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
-        submission_pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+        submission_pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
     ) {
         use crossbeam::channel::SendError;
 
         let sender = transport_tx.get_mut(&transport_engine);
         submission_pool
             .entry(transport_engine)
-            .or_insert_with(Vec::new);
+            .or_insert_with(VecDeque::new);
         if let Some(sender) = sender {
             match sender.send(request) {
                 Ok(()) => (),
@@ -188,12 +188,12 @@ impl ProxyResources {
     }
 
     fn enqueue_submission_pool(
-        pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+        pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
         transport_engine: TransportEngineId,
         request: TransportEngineRequest,
     ) {
-        let queue = pool.entry(transport_engine).or_insert_with(Vec::new);
-        queue.push(request);
+        let queue = pool.entry(transport_engine).or_insert_with(VecDeque::new);
+        queue.push_back(request);
     }
 
     fn init_communicator(&mut self, comm_id: CommunicatorId) -> bool {
@@ -559,6 +559,22 @@ impl ProxyResources {
 }
 
 impl ProxyResources {
+    fn flush_buffered_request(&mut self) {
+        for (id, queue) in self.transport_submission_pool.iter_mut() {
+            while !queue.is_empty() {
+                let tx = self.transport_engines_tx.get_mut(id).unwrap();
+                let req = queue.pop_front().unwrap();
+                if let Err(crossbeam::channel::SendError(req)) = tx.send(req) {
+                    queue.insert(0, req);
+                    panic!("WTF");
+                    break;
+                }
+            }
+        }
+    }
+}
+
+impl ProxyResources {
     fn check_transport_reply(&mut self) {
         for (_, transport_rx) in self.transport_engines_rx.iter_mut() {
             if let Ok(msg) = transport_rx.try_recv() {
@@ -650,6 +666,7 @@ impl ProxyEngine {
             self.progress_async_tasks();
             self.resources.check_transport_reply();
             self.resources.check_control_notify();
+            self.resources.flush_buffered_request();
 
             self.ops.progress(|op| self.resources.process_op(op));
 

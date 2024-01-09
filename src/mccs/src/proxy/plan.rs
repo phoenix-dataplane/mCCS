@@ -100,7 +100,7 @@ pub struct KernelPlan {
 impl Communicator {
     pub fn pre_launch_schedule(
         &mut self,
-        pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+        pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
         mapping: &DashMap<TransportAgentId, TransportEngineId>,
         device_id: i32,
     ) {
@@ -241,7 +241,7 @@ impl Communicator {
 
     fn finalize_one_plan(
         &mut self,
-        submission_pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+        submission_pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
         mapping: &DashMap<TransportAgentId, TransportEngineId>,
     ) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
@@ -259,13 +259,18 @@ impl Communicator {
                 // upload ProxyOp
                 chan.agent_task_queue.iter().for_each(|task| {
                     let TransportTask { agent_id, op } = task;
-                    submission_pool
-                        .get_mut(mapping.get(&agent_id).unwrap().value())
-                        .unwrap()
-                        .push(TransportEngineRequest::AgentTransportOp(
-                            *agent_id,
-                            op.clone(),
-                        ));
+                    let tx_engine_id = mapping.get(&agent_id).unwrap().value().clone();
+                    log::debug!(
+                        "tx_engine_id={:?}, have={:?}",
+                        tx_engine_id,
+                        submission_pool
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<TransportEngineId>>()
+                    );
+                    submission_pool.get_mut(&tx_engine_id).unwrap().push_back(
+                        TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()),
+                    );
                 })
             }
         }
