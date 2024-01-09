@@ -10,7 +10,7 @@ use thiserror::Error;
 use super::catalog::TransportCatalog;
 use super::channel::{PeerConnId, PeerConnInfo};
 use super::op::TransportOp;
-use crate::comm::{CommProfile, CommunicatorId};
+use crate::comm::{CommProfile, CommunicatorId, PeerInfo};
 
 pub type AgentMessage = Option<Box<dyn Any + Send>>;
 pub type AnyResources = Box<dyn Any + Send>;
@@ -18,9 +18,9 @@ pub type TransporterError = anyhow::Error;
 
 pub const CONNECT_HANDLE_SIZE: usize = 128;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[repr(transparent)]
-pub struct ConnectHandle([u8; CONNECT_HANDLE_SIZE]);
+pub struct ConnectHandle(pub [u8; CONNECT_HANDLE_SIZE]);
 
 #[derive(Debug, Error)]
 pub enum ConnectHandleError {
@@ -32,8 +32,7 @@ pub enum ConnectHandleError {
 
 impl ConnectHandle {
     pub fn serialize_from<T: Serialize>(handle: T) -> Result<Self, ConnectHandleError> {
-        let uninit = MaybeUninit::<u8>::uninit_array::<CONNECT_HANDLE_SIZE>();
-        let mut serialized = unsafe { MaybeUninit::array_assume_init(uninit) };
+        let mut serialized = [0u8; CONNECT_HANDLE_SIZE];
         let required_size = bincode::serialized_size(&handle)?;
         if required_size as usize > CONNECT_HANDLE_SIZE {
             return Err(ConnectHandleError::ExceedMaxSize(required_size as usize));
@@ -82,6 +81,18 @@ pub struct TransportAgentId {
 
 #[async_trait]
 pub trait Transporter: Send + Sync {
+    #[inline]
+    // Determine whether two peers can communicate
+    fn can_connect(
+        &self,
+        _send_peer: &PeerInfo,
+        _recv_peer: &PeerInfo,
+        _profile: &CommProfile,
+        _catalog: &TransportCatalog,
+    ) -> bool {
+        false
+    }
+
     // Setup sender transport, prepare any sender-side resources
     // that hold by sender rank,
     // returns PreAgentCb variant of TransportSetup
@@ -89,8 +100,9 @@ pub trait Transporter: Send + Sync {
     // otherwise, returns Setup variant
     fn send_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError>;
@@ -136,8 +148,9 @@ pub trait Transporter: Send + Sync {
     // Setup receiver transport
     fn recv_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError>;

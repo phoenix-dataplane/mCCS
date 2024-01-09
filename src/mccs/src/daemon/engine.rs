@@ -1,4 +1,3 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::os::raw::c_void;
 
@@ -122,6 +121,7 @@ impl DaemonEngine {
                     communicator_id: CommunicatorId(init.id),
                     rank: init.rank,
                     num_ranks: init.num_ranks,
+                    root_mccs_addr: init.root_addr.clone(),
                 };
                 let proxy_cmd = ProxyCommand::InitCommunicator(proxy_init);
                 self.proxy_chan[init.cuda_device_idx]

@@ -11,11 +11,13 @@ pub fn init_communicator_rank(
     num_ranks: usize,
     cuda_device_idx: usize,
 ) -> Result<CommunicatorHandle, Error> {
+    // TODO
     let init = CommunicatorInit {
         id: unique_id,
         rank,
         num_ranks,
         cuda_device_idx,
+        root_addr: todo!(),
     };
     MCCS_CTX.with(move |ctx| {
         let req = Command::InitCommunicator(init);

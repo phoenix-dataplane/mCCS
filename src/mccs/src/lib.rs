@@ -20,6 +20,7 @@ pub mod config;
 pub mod control;
 pub mod cuda;
 pub mod daemon;
+pub mod exchange;
 pub mod message;
 pub mod pattern;
 pub mod proxy;

@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use serde::{Deserialize, Serialize};
 
 use crate::handle::{CommunicatorHandle, CudaEventHandle, CudaMemHandle};
@@ -9,6 +11,7 @@ pub struct CommunicatorInit {
     pub id: u32,
     pub rank: usize,
     pub num_ranks: usize,
+    pub root_addr: SocketAddr,
     pub cuda_device_idx: usize,
 }
 

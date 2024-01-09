@@ -16,7 +16,7 @@ use super::resources::{AgentRecvResources, AgentSendResources};
 use super::resources::{AgentRecvSetup, AgentSendSetup};
 use super::resources::{NetRecvResources, NetSendResources};
 use super::{NetAgentError, NetTransportError};
-use crate::comm::CommProfile;
+use crate::comm::{CommProfile, PeerInfo};
 use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::transport::catalog::TransportCatalog;
@@ -33,20 +33,24 @@ pub struct NetTransport;
 pub static NET_TRANSPORT: NetTransport = NetTransport;
 
 fn net_send_setup(
-    rank: usize,
     conn_id: &PeerConnId,
+    my_info: &PeerInfo,
+    _peer_info: &PeerInfo,
     profile: &CommProfile,
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
-    let (net_dev, proxy_rank) = profile.get_network_device(rank, conn_id.peer_rank);
-    let proxy_cuda_dev = profile.get_cuda_device_idx(proxy_rank);
-    let local_rank = profile.get_local_rank(rank);
-    let use_gdr = profile.check_gdr(rank, net_dev, true) && config.gdr_enable;
+    // NVLink forward is not supported yet
+    let (net_dev, _) = profile.get_network_device(my_info.rank, conn_id.peer_rank);
+    let agent_cuda_dev = my_info.cuda_device_idx;
+    let use_gdr = profile.check_gdr(my_info.rank, net_dev, true) && config.gdr_enable;
     let provider = profile.get_net_provider();
 
+    let setup_resources = NetSendSetup {
+        agent_rank: my_info.rank,
+    };
     let setup_request = AgentSetupRequest {
-        rank,
-        local_rank,
+        rank: my_info.rank,
+        local_rank: my_info.local_rank,
         remote_rank: conn_id.peer_rank,
         net_device: net_dev,
         use_gdr,
@@ -55,9 +59,9 @@ fn net_send_setup(
         provider,
     };
     let setup = TransportSetup::PreAgentCb {
-        agent_cuda_dev: proxy_cuda_dev,
+        agent_cuda_dev,
         agent_request: Some(Box::new(setup_request)),
-        setup_resources: Some(Box::new(NetSendSetup { agent_rank: rank })),
+        setup_resources: Some(Box::new(setup_resources)),
     };
 
     let net_name = provider.get_properties(net_dev)?.name;
@@ -65,7 +69,7 @@ fn net_send_setup(
         "Channel {:0>2}/{}: {} -> {} [send] via NET/{}/{}, GDRDMA={}",
         conn_id.channel,
         conn_id.conn_index,
-        rank,
+        my_info.rank,
         conn_id.peer_rank,
         net_name,
         net_dev,
@@ -91,21 +95,22 @@ fn net_send_setup_agent_callback(
 }
 
 fn net_recv_setup(
-    rank: usize,
     conn_id: &PeerConnId,
+    my_info: &PeerInfo,
+    _peer_info: &PeerInfo,
     profile: &CommProfile,
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
     // Use myInfo->rank as the receiver uses its own NIC
-    let (net_dev, proxy_rank) = profile.get_network_device(rank, rank);
-    let proxy_cuda_dev = profile.get_cuda_device_idx(proxy_rank);
-    let use_gdr = profile.check_gdr(rank, net_dev, false) && config.gdr_enable;
-    let need_flush = profile.check_gdr_need_flush(rank);
+    let (net_dev, _) = profile.get_network_device(my_info.rank, my_info.rank);
+    let proxy_cuda_dev = my_info.cuda_device_idx;
+    let use_gdr = profile.check_gdr(my_info.rank, net_dev, false) && config.gdr_enable;
+    let need_flush = profile.check_gdr_need_flush(my_info.rank);
     let provider = profile.get_net_provider();
 
     let setup_request = AgentSetupRequest {
-        rank,
-        local_rank: rank,
+        rank: my_info.rank,
+        local_rank: my_info.local_rank,
         remote_rank: conn_id.peer_rank,
         net_device: net_dev,
         use_gdr,
@@ -125,7 +130,7 @@ fn net_recv_setup(
         conn_id.channel,
         conn_id.conn_index,
         conn_id.peer_rank,
-        rank,
+        my_info.rank,
         net_name,
         net_dev,
         use_gdr,
@@ -314,15 +319,27 @@ fn net_recv_connect_agent_callback(
 
 #[async_trait]
 impl Transporter for NetTransport {
+    #[inline]
+    fn can_connect(
+        &self,
+        _send_peer: &PeerInfo,
+        _recv_peer: &PeerInfo,
+        _profile: &CommProfile,
+        _catalog: &TransportCatalog,
+    ) -> bool {
+        true
+    }
+
     fn send_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
         let config = catalog.get_config::<NetTransportConfig>("NetTransport")?;
-        let setup = net_send_setup(rank, conn_id, profile, &config)?;
+        let setup = net_send_setup(conn_id, my_info, peer_info, profile, &config)?;
         Ok(setup)
     }
 
@@ -359,13 +376,14 @@ impl Transporter for NetTransport {
 
     fn recv_setup(
         &self,
-        rank: usize,
         conn_id: &PeerConnId,
+        my_info: &PeerInfo,
+        peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
         let config = catalog.get_config::<NetTransportConfig>("NetTransport")?;
-        let setup = net_recv_setup(rank, conn_id, profile, &config)?;
+        let setup = net_recv_setup(conn_id, my_info, peer_info, profile, &config)?;
         Ok(setup)
     }
 

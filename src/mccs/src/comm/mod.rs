@@ -7,21 +7,22 @@ use collectives_sys::mccsDevWork;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 
+use bytes::{Buf, BufMut};
+use serde::{Deserialize, Serialize};
+
 use crate::pattern::RingPattern;
 use crate::proxy::plan::{ChanWorkSchedule, KernelPlan};
 use crate::proxy::task::TaskQueue;
 use crate::transport::channel::{ChannelId, CommChannel};
 use crate::transport::NUM_PROTOCOLS;
+use crate::utils::tcp;
 
 use crate::cuda::alloc::DeviceHostMapped;
 use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use device::CommDevResources;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CommunicatorId(pub u32);
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HostIdent(pub SocketAddr);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PeerType {
@@ -32,13 +33,42 @@ pub enum PeerType {
 
 #[derive(Clone)]
 pub struct PeerInfo {
+    pub rank: usize,
+    pub local_rank: usize,
     pub peer_type: PeerType,
-    pub host: HostIdent,
+    pub host: SocketAddr,
     pub cuda_device_idx: i32,
 }
 
 pub const MCCS_WORK_FIFO_DEPTH: usize = 64 << 10;
 pub const MCCS_MAX_CHANNELS: usize = 32;
+
+pub const PEER_INFO_EXCHANGE_SEND_SIZE: usize = 40;
+
+pub struct PeerInfoExchange {
+    pub rank: usize,
+    pub host: SocketAddr,
+    pub cuda_device_idx: i32,
+}
+
+impl PeerInfoExchange {
+    pub fn encode<B: BufMut>(&self, buf: &mut B) {
+        buf.put_u64(self.rank as u64);
+        buf.put_i32(self.cuda_device_idx);
+        tcp::encode_socket_addr(&self.host, buf);
+    }
+
+    pub fn decode<B: Buf>(buf: &mut B) -> Self {
+        let rank = buf.get_u64() as usize;
+        let cuda_idx = buf.get_i32();
+        let host = tcp::decode_socket_addr(buf);
+        Self {
+            rank,
+            host,
+            cuda_device_idx: cuda_idx,
+        }
+    }
+}
 
 pub struct Communicator {
     pub id: CommunicatorId,

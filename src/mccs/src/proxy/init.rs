@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::hash::Hash;
 use std::mem::MaybeUninit;
+use std::sync::Arc;
 
 use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
 
+use crate::bootstrap::{BootstrapHandle, BootstrapState};
 use crate::comm::device::CommDevResources;
 use crate::comm::{
     ChannelCommPattern, CommProfile, Communicator, CommunicatorId, PeerInfo, MCCS_MAX_CHANNELS,
@@ -15,21 +17,17 @@ use crate::transport::channel::{
     ChannelId, ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
 };
 use crate::transport::engine::TransportEngineId;
-use crate::transport::transporter::{AgentMessage, AnyResources, ConnectHandle, Transporter};
+use crate::transport::setup::TransportConnectState;
 
 use super::plan::ChanWorkSchedule;
 use super::task::TaskQueue;
 
-pub struct PeerConnConstruct {
-    pub transporter: &'static dyn Transporter,
-    pub resources: Option<AnyResources>,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CommInitStage {
-    RegisterRank,
-    PeerInfoExchange,
-    ConnectChannel,
+    BootstrapInit,
+    AllGatherPeerInfo,
+    ConnectRing,
+    Finished,
 }
 
 pub struct CommInitState {
@@ -39,23 +37,16 @@ pub struct CommInitState {
     pub rank: usize,
     pub num_ranks: usize,
     pub profile: CommProfile,
-    pub peers_info: HashMap<usize, PeerInfo>,
-    pub peers_await_exchange: Vec<usize>,
 
-    pub comm_patterns: BTreeMap<ChannelId, ChannelCommPattern>,
+    pub peers_info: Option<Vec<PeerInfo>>,
 
-    pub to_setup: VecDeque<PeerConnId>,
-    pub to_setup_agent_cb: VecDeque<(PeerConnId, AgentMessage)>,
-    pub to_connect: VecDeque<(PeerConnId, ConnectHandle)>,
-    pub to_connect_agent_cb: VecDeque<(PeerConnId, AgentMessage)>,
-    pub peer_transport_assigned: HashMap<PeerConnId, TransportEngineId>,
+    pub comm_patterns: Option<BTreeMap<ChannelId, ChannelCommPattern>>,
 
-    pub peer_setup_pre_agent: HashMap<PeerConnId, PeerConnConstruct>,
-    pub peer_setup: HashMap<PeerConnId, PeerConnConstruct>,
-    pub peer_connect_pre_agent: HashMap<PeerConnId, PeerConnConstruct>,
+    pub bootstrap_handle: Option<BootstrapHandle>,
+    pub bootstrap_state: Option<Arc<BootstrapState>>,
 
-    pub peer_connected: HashMap<PeerConnId, PeerConnector>,
-    pub await_connections: usize,
+    pub transport_connect: Option<TransportConnectState>,
+    pub transport_engine_assignment: HashMap<PeerConnId, TransportEngineId>,
 }
 
 // TBD
@@ -70,23 +61,16 @@ impl CommInitState {
     ) -> Self {
         CommInitState {
             id,
-            stage: CommInitStage::RegisterRank,
+            stage: CommInitStage::BootstrapInit,
             rank,
             num_ranks,
             profile: comm_profile,
-            peers_info: HashMap::new(),
-            peers_await_exchange: Vec::new(),
-            comm_patterns: Default::default(),
-            to_setup: VecDeque::new(),
-            to_setup_agent_cb: VecDeque::new(),
-            to_connect: VecDeque::new(),
-            to_connect_agent_cb: VecDeque::new(),
-            peer_transport_assigned: HashMap::new(),
-            peer_setup_pre_agent: HashMap::new(),
-            peer_setup: HashMap::new(),
-            peer_connect_pre_agent: HashMap::new(),
-            peer_connected: HashMap::new(),
-            await_connections: 0,
+            peers_info: None,
+            comm_patterns: None,
+            bootstrap_handle: None,
+            bootstrap_state: None,
+            transport_connect: None,
+            transport_engine_assignment: HashMap::new(),
         }
     }
 }
@@ -99,28 +83,9 @@ fn new_chan_peer_conn() -> ChannelPeerConn {
 }
 
 impl CommInitState {
-    pub fn enqueue_channels_setup(&mut self) {
-        for pattern in self.comm_patterns.values() {
-            let ring_send = PeerConnId {
-                peer_rank: pattern.ring.next,
-                channel: pattern.channel,
-                conn_index: 0,
-                conn_type: ConnType::Send,
-            };
-            let ring_recv = PeerConnId {
-                peer_rank: pattern.ring.prev,
-                channel: pattern.channel,
-                conn_index: 0,
-                conn_type: ConnType::Recv,
-            };
-            self.to_setup.push_back(ring_send);
-            self.to_setup.push_back(ring_recv);
-        }
-    }
-
-    pub fn finalize_communicator(self) -> Communicator {
-        let mut channels = BTreeMap::new();
-        for chan_pattern in self.comm_patterns.into_values() {
+    pub fn finalize_communicator(mut self) -> Communicator {
+        let mut channels = HashMap::new();
+        for chan_pattern in self.comm_patterns.unwrap() {
             let channel = CommChannel {
                 peers: HashMap::new(),
                 ring: chan_pattern.ring,
@@ -128,7 +93,7 @@ impl CommInitState {
             };
             channels.insert(chan_pattern.channel, channel);
         }
-        for (peer_conn, peer_connector) in self.peer_connected {
+        for (peer_conn, peer_connected) in self.transport_connect.unwrap().peer_connected {
             let channel = channels.get_mut(&peer_conn.channel).unwrap();
             let peer = channel
                 .peers
@@ -137,6 +102,13 @@ impl CommInitState {
             let peer_conns = match peer_conn.conn_type {
                 ConnType::Send => &mut peer.send,
                 ConnType::Recv => &mut peer.recv,
+            };
+            let transport_engine_idx = self.transport_engine_assignment.remove(&peer_conn);
+            let peer_connector = PeerConnector {
+                conn_info: peer_connected.conn_info,
+                transport_agent_engine: transport_engine_idx,
+                transporter: peer_connected.transporter,
+                transport_resources: peer_connected.resources,
             };
             peer_conns.insert(peer_conn.conn_index, peer_connector);
         }
@@ -176,7 +148,7 @@ impl CommInitState {
         for _ in 0..self.num_ranks {
             peers_info.push(MaybeUninit::uninit());
         }
-        for (peer_rank, peer_info) in self.peers_info {
+        for (peer_rank, peer_info) in self.peers_info.unwrap().into_iter().enumerate() {
             peers_info[peer_rank].write(peer_info);
         }
 
@@ -184,6 +156,7 @@ impl CommInitState {
             .into_iter()
             .map(|x| unsafe { x.assume_init() })
             .collect();
+
         Communicator {
             id: self.id,
             rank: self.rank,
