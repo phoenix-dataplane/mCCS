@@ -101,12 +101,11 @@ impl Communicator {
     pub fn pre_launch_schedule(
         &mut self,
         pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
-        comm_pattern: &BTreeMap<ChannelId, ChannelCommPattern>,
         mapping: &DashMap<TransportAgentId, TransportEngineId>,
         device_id: i32,
     ) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
-        self.compute_coll_work(&first_task, device_id, comm_pattern);
+        self.compute_coll_work(&first_task, device_id);
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
             if first_task.func == coll_task.func
                 && first_task.data_type == coll_task.data_type
@@ -118,7 +117,7 @@ impl Communicator {
                 })
             {
                 let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
-                self.compute_coll_work(&coll_task, device_id, comm_pattern);
+                self.compute_coll_work(&coll_task, device_id);
                 log::trace!("Compute more coll task");
             } else {
                 break;
@@ -129,12 +128,7 @@ impl Communicator {
     }
 
     // convert one task to different WorkElem objects and append them to different channels
-    fn compute_coll_work(
-        &mut self,
-        task: &CollTask,
-        device_id: i32,
-        comm_pattern: &BTreeMap<ChannelId, ChannelCommPattern>,
-    ) {
+    fn compute_coll_work(&mut self, task: &CollTask, device_id: i32) {
         let schema = get_task_schema(
             task,
             TaskAlgorithm::Ring,
@@ -203,7 +197,7 @@ impl Communicator {
                         client_rank: self.rank,
                         client_cuda_dev: device_id,
                         peer_conn: PeerConnId {
-                            peer_rank: comm_pattern.get(&chan_id).unwrap().ring.next,
+                            peer_rank: self.channels.get(&chan_id).unwrap().ring.next,
                             channel: chan_id,
                             conn_index: 0,
                             conn_type: ConnType::Send,
@@ -214,7 +208,7 @@ impl Communicator {
                         client_rank: self.rank,
                         client_cuda_dev: device_id,
                         peer_conn: PeerConnId {
-                            peer_rank: comm_pattern.get(&chan_id).unwrap().ring.prev,
+                            peer_rank: self.channels.get(&chan_id).unwrap().ring.prev,
                             channel: chan_id,
                             conn_index: 0,
                             conn_type: ConnType::Recv,

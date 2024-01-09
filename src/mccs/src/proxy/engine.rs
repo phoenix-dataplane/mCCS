@@ -766,14 +766,6 @@ impl ProxyEngine {
                             &mut self.resources.transport_submission_pool,
                             &self
                                 .resources
-                                .comms_init
-                                .get(&coll.communicator_id)
-                                .unwrap()
-                                .comm_patterns
-                                .as_ref()
-                                .unwrap(),
-                            &self
-                                .resources
                                 .global_registry
                                 .transport_delegator
                                 .agent_assignments,
