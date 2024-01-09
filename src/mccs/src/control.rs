@@ -11,9 +11,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
+use cuda_runtime_sys::cudaEventCreateWithFlags;
+use cuda_runtime_sys::cudaEventDisableTiming;
+use cuda_runtime_sys::cudaEventInterprocess;
+use cuda_runtime_sys::cudaEventRecord;
+use cuda_runtime_sys::cudaIpcEventHandle_t;
+use cuda_runtime_sys::cudaIpcGetEventHandle;
+use cuda_runtime_sys::cudaIpcOpenEventHandle;
 use cuda_runtime_sys::cudaMalloc;
 use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind;
+use cuda_runtime_sys::cudaStreamSynchronize;
+use cuda_runtime_sys::cudaStreamWaitEvent;
 use dashmap::DashMap;
 use nix::libc;
 
@@ -558,6 +567,7 @@ impl Control {
     }
 
     pub fn dist_test(host: usize) {
+        let comm_id = 1042;
         use crate::transport::net::provider::NetProvierWrap;
         crate::transport::net::provider::RDMA_TRANSPORT
             .init()
@@ -650,7 +660,7 @@ impl Control {
         let root_sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 211, 66)), 5000);
         let rank = host;
         let init_comm = InitCommunicator {
-            communicator_id: CommunicatorId(1042),
+            communicator_id: CommunicatorId(comm_id),
             root_mccs_addr: root_sock_addr,
             rank,
             num_ranks: 2,
@@ -663,63 +673,98 @@ impl Control {
             _ => panic!("unexpected"),
         }
         log::info!("Init communicator done");
+
+        /// ----------------------------------------------------------
+        const BUFFER_SIZE: usize = 8 * 1024 * 1024;
+
+        let (local_content, remote_content) = if host == 0 {
+            (42, 114514)
+        } else {
+            (114514, 42)
+        };
+
+        let dev_buf_0 = Self::initialize_test_region(BUFFER_SIZE, local_content);
+
+        let handle = unsafe {
+            let mut event = std::ptr::null_mut();
+            cudaEventCreateWithFlags(&mut event, cudaEventInterprocess | cudaEventDisableTiming);
+            cudaEventRecord(event, std::ptr::null_mut());
+            let mut handle = cudaIpcEventHandle_t::default();
+            cudaIpcGetEventHandle(&mut handle, event);
+            handle
+        };
+        log::info!("Start proxying");
+
+        daemon_cmd_tx
+            .send(ProxyCommand::AllGather(AllGatherRequest {
+                communicator_id: CommunicatorId(comm_id),
+                send_buf_addr: dev_buf_0 as usize,
+                recv_buf_addr: dev_buf_0 as usize,
+                size: BUFFER_SIZE / 2,
+                app_ipc_event_handle: handle.into(),
+            }))
+            .unwrap();
+        log::info!("Sent request");
+        let handle = match daemon_comp_rx.recv().unwrap() {
+            ProxyCompletion::AllGather(comp_handle) => comp_handle,
+            _ => panic!("Unexpected"),
+        };
+        log::info!("Got handle");
+
+        // wait
+        unsafe {
+            let mut event = std::ptr::null_mut();
+            cudaIpcOpenEventHandle(&mut event, handle.into());
+            cudaStreamWaitEvent(std::ptr::null_mut(), event, 0);
+            cudaStreamSynchronize(std::ptr::null_mut());
+        }
+        log::info!("synchronized");
+
+        // check
+        let mut buf = vec![0; BUFFER_SIZE];
+        unsafe {
+            let err = cudaMemcpy(
+                buf.as_mut_ptr() as *mut _,
+                dev_buf_0,
+                BUFFER_SIZE,
+                cudaMemcpyKind::cudaMemcpyDeviceToHost,
+            );
+            if err != cudaError::cudaSuccess {
+                panic!("cudaMemcpy failed");
+            }
+        };
+        log::info!("memcpy done");
+        assert_eq!(buf[0], 42);
+        assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 114514);
     }
 
-    // fn initialize_test_region(
-    //     buf_size: usize,
-    //     first_content: i32,
-    //     second_content: i32,
-    // ) -> (*mut libc::c_void, *mut libc::c_void) {
-    //     unsafe {
-    //         let error = cudaSetDevice(0);
-    //         if error != cudaError::cudaSuccess {
-    //             panic!("cudaSetDevice");
-    //         }
-    //     }
-    //     // Inference
-    //     let dev_buf_0 = unsafe {
-    //         let mut dev_ptr = std::ptr::null_mut();
-    //         cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
-    //         dev_ptr
-    //     };
-    //     let mut buf = vec![first_content; buf_size / 2 / std::mem::size_of::<i32>()];
-    //     buf.extend(vec![0i32; buf_size / 2 / std::mem::size_of::<i32>()]);
+    fn initialize_test_region(buf_size: usize, first_content: i32) -> *mut libc::c_void {
+        unsafe {
+            let error = cudaSetDevice(0);
+            if error != cudaError::cudaSuccess {
+                panic!("cudaSetDevice");
+            }
+        }
+        // Inference
+        let dev_buf_0 = unsafe {
+            let mut dev_ptr = std::ptr::null_mut();
+            cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
+            dev_ptr
+        };
+        let mut buf = vec![first_content; buf_size / 2 / std::mem::size_of::<i32>()];
+        buf.extend(vec![0i32; buf_size / 2 / std::mem::size_of::<i32>()]);
 
-    //     unsafe {
-    //         cudaMemcpy(
-    //             dev_buf_0,
-    //             buf.as_ptr() as *const _,
-    //             buf_size,
-    //             cudaMemcpyKind::cudaMemcpyHostToDevice,
-    //         )
-    //     };
+        unsafe {
+            cudaMemcpy(
+                dev_buf_0,
+                buf.as_ptr() as *const _,
+                buf_size,
+                cudaMemcpyKind::cudaMemcpyHostToDevice,
+            )
+        };
 
-    //     unsafe {
-    //         let error = cudaSetDevice(1);
-    //         if error != cudaError::cudaSuccess {
-    //             panic!("cudaSetDevice");
-    //         }
-    //     }
-    //     let dev_buf_1 = unsafe {
-    //         let mut dev_ptr = std::ptr::null_mut();
-    //         cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
-    //         dev_ptr
-    //     };
-    //     let mut buf = vec![0i32; buf_size / 2 / std::mem::size_of::<i32>()];
-    //     buf.extend(vec![
-    //         second_content;
-    //         buf_size / 2 / std::mem::size_of::<i32>()
-    //     ]);
-    //     unsafe {
-    //         cudaMemcpy(
-    //             dev_buf_1,
-    //             buf.as_ptr() as *const _,
-    //             buf_size,
-    //             cudaMemcpyKind::cudaMemcpyHostToDevice,
-    //         )
-    //     };
-    //     (dev_buf_0, dev_buf_1)
-    // }
+        dev_buf_0
+    }
 
     /*
     #[allow(dead_code)]
