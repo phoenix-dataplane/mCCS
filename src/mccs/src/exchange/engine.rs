@@ -6,8 +6,9 @@ use std::task::{Context, Poll};
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use futures::future::BoxFuture;
 use futures::FutureExt;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use smol::io::{AsyncReadExt, AsyncWriteExt};
+use smol::net::TcpListener;
+use byteorder::{LittleEndian, ByteOrder};
 
 use super::command::{ExchangeCommand, ExchangeCompletion};
 use super::message::ExchangeMessage;
@@ -40,17 +41,24 @@ struct ExchangeEngineResources {
 async fn send_message(msg: ExchangeMessage, addr: SocketAddr) -> Result<(), ExchangeError> {
     let encode = bincode::serialize(&msg).unwrap();
     let mut stream = tcp::async_connect(&addr, EXCHANGE_MAGIC).await?;
-    stream.write_u32(encode.len() as u32).await?;
+    log::trace!("Exchange engine send {:?} to {:?}", msg, addr);
+    let mut buf = [0u8; 4];
+    LittleEndian::write_u32(&mut buf, encode.len() as u32);
+    stream.write_all(&buf).await?;
     stream.write_all(encode.as_slice()).await?;
     Ok(())
 }
 
 async fn recv_message(listener: Arc<TcpListener>) -> Result<ExchangeMessage, ExchangeError> {
     let mut stream = tcp::async_accept(&listener, EXCHANGE_MAGIC).await?;
-    let len = stream.read_u32().await?;
+    let mut buf = [0u8; 4];
+    stream.read_exact(&mut buf).await?;
+    let len = LittleEndian::read_u32(&buf);
     let mut buf = vec![0u8; len as usize];
     stream.read_exact(&mut buf).await?;
     let decode = bincode::deserialize(buf.as_slice()).unwrap();
+    let remote_addr = stream.peer_addr()?;
+    log::trace!("Exchange engine recv {:?} from {:?}", decode, remote_addr);
     Ok(decode)
 }
 
@@ -248,7 +256,9 @@ impl ExchangeEngine {
     }
 
     pub fn mainloop(&mut self) {
-        self.check_proxy_requests();
-        self.progress_async_tasks();
+        loop {
+            self.check_proxy_requests();
+            self.progress_async_tasks();
+        }
     }
 }

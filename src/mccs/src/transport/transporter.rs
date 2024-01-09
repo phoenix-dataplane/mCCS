@@ -82,13 +82,14 @@ pub struct TransportAgentId {
 
 #[async_trait]
 pub trait Transporter: Send + Sync {
+    #[inline]
     // Determine whether two peers can communicate
     fn can_connect(
         &self,
-        send_peer: &PeerInfo,
-        recv_peer: &PeerInfo,
-        profile: &CommProfile,
-        catalog: &TransportCatalog,
+        _send_peer: &PeerInfo,
+        _recv_peer: &PeerInfo,
+        _profile: &CommProfile,
+        _catalog: &TransportCatalog,
     ) -> bool {
         false
     }

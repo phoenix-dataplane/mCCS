@@ -165,7 +165,7 @@ pub async fn exchange_connect_handle(
         let mut recv_handles = Vec::new();
         let mut send_handles = Vec::new();
 
-        let recv_peer = (rank - i + num_ranks) % num_ranks;
+        let recv_peer = (rank + num_ranks - i) % num_ranks;
         let send_peer = (rank + i) % num_ranks;
         let recv_mask = connect_recv[recv_peer];
         let send_mask = connect_send[send_peer];
@@ -394,7 +394,7 @@ impl TransportConnectState {
         self.handle_to_exchange
             .resize_with(self.num_ranks - 1, || HashMap::new());
         for i in 1..self.num_ranks {
-            let recv_peer = (self.rank - i + self.num_ranks) % self.num_ranks;
+            let recv_peer = (self.rank + self.num_ranks - i) % self.num_ranks;
             let send_peer = (self.rank + i) % self.num_ranks;
             let recv_mask = self.recv_connect_mask[recv_peer];
             let send_mask = self.send_connect_mask[send_peer];

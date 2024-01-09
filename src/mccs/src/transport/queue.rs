@@ -13,6 +13,14 @@ pub struct TransrportOpQueue {
 }
 
 impl TransrportOpQueue {
+    pub fn new() -> Self {
+        TransrportOpQueue {
+            queue: Vec::new(),
+            active_connections: 0,
+            connections_index_map: HashMap::new(),
+        }
+    }
+
     pub fn submit_op(&mut self, agent: TransportAgentId, op: TransportOp) {
         match self.connections_index_map.entry(agent) {
             Entry::Occupied(entry) => {

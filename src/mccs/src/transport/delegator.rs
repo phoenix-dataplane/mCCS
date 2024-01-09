@@ -9,7 +9,7 @@ const MAX_CONNS_PER_ENGINE: usize = 8;
 const MAX_NUM_ENGINES_PER_DEVICE: usize = 8;
 
 pub struct TransportDelegator {
-    active_connections: DashMap<i32, Vec<(u32, usize)>>,
+    pub active_connections: DashMap<i32, Vec<(u32, usize)>>,
     agent_assignments: DashMap<TransportAgentId, TransportEngineId>,
     shutdown_engines: DashMap<i32, Vec<u32>>,
 }

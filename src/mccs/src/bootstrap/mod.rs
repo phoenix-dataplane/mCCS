@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::Mutex;
+use smol::net::{TcpListener, TcpStream};
+use smol::lock::Mutex;
 
 pub use task::{bootstrap_create_root, bootstrap_root};
 

@@ -22,7 +22,7 @@ pub struct TransportEngineId {
     pub index: u32,
 }
 
-struct TransportAgent {
+pub struct TransportAgent {
     transporter: &'static dyn Transporter,
     agent_resources: AnyResources,
 }
@@ -38,7 +38,7 @@ enum AsyncTaskResult {
     },
 }
 
-struct AsyncTask {
+pub struct AsyncTask {
     agent_id: TransportAgentId,
     transporter: &'static dyn Transporter,
     task: BoxFuture<'static, AsyncTaskResult>,
@@ -98,11 +98,11 @@ fn new_connect_task(
     }
 }
 
-struct TransportEngineResources {
-    agent_setup: HashMap<TransportAgentId, AnyResources>,
-    agent_connected: HashMap<TransportAgentId, TransportAgent>,
-    proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
-    global_registry: Arc<GlobalRegistry>,
+pub struct TransportEngineResources {
+    pub agent_setup: HashMap<TransportAgentId, AnyResources>,
+    pub agent_connected: HashMap<TransportAgentId, TransportAgent>,
+    pub proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
+    pub global_registry: Arc<GlobalRegistry>,
 }
 
 impl TransportEngineResources {
@@ -153,10 +153,10 @@ impl TransportEngineResources {
 }
 
 pub struct TransportEngine {
-    id: TransportEngineId,
-    resources: TransportEngineResources,
-    async_tasks: WorkPool<AsyncTask>,
-    op_queue: TransrportOpQueue,
+    pub id: TransportEngineId,
+    pub resources: TransportEngineResources,
+    pub async_tasks: WorkPool<AsyncTask>,
+    pub op_queue: TransrportOpQueue,
 }
 
 impl TransportEngine {
@@ -201,8 +201,10 @@ impl TransportEngine {
 
 impl TransportEngine {
     pub fn mainloop(&mut self) {
-        self.check_proxy_requests();
-        self.progress_async_tasks();
-        self.progress_ops();
+        loop {
+            self.check_proxy_requests();
+            self.progress_async_tasks();
+            self.progress_ops();
+        }
     }
 }

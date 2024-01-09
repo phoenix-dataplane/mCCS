@@ -313,11 +313,22 @@ fn net_recv_connect_agent_callback(
 
 #[async_trait]
 impl Transporter for NetTransport {
+    #[inline]
+    fn can_connect(
+        &self,
+        _send_peer: &PeerInfo,
+        _recv_peer: &PeerInfo,
+        _profile: &CommProfile,
+        _catalog: &TransportCatalog,
+    ) -> bool {
+        true
+    }
+
     fn send_setup(
         &self,
         conn_id: &PeerConnId,
         my_info: &PeerInfo,
-        peer_info: &PeerInfo,
+        _peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
@@ -361,7 +372,7 @@ impl Transporter for NetTransport {
         &self,
         conn_id: &PeerConnId,
         my_info: &PeerInfo,
-        peer_info: &PeerInfo,
+        _peer_info: &PeerInfo,
         profile: &CommProfile,
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {

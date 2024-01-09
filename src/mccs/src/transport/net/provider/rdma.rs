@@ -12,8 +12,8 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use socket2::SockAddr;
 use thiserror::Error;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use smol::io::{AsyncReadExt, AsyncWriteExt};
+use smol::net::TcpListener;
 use volatile::{map_field, VolatilePtr};
 
 use ibverbs::ffi::ibv_async_event;

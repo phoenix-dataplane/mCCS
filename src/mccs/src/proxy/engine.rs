@@ -58,7 +58,6 @@ pub struct ProxyResources {
     pub transport_engines_tx: HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
     pub transport_engines_rx: Vec<(TransportEngineId, Receiver<TransportEngineReply>)>,
     pub transport_submission_pool: HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
-    pub mccs_addr: SocketAddr,
     pub task_submit_pool: Vec<AsyncTask>,
 }
 
@@ -191,7 +190,7 @@ impl ProxyResources {
         let comm = self.comms_init.get_mut(&comm_id).unwrap();
         if comm.stage == CommInitStage::BootstrapInit {
             if let Some(handle) = comm.bootstrap_handle.take() {
-                let mut listen_addr = self.mccs_addr.clone();
+                let mut listen_addr = self.device_info.host.clone();
                 listen_addr.set_port(0);
                 let fut = BootstrapState::init(handle, listen_addr, comm.rank, comm.num_ranks).map(
                     |state| {
@@ -275,8 +274,8 @@ impl ProxyResources {
                         conn_index: 0,
                         conn_type: ConnType::Recv,
                     };
-                    transport_connect.register_connect(&ring_next);
-                    transport_connect.register_connect(&ring_prev);
+                    transport_connect.register_connect(&ring_next).unwrap();
+                    transport_connect.register_connect(&ring_prev).unwrap();
                 }
                 comm.comm_patterns = Some(channels);
                 let peers_info = comm.peers_info.as_ref().unwrap();
@@ -676,7 +675,7 @@ impl ProxyEngine {
             if let Ok(msg) = daemon_rx.try_recv() {
                 match msg {
                     ProxyCommand::InitCommunicator(init) => {
-                        // TODO
+                        // TODO: get default profile from central registry
                         let profile = CommProfile {
                             buff_sizes: [8 * 1024 * 1024],
                             peers_local_rank: Vec::new(),
@@ -699,6 +698,7 @@ impl ProxyEngine {
                                 bootstrap_handle.clone(),
                             );
                             self.resources.exchange_tx.send(cmd).unwrap();
+                            // bootstrap root task
                             let fut =
                                 bootstrap_root(root_socket, bootstrap_handle.magic).map(|state| {
                                     state
@@ -717,7 +717,7 @@ impl ProxyEngine {
                                 init.root_mccs_addr,
                             );
                             self.resources.exchange_tx.send(cmd).unwrap();
-                        }
+                        };
                         self.resources
                             .comms_init
                             .insert(init.communicator_id, comm_init);

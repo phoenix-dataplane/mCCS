@@ -15,6 +15,8 @@ struct Opts {
     /// Phoenix config path
     #[structopt(short, long, default_value = "mccs.toml")]
     config: PathBuf,
+    #[structopt(short, long)]
+    host: usize,
 }
 
 static TERMINATE: AtomicBool = AtomicBool::new(false);
@@ -40,8 +42,10 @@ fn main() -> Result<()> {
         .expect("failed to register sighandler");
 
     // the Control now takes over
-    let mut control = Control::new(config);
+    // let mut control = Control::new(config);
     log::info!("Started mCCS");
 
+    Control::dist_test(opts.host);
+    Ok(())
     // control.mainloop(&TERMINATE)
 }
