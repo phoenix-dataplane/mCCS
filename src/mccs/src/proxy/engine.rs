@@ -171,6 +171,9 @@ impl ProxyResources {
         use crossbeam::channel::SendError;
 
         let sender = transport_tx.get_mut(&transport_engine);
+        submission_pool
+            .entry(transport_engine)
+            .or_insert_with(Vec::new);
         if let Some(sender) = sender {
             match sender.send(request) {
                 Ok(()) => (),
