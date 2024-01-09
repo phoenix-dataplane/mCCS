@@ -187,6 +187,9 @@ impl TransportEngine {
                             let setup_resources = self.resources.agent_setup.remove(&agent_id);
                             new_connect_task(transporter, agent_id, request, setup_resources)
                         }
+                        TransportEngineRequest::AgentTransportOp(agend_id, tx_op) => {
+                            todo!()
+                        }
                     };
                     self.async_tasks.enqueue(task);
                 }

@@ -84,11 +84,11 @@ fn new_chan_peer_conn() -> ChannelPeerConn {
 
 impl CommInitState {
     pub fn finalize_communicator(mut self) -> Communicator {
-        let mut channels = HashMap::new();
-        for chan_pattern in self.comm_patterns.unwrap() {
+        let mut channels = BTreeMap::new();
+        for chan_pattern in self.comm_patterns.unwrap().values() {
             let channel = CommChannel {
                 peers: HashMap::new(),
-                ring: chan_pattern.ring,
+                ring: chan_pattern.ring.clone(),
                 work_queue_next_available: 0,
             };
             channels.insert(chan_pattern.channel, channel);

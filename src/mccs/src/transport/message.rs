@@ -1,8 +1,12 @@
-use super::transporter::{AgentMessage, TransportAgentId, Transporter};
+use super::{
+    op::TransportOp,
+    transporter::{AgentMessage, TransportAgentId, Transporter},
+};
 
 pub enum TransportEngineRequest {
     AgentSetup(&'static dyn Transporter, TransportAgentId, AgentMessage),
     AgentConnect(&'static dyn Transporter, TransportAgentId, AgentMessage),
+    AgentTransportOp(TransportAgentId, TransportOp),
 }
 
 pub enum TransportEngineReply {

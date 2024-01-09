@@ -95,6 +95,7 @@ pub struct Communicator {
 // TBD
 unsafe impl Send for Communicator {}
 
+#[derive(Debug, Clone)]
 pub struct ChannelCommPattern {
     // channel id
     pub channel: ChannelId,

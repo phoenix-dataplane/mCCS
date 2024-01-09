@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
@@ -29,9 +29,8 @@ use crate::daemon::DaemonId;
 use crate::exchange::command::{ExchangeCommand, ExchangeCompletion};
 use crate::message::{ControlCommand, ControlRequest};
 use crate::pattern::{ALLGATHER_CHUNK_STEPS, ALLGATHER_SLICE_STEPS};
-use crate::proxy::init::PeerConnConstruct;
 use crate::registry::GlobalRegistry;
-use crate::transport::channel::{ConnType, PeerConnId};
+use crate::transport::channel::{ChannelId, ConnType, PeerConnId};
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
 use crate::transport::setup::exchange_connect_handle;
@@ -263,13 +262,15 @@ impl ProxyResources {
                 };
 
                 let channel = crate::comm::ChannelCommPattern {
-                    channel: 0,
+                    channel: ChannelId(0),
                     ring: ring_pattern,
                 };
-                let channels = vec![channel];
+                let mut channels = BTreeMap::new();
+                channels.insert(ChannelId(0), channel);
+
                 let mut transport_connect =
                     TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
-                for pattern in channels.iter() {
+                for pattern in channels.values() {
                     let ring_next = PeerConnId {
                         peer_rank: pattern.ring.next,
                         channel: pattern.channel,
@@ -768,7 +769,14 @@ impl ProxyEngine {
                                 .comms_init
                                 .get(&coll.communicator_id)
                                 .unwrap()
-                                .comm_patterns,
+                                .comm_patterns
+                                .as_ref()
+                                .unwrap(),
+                            &self
+                                .resources
+                                .global_registry
+                                .transport_delegator
+                                .agent_assignments,
                             self.resources.device_info.cuda_device_idx,
                         );
                         comm.launch_plan();

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use super::catalog::TransportCatalog;
-use super::channel::{ConnType, PeerConnId, PeerConnInfo};
+use super::channel::{ChannelId, ConnType, PeerConnId, PeerConnInfo};
 use super::transporter::TransporterError;
 use super::transporter::CONNECT_HANDLE_SIZE;
 use super::transporter::{AgentMessage, AnyResources, ConnectHandle, Transporter};
@@ -176,7 +176,7 @@ pub async fn exchange_connect_handle(
                 let conn_id = PeerConnId {
                     peer_rank: recv_peer,
                     conn_type: ConnType::Recv,
-                    channel: c,
+                    channel: ChannelId(c as u32),
                     conn_index,
                 };
                 let handle = round_handles
@@ -188,7 +188,7 @@ pub async fn exchange_connect_handle(
                 let conn_id = PeerConnId {
                     peer_rank: send_peer,
                     conn_type: ConnType::Send,
-                    channel: c,
+                    channel: ChannelId(c as u32),
                     conn_index,
                 };
                 let handle = round_handles
@@ -308,7 +308,7 @@ pub async fn exchange_connect_handle(
                 let conn_id = PeerConnId {
                     peer_rank: recv_peer,
                     conn_type: ConnType::Recv,
-                    channel: c,
+                    channel: ChannelId(c as u32),
                     conn_index,
                 };
                 let handle = peer_recv_handles.pop().unwrap();
@@ -318,7 +318,7 @@ pub async fn exchange_connect_handle(
                 let conn_id = PeerConnId {
                     peer_rank: send_peer,
                     conn_type: ConnType::Send,
-                    channel: c,
+                    channel: ChannelId(c as u32),
                     conn_index,
                 };
                 let handle = peer_send_handles.pop().unwrap();
@@ -381,10 +381,10 @@ impl TransportConnectState {
         }
         match conn_id.conn_type {
             ConnType::Send => {
-                self.send_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel;
+                self.send_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel.0;
             }
             ConnType::Recv => {
-                self.recv_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel;
+                self.recv_connect_mask[conn_id.peer_rank] |= 1u64 << conn_id.channel.0;
             }
         }
         Ok(())
@@ -416,7 +416,7 @@ impl TransportConnectState {
                     let conn_id = PeerConnId {
                         peer_rank: recv_peer,
                         conn_type: ConnType::Recv,
-                        channel: c as u32,
+                        channel: ChannelId(c as u32),
                         conn_index: self.conn_index.unwrap(),
                     };
                     self.transporter_map.insert(conn_id, transporter);
@@ -432,7 +432,7 @@ impl TransportConnectState {
                     let conn_id = PeerConnId {
                         peer_rank: send_peer,
                         conn_type: ConnType::Send,
-                        channel: c as u32,
+                        channel: ChannelId(c as u32),
                         conn_index: self.conn_index.unwrap(),
                     };
                     self.transporter_map.insert(conn_id, transporter);

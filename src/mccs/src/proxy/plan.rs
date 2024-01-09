@@ -1,3 +1,4 @@
+use dashmap::DashMap;
 use itertools::Itertools;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_void;
@@ -101,6 +102,7 @@ impl Communicator {
         &mut self,
         pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
         comm_pattern: &BTreeMap<ChannelId, ChannelCommPattern>,
+        mapping: &DashMap<TransportAgentId, TransportEngineId>,
         device_id: i32,
     ) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
@@ -122,7 +124,7 @@ impl Communicator {
                 break;
             }
         }
-        let plan = self.finalize_one_plan(pool);
+        let plan = self.finalize_one_plan(pool, mapping);
         self.unlaunched_plans.push_back(plan);
     }
 
@@ -246,12 +248,14 @@ impl Communicator {
     fn finalize_one_plan(
         &mut self,
         submission_pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+        mapping: &DashMap<TransportAgentId, TransportEngineId>,
     ) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
         let mut chan_list = Vec::with_capacity(MCCS_MAX_ELEMENTS_PER_WORK);
         let mut channel_upper_bound = 0;
         let mut channel_mask = 0u64;
         let mut work_count = 0;
+        // warning: should not clear now
         for (idx, chan) in self.plan_schedule.iter_mut() {
             if !chan.work_queue.is_empty() {
                 chan_list.push(*idx);
@@ -259,9 +263,16 @@ impl Communicator {
                 channel_mask |= 1 << idx.0;
                 work_count += chan.work_queue.len();
                 // upload ProxyOp
-                chan.agent_task_queue
-                    .into_iter()
-                    .for_each(|task| submission_pool.get(k).unwrap())
+                chan.agent_task_queue.iter().for_each(|task| {
+                    let TransportTask { agent_id, op } = task;
+                    submission_pool
+                        .get_mut(mapping.get(&agent_id).unwrap().value())
+                        .unwrap()
+                        .push(TransportEngineRequest::AgentTransportOp(
+                            *agent_id,
+                            op.clone(),
+                        ));
+                })
             }
         }
         let dev_work = self.upload_work(&chan_list, channel_upper_bound, channel_mask, work_count);
