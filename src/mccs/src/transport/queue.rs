@@ -44,12 +44,12 @@ impl TransrportOpQueue {
 
     pub fn progress_ops<F>(&mut self, mut f: F)
     where
-        F: FnMut(&mut TransportOp) -> bool,
+        F: FnMut(&TransportAgentId, &mut TransportOp) -> bool,
     {
         let mut conn_idx = 0;
         while conn_idx < self.active_connections {
             let (agent, conn_queue) = &mut self.queue[conn_idx];
-            let finished = f(&mut conn_queue[0]);
+            let finished = f(agent, &mut conn_queue[0]);
             let mut conn_inc = 1;
             if finished {
                 conn_queue.pop_front();

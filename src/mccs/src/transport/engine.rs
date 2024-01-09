@@ -12,7 +12,7 @@ use crate::utils::pool::WorkPool;
 
 use super::channel::ConnType;
 use super::message::{TransportEngineReply, TransportEngineRequest};
-use super::op::TransportOp;
+use super::op::{TransportOp, TransportOpState};
 use super::queue::TransrportOpQueue;
 use super::transporter::{AgentMessage, AnyResources, TransportAgentId, Transporter};
 
@@ -106,9 +106,18 @@ pub struct TransportEngineResources {
 }
 
 impl TransportEngineResources {
-    fn progress_op(&mut self, _op: &mut TransportOp) -> bool {
-        // TODO
-        true
+    fn progress_op(&mut self, agent_id: &TransportAgentId, op: &mut TransportOp) -> bool {
+        let agent = self.agent_connected.get_mut(agent_id).unwrap();
+        match agent_id.peer_conn.conn_type {
+            ConnType::Send => agent
+                .transporter
+                .agent_send_progress_op(op, &mut agent.agent_resources),
+            ConnType::Recv => agent
+                .transporter
+                .agent_recv_progress_op(op, &mut agent.agent_resources),
+        }
+        .unwrap();
+        op.state == TransportOpState::Completed
     }
 
     fn progress_async_task(&mut self, task: &mut AsyncTask) -> bool {
@@ -162,7 +171,7 @@ pub struct TransportEngine {
 impl TransportEngine {
     fn progress_ops(&mut self) {
         self.op_queue
-            .progress_ops(|op| self.resources.progress_op(op));
+            .progress_ops(|agent_id, op| self.resources.progress_op(agent_id, op));
     }
 
     fn progress_async_tasks(&mut self) {
@@ -187,7 +196,8 @@ impl TransportEngine {
                             let setup_resources = self.resources.agent_setup.remove(&agent_id);
                             new_connect_task(transporter, agent_id, request, setup_resources)
                         }
-                        TransportEngineRequest::AgentTransportOp(agend_id, tx_op) => {
+                        TransportEngineRequest::AgentTransportOp(agent_id, tx_op) => {
+                            self.op_queue.submit_op(agent_id, tx_op);
                             todo!()
                         }
                     };
