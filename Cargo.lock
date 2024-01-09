@@ -1461,9 +1461,6 @@ dependencies = [
 name = "rdma_transport"
 version = "0.1.0"
 dependencies = [
- "chrono",
- "env_logger",
- "log",
  "mccs",
 ]
 
