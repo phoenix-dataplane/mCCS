@@ -107,7 +107,6 @@ pub struct TransportEngineResources {
 
 impl TransportEngineResources {
     fn progress_op(&mut self, agent_id: &TransportAgentId, op: &mut TransportOp) -> bool {
-        log::debug!("Progress TxEngine Op {:?} {:?}", agent_id, op);
         let agent = self.agent_connected.get_mut(agent_id).unwrap();
         match agent_id.peer_conn.conn_type {
             ConnType::Send => agent

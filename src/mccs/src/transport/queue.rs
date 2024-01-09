@@ -22,6 +22,7 @@ impl TransrportOpQueue {
     }
 
     pub fn submit_op(&mut self, agent: TransportAgentId, op: TransportOp) {
+        log::trace!("Submit to queue: {:?}={:?}", agent, op);
         match self.connections_index_map.entry(agent) {
             Entry::Occupied(entry) => {
                 let index = *entry.get();
@@ -33,8 +34,9 @@ impl TransrportOpQueue {
                     self.queue[self.active_connections].0 = agent;
                     self.queue[self.active_connections].1.push_back(op);
                 } else {
-                    self.queue
-                        .push((agent, VecDeque::with_capacity(PER_CONN_QUEUE_INIT_CAPACITY)));
+                    let mut agent_queue = VecDeque::with_capacity(PER_CONN_QUEUE_INIT_CAPACITY);
+                    agent_queue.push_back(op);
+                    self.queue.push((agent, agent_queue));
                 }
                 entry.insert(self.active_connections);
                 self.active_connections += 1;
@@ -48,6 +50,11 @@ impl TransrportOpQueue {
     {
         let mut conn_idx = 0;
         while conn_idx < self.active_connections {
+            log::trace!(
+                "conn_idx={}, active_connection={}",
+                conn_idx,
+                self.active_connections
+            );
             let (agent, conn_queue) = &mut self.queue[conn_idx];
             let finished = f(agent, &mut conn_queue[0]);
             let mut conn_inc = 1;
@@ -55,7 +62,7 @@ impl TransrportOpQueue {
                 conn_queue.pop_front();
                 if conn_queue.is_empty() {
                     self.connections_index_map.remove(agent);
-                    self.queue.swap_remove(conn_idx);
+                    self.queue.swap(conn_idx, self.active_connections - 1);
                     self.active_connections -= 1;
                     conn_inc = 0;
                 }

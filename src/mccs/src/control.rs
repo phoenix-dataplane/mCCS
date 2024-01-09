@@ -677,20 +677,21 @@ impl Control {
         /// ----------------------------------------------------------
         const BUFFER_SIZE: usize = 8 * 1024 * 1024;
 
-        let (local_content, remote_content) = if host == 0 {
-            (42, 114514)
-        } else {
-            (114514, 42)
-        };
+        let first = if host == 0 { 42 } else { 99 };
+        let second = if host == 0 { 88 } else { 37 };
+        log::info!("Buffer content: [{};{}]", first, second);
 
-        let dev_buf_0 = Self::initialize_test_region(BUFFER_SIZE, local_content);
+        let dev_buf_0 = Self::initialize_test_region(BUFFER_SIZE, first, second);
 
         let handle = unsafe {
             let mut event = std::ptr::null_mut();
-            cudaEventCreateWithFlags(&mut event, cudaEventInterprocess | cudaEventDisableTiming);
-            cudaEventRecord(event, std::ptr::null_mut());
+            cuda_warning!(cudaEventCreateWithFlags(
+                &mut event,
+                cudaEventInterprocess | cudaEventDisableTiming
+            ));
+            cuda_warning!(cudaEventRecord(event, std::ptr::null_mut()));
             let mut handle = cudaIpcEventHandle_t::default();
-            cudaIpcGetEventHandle(&mut handle, event);
+            cuda_warning!(cudaIpcGetEventHandle(&mut handle, event));
             handle
         };
         log::info!("Start proxying");
@@ -698,7 +699,7 @@ impl Control {
         daemon_cmd_tx
             .send(ProxyCommand::AllGather(AllGatherRequest {
                 communicator_id: CommunicatorId(comm_id),
-                send_buf_addr: dev_buf_0 as usize,
+                send_buf_addr: dev_buf_0 as usize + if host == 0 { 0 } else { BUFFER_SIZE / 2 },
                 recv_buf_addr: dev_buf_0 as usize,
                 size: BUFFER_SIZE / 2,
                 app_ipc_event_handle: handle.into(),
@@ -713,15 +714,17 @@ impl Control {
 
         // wait
         unsafe {
-            let mut event = std::ptr::null_mut();
-            cudaIpcOpenEventHandle(&mut event, handle.into());
-            cudaStreamWaitEvent(std::ptr::null_mut(), event, 0);
-            cudaStreamSynchronize(std::ptr::null_mut());
+            // let mut event = std::ptr::null_mut();
+            // cuda_warning!(cudaIpcOpenEventHandle(&mut event, handle.into()));
+            // cuda_warning!(cudaStreamWaitEvent(std::ptr::null_mut(), event, 0));
+            std::thread::sleep(Duration::from_secs(4));
+            log::info!("wake up");
+            cuda_warning!(cudaStreamSynchronize(std::ptr::null_mut()));
         }
         log::info!("synchronized");
 
         // check
-        let mut buf = vec![0; BUFFER_SIZE];
+        let mut buf = vec![0u8; BUFFER_SIZE];
         unsafe {
             let err = cudaMemcpy(
                 buf.as_mut_ptr() as *mut _,
@@ -734,11 +737,28 @@ impl Control {
             }
         };
         log::info!("memcpy done");
+        println!(
+            "[0]={} [100]={} [4MB-1]={}",
+            buf[0],
+            buf[100],
+            buf[BUFFER_SIZE / 2 - 1]
+        );
+        println!(
+            "[4MB]={} [4MB+100]={} [Last]={}",
+            buf[BUFFER_SIZE / 2],
+            buf[BUFFER_SIZE / 2 + 100],
+            buf[BUFFER_SIZE - 1]
+        );
         assert_eq!(buf[0], 42);
-        assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 114514);
+        assert_eq!(buf[BUFFER_SIZE / 2], 37);
+        log::info!("Success");
     }
 
-    fn initialize_test_region(buf_size: usize, first_content: i32) -> *mut libc::c_void {
+    fn initialize_test_region(
+        buf_size: usize,
+        first_content: u8,
+        second_content: u8,
+    ) -> *mut libc::c_void {
         unsafe {
             let error = cudaSetDevice(0);
             if error != cudaError::cudaSuccess {
@@ -751,8 +771,8 @@ impl Control {
             cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
             dev_ptr
         };
-        let mut buf = vec![first_content; buf_size / 2 / std::mem::size_of::<i32>()];
-        buf.extend(vec![0i32; buf_size / 2 / std::mem::size_of::<i32>()]);
+        let mut buf = vec![first_content; buf_size / 2];
+        buf.extend(vec![second_content; buf_size / 2]);
 
         unsafe {
             cudaMemcpy(

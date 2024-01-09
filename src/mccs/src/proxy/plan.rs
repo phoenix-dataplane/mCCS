@@ -31,7 +31,7 @@ const MCCS_SIMPLE_MAX_N_THREADS: usize = 512;
 const MCCS_SIMPLE_THREAD_THRESHOLD: usize = 64;
 const WARP_SIZE: usize = 32;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WorkElem {
     num_warps: u8,
     send_buf: DeviceNonNull<c_void>,
@@ -174,6 +174,7 @@ impl Communicator {
                     bid: block_id as u8,
                     num_channels: schema.num_channels as _,
                 };
+                log::debug!("WorkElem={:?}", elem);
                 let schedule = self.plan_schedule.get_mut(&chan_id).unwrap();
                 // work queue
                 schedule.enqueue_work_elem_coll(
@@ -261,12 +262,10 @@ impl Communicator {
                     let TransportTask { agent_id, op } = task;
                     let tx_engine_id = mapping.get(&agent_id).unwrap().value().clone();
                     log::debug!(
-                        "tx_engine_id={:?}, have={:?}",
+                        "tx_engine_id={:?}, agent_id={:?}, op={:?}",
                         tx_engine_id,
-                        submission_pool
-                            .keys()
-                            .cloned()
-                            .collect::<Vec<TransportEngineId>>()
+                        agent_id,
+                        op
                     );
                     submission_pool.get_mut(&tx_engine_id).unwrap().push_back(
                         TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()),
