@@ -3,6 +3,7 @@ use std::marker::PhantomPinned;
 use std::os::fd::RawFd;
 use std::pin::Pin;
 use std::ptr::NonNull;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, Weak};
 
 use async_trait::async_trait;
@@ -10,7 +11,6 @@ use byteorder::{ByteOrder, LittleEndian};
 use nix::unistd::{access, AccessFlags};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use socket2::SockAddr;
 use thiserror::Error;
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 use smol::net::TcpListener;
@@ -142,7 +142,7 @@ pub struct IbDevice {
 #[derive(Debug, Clone)]
 pub struct RdmaTransportConfig {
     gid_index: u8,
-    qps_per_conn: usize,
+    pub qps_per_conn: usize,
     timeout: u8,
     retry_count: u8,
     #[allow(unused)]
@@ -154,14 +154,14 @@ pub struct RdmaTransportConfig {
     ar_threshold: usize,
     pci_relaxed_ordering: bool,
     gdr_flush_disable: bool,
-    socket_if_prefix: Option<String>,
-    ib_if_prefix: Option<String>,
+    pub socket_if_prefix: Option<String>,
+    pub ib_if_prefix: Option<String>,
 }
 
 impl Default for RdmaTransportConfig {
     fn default() -> Self {
         RdmaTransportConfig {
-            gid_index: 0,
+            gid_index: 3,
             qps_per_conn: 1,
             timeout: 18,
             retry_count: 7,
@@ -175,7 +175,7 @@ impl Default for RdmaTransportConfig {
             pci_relaxed_ordering: false,
             // TODO: set to false
             gdr_flush_disable: true,
-            socket_if_prefix: None,
+            socket_if_prefix: Some("rdma0".to_string()),
             ib_if_prefix: None,
         }
     }
@@ -183,13 +183,13 @@ impl Default for RdmaTransportConfig {
 
 pub struct RdmaTransportContext {
     devices: Vec<IbDevice>,
-    listen_addr: SockAddr,
+    listen_addr: IpAddr,
     page_size: usize,
     gdr_support: bool,
     config: RdmaTransportConfig,
 }
 
-pub struct RdmaTransportProvider(OnceCell<RdmaTransportContext>);
+pub struct RdmaTransportProvider(pub OnceCell<RdmaTransportContext>);
 
 pub static RDMA_TRANSPORT: RdmaTransportProvider = RdmaTransportProvider(OnceCell::new());
 
@@ -297,7 +297,16 @@ pub fn ib_init_transport_context(
     let mut devices_ctx = Vec::with_capacity(devices.len());
     let mut dev_enabled = false;
     for (idx, dev) in devices.iter().enumerate() {
-        let context = Arc::new(dev.open()?);
+        let context = Arc::new(match dev.open() {
+            Ok(v) => v,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::Other {
+                    continue;
+                } else {
+                    Err(e)?
+                }
+            }
+        });
         let mut dev_attr = ibv_device_attr::default();
         unsafe {
             ibv_check!(ibverbs::ffi::ibv_query_device(context.ctx, &mut dev_attr));
@@ -385,6 +394,7 @@ pub fn ib_init_transport_context(
         .map_err(|e| std::io::Error::from_raw_os_error(e as i32))?
         .unwrap() as usize;
     let gdr_support = ib_gdr_support();
+    let interface_addr = interface_addr.as_socket().unwrap().ip();
     let transport_context = RdmaTransportContext {
         devices: devices_ctx,
         listen_addr: interface_addr,
@@ -773,11 +783,11 @@ fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp) -> Result<(), IbError> {
 pub async fn ib_listen(device: usize) -> Result<(IbConnectHandle, IbListenComm), IbError> {
     let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
 
-    let listen_addr = transport_ctx.listen_addr.as_socket().unwrap();
+    let listen_addr = SocketAddr::new(transport_ctx.listen_addr, 0);
     let listener = tcp::async_listen(&listen_addr)?;
     let magic = rand::random::<u64>();
     let handle = IbConnectHandle {
-        connect_addr: transport_ctx.listen_addr.as_socket().unwrap(),
+        connect_addr: listen_addr, 
         magic,
     };
     let listen_comm = IbListenComm {
@@ -1235,7 +1245,7 @@ fn ib_multi_send(comm: Pin<&mut IbSendComm<'_>>, slot: usize) -> Result<(), IbEr
             let send_size = unsafe { comm.verbs.requests[requests_idx[r]].send_recv.send.size };
             let chunk_size = send_size.div_ceil(num_qps).div_ceil(ALIGN) * ALIGN;
             let offset = unsafe { comm.verbs.requests[requests_idx[r]].send_recv.send.offset };
-            if send_size >= offset {
+            if send_size <= offset {
                 comm.wrs[r].sg_list = std::ptr::null_mut();
                 comm.wrs[r].num_sge = 0;
             } else {
@@ -1334,7 +1344,7 @@ pub fn ib_initiate_send(
         comm.fifo_requests_idx[slot][r] = request_id;
 
         let handle = IbRequestId(request_id);
-        if comm.fifo_requests_idx[slot]
+        if comm.fifo_requests_idx[slot][0..num_requests]
             .iter()
             .any(|id| *id == IB_MAX_REQUESTS)
         {
@@ -1440,6 +1450,7 @@ pub fn ib_initiate_recv(
     }
 
     let mut wr = ibv_recv_wr::default();
+    wr.wr_id = request_id as u64;
     wr.sg_list = std::ptr::null_mut();
     wr.num_sge = 0;
 

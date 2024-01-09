@@ -552,6 +552,8 @@ impl Control {
     }
     
     pub fn dist_test(host: usize) {
+        use crate::transport::net::provider::NetProvierWrap;
+        crate::transport::net::provider::RDMA_TRANSPORT.init().unwrap();
         let transport_delegator = TransportDelegator::new();
         transport_delegator.active_connections.insert(0, vec![(0, 0)]);
         let transport_engine_id = TransportEngineId {
@@ -653,6 +655,7 @@ impl Control {
             ProxyCompletion::InitCommunicator => (),
             _ => panic!("unexpected"),
         }
+        log::info!("Init communicator done");
     }
 
     // fn initialize_test_region(

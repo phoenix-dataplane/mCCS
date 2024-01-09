@@ -31,6 +31,7 @@ pub enum PeerType {
 #[derive(Clone)]
 pub struct PeerInfo {
     pub rank: usize,
+    pub local_rank: usize,
     pub peer_type: PeerType,
     pub host: SocketAddr,
     pub cuda_device_idx: i32,

@@ -229,7 +229,7 @@ impl BootstrapState {
         let mut all_addrs_buf = vec![0u8; SOCK_ADDR_SEND_SIZE * num_ranks];
         let mut my_buf =
             &mut all_addrs_buf[rank * SOCK_ADDR_SEND_SIZE..(rank + 1) * SOCK_ADDR_SEND_SIZE];
-        tcp::encode_socket_addr(&listen_addr, &mut my_buf);
+        tcp::encode_socket_addr(&peer_listen_addr, &mut my_buf);
         bootstrap_all_gather_internal(
             &mut ring_send,
             &mut ring_recv,
@@ -294,6 +294,7 @@ impl BootstrapState {
         tag: u32,
         data: &[u8],
     ) -> Result<(), BootstrapError> {
+        log::trace!("Bootstrap rank {:?} send to peer {} ({:?}) tag {}", self.rank, peer, self.peer_addrs[peer], tag);
         let mut stream = tcp::async_connect(&self.peer_addrs[peer], self.magic).await?;
         let mut buf = [0u8; 8];
         LittleEndian::write_u64(&mut buf, self.rank as u64);
@@ -318,6 +319,8 @@ impl BootstrapState {
         }
         loop {
             let mut stream = tcp::async_accept(&self.listener, self.magic).await?;
+            let peer_addr = stream.peer_addr()?;
+            log::trace!("Bootstrap rank {:?} recv from peer {} ({:?}) tag {}", self.rank, peer, peer_addr, tag);
 
             let mut buf = [0u8; 8];
             stream.read_exact(&mut buf).await?;

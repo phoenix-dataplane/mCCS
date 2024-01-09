@@ -148,6 +148,7 @@ pub async fn exchange_connect_handle(
     graph_tag: u8,
     task: PeerTransportHandleExchangeTask,
 ) -> Result<HashMap<PeerConnId, ConnectHandle>, TransportConnectError> {
+    log::debug!("Prepare to exchange connect handle");
     let rank = task.rank;
     let num_ranks = task.num_ranks;
     let num_channels = task.num_channels;
@@ -325,6 +326,7 @@ pub async fn exchange_connect_handle(
             }
         }
     }
+    log::trace!("Rank {} of {} complete ConnectHandle exchange", rank, num_ranks);
     Ok(all_peer_handles)
 }
 
@@ -511,7 +513,7 @@ impl TransportConnectState {
                 transport_resources: constructor.resources,
             };
             TransportConnectTask::PeerTransportConnectAgentCb(task)
-        } else if !self.peer_connect_pre_agent.is_empty() {
+        } else if !self.peer_connect_pre_agent.is_empty() || !self.peer_setup.is_empty() || !self.peer_setup_pre_agent.is_empty() {
             TransportConnectTask::WaitingOutstandingTask
         } else {
             TransportConnectTask::Idle

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
@@ -92,7 +91,7 @@ impl ProxyResources {
                     }
                     AsyncTaskOutput::AllGatherPeerInfo(info) => {
                         assert_eq!(info.len(), comm.num_ranks);
-                        let peers_info = info
+                        let mut peers_info = info
                             .into_iter()
                             .map(|x| {
                                 let peer_type = if x.rank == comm.rank {
@@ -104,12 +103,21 @@ impl ProxyResources {
                                 };
                                 PeerInfo {
                                     rank: x.rank,
+                                    local_rank: 0,
                                     peer_type,
                                     host: x.host,
                                     cuda_device_idx: x.cuda_device_idx,
                                 }
                             })
                             .collect::<Vec<_>>();
+                        let mut host_dev_count = HashMap::new();
+                        for info in peers_info.iter_mut() {
+                            let count = host_dev_count
+                                .entry(info.host.clone())
+                                .or_insert(0);
+                            info.local_rank = *count;
+                            *count += 1;
+                        }
                         comm.peers_info = Some(peers_info);
                     }
                     AsyncTaskOutput::BootstrapRoot => {}
@@ -678,9 +686,6 @@ impl ProxyEngine {
                         // TODO: get default profile from central registry
                         let profile = CommProfile {
                             buff_sizes: [8 * 1024 * 1024],
-                            peers_local_rank: Vec::new(),
-                            peers_cuda_device_idx: Vec::new(),
-                            network_devices: Vec::new(),
                         };
                         let mut comm_init = CommInitState::new(
                             init.communicator_id,
