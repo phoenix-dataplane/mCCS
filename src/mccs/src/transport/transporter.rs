@@ -18,7 +18,7 @@ pub type TransporterError = anyhow::Error;
 
 pub const CONNECT_HANDLE_SIZE: usize = 128;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[repr(transparent)]
 pub struct ConnectHandle(pub [u8; CONNECT_HANDLE_SIZE]);
 
@@ -32,8 +32,7 @@ pub enum ConnectHandleError {
 
 impl ConnectHandle {
     pub fn serialize_from<T: Serialize>(handle: T) -> Result<Self, ConnectHandleError> {
-        let uninit = MaybeUninit::<u8>::uninit_array::<CONNECT_HANDLE_SIZE>();
-        let mut serialized = unsafe { MaybeUninit::array_assume_init(uninit) };
+        let mut serialized = [0u8; CONNECT_HANDLE_SIZE];
         let required_size = bincode::serialized_size(&handle)?;
         if required_size as usize > CONNECT_HANDLE_SIZE {
             return Err(ConnectHandleError::ExceedMaxSize(required_size as usize));

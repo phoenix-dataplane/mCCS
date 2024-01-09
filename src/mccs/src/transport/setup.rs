@@ -222,17 +222,17 @@ pub async fn exchange_connect_handle(
 
             let mut peer_recv_handles = Vec::new();
             let mut peer_send_handles = Vec::new();
-            for idx in 0..recv_channels {
-                let data = &recv_data.as_slice()
-                    [idx * CONNECT_HANDLE_SIZE..(idx + 1) * CONNECT_HANDLE_SIZE];
-                let handle = ConnectHandle(data.try_into().unwrap());
-                peer_recv_handles.push(handle);
-            }
-            for idx in recv_channels..(recv_channels + send_channels) {
+            for idx in 0..send_channels {
                 let data = &recv_data.as_slice()
                     [idx * CONNECT_HANDLE_SIZE..(idx + 1) * CONNECT_HANDLE_SIZE];
                 let handle = ConnectHandle(data.try_into().unwrap());
                 peer_send_handles.push(handle);
+            }
+            for idx in send_channels..(send_channels + recv_channels) {
+                let data = &recv_data.as_slice()
+                    [idx * CONNECT_HANDLE_SIZE..(idx + 1) * CONNECT_HANDLE_SIZE];
+                let handle = ConnectHandle(data.try_into().unwrap());
+                peer_recv_handles.push(handle);
             }
             (peer_recv_handles, peer_send_handles)
         } else {
@@ -326,7 +326,11 @@ pub async fn exchange_connect_handle(
             }
         }
     }
-    log::trace!("Rank {} of {} complete ConnectHandle exchange", rank, num_ranks);
+    log::trace!(
+        "Rank {} of {} complete ConnectHandle exchange",
+        rank,
+        num_ranks
+    );
     Ok(all_peer_handles)
 }
 
@@ -513,7 +517,10 @@ impl TransportConnectState {
                 transport_resources: constructor.resources,
             };
             TransportConnectTask::PeerTransportConnectAgentCb(task)
-        } else if !self.peer_connect_pre_agent.is_empty() || !self.peer_setup.is_empty() || !self.peer_setup_pre_agent.is_empty() {
+        } else if !self.peer_connect_pre_agent.is_empty()
+            || !self.peer_setup.is_empty()
+            || !self.peer_setup_pre_agent.is_empty()
+        {
             TransportConnectTask::WaitingOutstandingTask
         } else {
             TransportConnectTask::Idle

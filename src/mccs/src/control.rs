@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::iter::zip;
+use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
 use std::os::unix::net::UCred;
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -505,8 +505,14 @@ impl Control {
         daemon_rx: Vec<(DaemonId, crossbeam::channel::Receiver<ProxyCommand>)>,
         exchange_tx: crossbeam::channel::Sender<ExchangeCommand>,
         exchange_rx: crossbeam::channel::Receiver<ExchangeCompletion>,
-        transport_engines_tx: HashMap<TransportEngineId, crossbeam::channel::Sender<TransportEngineRequest>>,
-        transport_engines_rx: Vec<(TransportEngineId, crossbeam::channel::Receiver<TransportEngineReply>)>,
+        transport_engines_tx: HashMap<
+            TransportEngineId,
+            crossbeam::channel::Sender<TransportEngineRequest>,
+        >,
+        transport_engines_rx: Vec<(
+            TransportEngineId,
+            crossbeam::channel::Receiver<TransportEngineReply>,
+        )>,
         global_registry: Arc<GlobalRegistry>,
     ) -> anyhow::Result<()> {
         let dev_info = DeviceInfo {
@@ -550,12 +556,16 @@ impl Control {
         });
         Ok(())
     }
-    
+
     pub fn dist_test(host: usize) {
         use crate::transport::net::provider::NetProvierWrap;
-        crate::transport::net::provider::RDMA_TRANSPORT.init().unwrap();
+        crate::transport::net::provider::RDMA_TRANSPORT
+            .init()
+            .unwrap();
         let transport_delegator = TransportDelegator::new();
-        transport_delegator.active_connections.insert(0, vec![(0, 0)]);
+        transport_delegator
+            .active_connections
+            .insert(0, vec![(0, 0)]);
         let transport_engine_id = TransportEngineId {
             cuda_device_idx: 0,
             index: 0,
@@ -578,7 +588,7 @@ impl Control {
             transport_catalog: Arc::new(transport_catalog),
         };
         let registry = Arc::new(registry);
-        
+
         let resources = TransportEngineResources {
             agent_setup: HashMap::new(),
             agent_connected: HashMap::new(),
@@ -602,7 +612,7 @@ impl Control {
                 }
             }
             transport_engine.mainloop();
-        }); 
+        });
 
         let (daemon_cmd_tx, daemon_cmd_rx) = crossbeam::channel::unbounded();
         let (daemon_comp_tx, daemon_comp_rx) = crossbeam::channel::unbounded();
@@ -627,15 +637,12 @@ impl Control {
             transport_engines_tx,
             transport_engines_rx,
             registry.clone(),
-        ).unwrap();
+        )
+        .unwrap();
 
         let proxy_tx = vec![exchange_comp_tx];
         let proxy_rx = vec![exchange_cmd_rx];
-        let mut exchange_engine = ExchangeEngine::new(
-            sock_addr,
-            proxy_tx,
-            proxy_rx,
-        );
+        let mut exchange_engine = ExchangeEngine::new(sock_addr, proxy_tx, proxy_rx);
         std::thread::spawn(move || {
             exchange_engine.mainloop();
         });

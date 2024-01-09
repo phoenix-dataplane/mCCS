@@ -1,9 +1,9 @@
 use std::ffi::c_void;
 use std::marker::PhantomPinned;
+use std::net::{IpAddr, SocketAddr};
 use std::os::fd::RawFd;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, Weak};
 
 use async_trait::async_trait;
@@ -11,9 +11,9 @@ use byteorder::{ByteOrder, LittleEndian};
 use nix::unistd::{access, AccessFlags};
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 use smol::net::TcpListener;
+use thiserror::Error;
 use volatile::{map_field, VolatilePtr};
 
 use ibverbs::ffi::ibv_async_event;
@@ -785,9 +785,11 @@ pub async fn ib_listen(device: usize) -> Result<(IbConnectHandle, IbListenComm),
 
     let listen_addr = SocketAddr::new(transport_ctx.listen_addr, 0);
     let listener = tcp::async_listen(&listen_addr)?;
+    let listen_addr = listener.local_addr()?;
+    log::debug!("RDMA transport provider listens on {:?}", listen_addr);
     let magic = rand::random::<u64>();
     let handle = IbConnectHandle {
-        connect_addr: listen_addr, 
+        connect_addr: listen_addr,
         magic,
     };
     let listen_comm = IbListenComm {
@@ -804,6 +806,7 @@ pub async fn ib_connect(
 ) -> Result<IbSendComm<'static>, IbError> {
     // Stage 1: connect to peer and set up QPs
     let connect_addr = handle.connect_addr;
+    log::debug!("RDMA transport provider connects to {:?}", connect_addr);
     let mut stream = tcp::async_connect(&connect_addr, handle.magic).await?;
 
     let mut verbs = ib_init_verbs(device)?;

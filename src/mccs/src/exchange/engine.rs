@@ -3,12 +3,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use byteorder::{ByteOrder, LittleEndian};
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use futures::future::BoxFuture;
 use futures::FutureExt;
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 use smol::net::TcpListener;
-use byteorder::{LittleEndian, ByteOrder};
 
 use super::command::{ExchangeCommand, ExchangeCompletion};
 use super::message::ExchangeMessage;

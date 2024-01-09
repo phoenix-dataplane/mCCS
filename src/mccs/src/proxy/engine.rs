@@ -112,9 +112,7 @@ impl ProxyResources {
                             .collect::<Vec<_>>();
                         let mut host_dev_count = HashMap::new();
                         for info in peers_info.iter_mut() {
-                            let count = host_dev_count
-                                .entry(info.host.clone())
-                                .or_insert(0);
+                            let count = host_dev_count.entry(info.host.clone()).or_insert(0);
                             info.local_rank = *count;
                             *count += 1;
                         }

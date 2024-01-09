@@ -1,11 +1,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use byteorder::{ByteOrder, LittleEndian};
 use bytes::buf::{Buf, BufMut};
 use smol::io::{AsyncReadExt, AsyncWriteExt};
-use smol::net::{TcpStream, TcpListener};
 use smol::lock::Mutex;
-use byteorder::{LittleEndian, ByteOrder};
+use smol::net::{TcpListener, TcpStream};
 use socket2::Socket;
 
 use super::{BootstrapError, BootstrapHandle, BootstrapState, UnexpectedConn};
@@ -132,17 +132,9 @@ pub fn bootstrap_create_root(
     listen_addr: &SocketAddr,
 ) -> Result<(Socket, BootstrapHandle), BootstrapError> {
     let socket = if listen_addr.is_ipv4() {
-        Socket::new(
-            socket2::Domain::IPV4,
-            socket2::Type::STREAM,
-            None
-        )?
+        Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?
     } else {
-        Socket::new(
-            socket2::Domain::IPV6,
-            socket2::Type::STREAM,
-            None
-        )?
+        Socket::new(socket2::Domain::IPV6, socket2::Type::STREAM, None)?
     };
     let addr = listen_addr.to_owned().into();
     socket.bind(&addr)?;
@@ -193,7 +185,12 @@ impl BootstrapState {
         let peer_listen_addr = peer_listener.local_addr()?;
         let root_listener = tcp::async_listen(&listen_addr)?;
         let root_listen_addr = root_listener.local_addr()?;
-        log::trace!("Rank {} of {} root listening on {:?}", rank, num_ranks, root_listen_addr);
+        log::trace!(
+            "Rank {} of {} root listening on {:?}",
+            rank,
+            num_ranks,
+            root_listen_addr
+        );
 
         if num_ranks > 128 {
             let dura = std::time::Duration::from_millis(rank as u64);
@@ -201,7 +198,12 @@ impl BootstrapState {
             smol::Timer::after(dura).await;
         }
 
-        log::trace!("Rank {} of {} connecting to root {:?}", rank, num_ranks, handle.addr);
+        log::trace!(
+            "Rank {} of {} connecting to root {:?}",
+            rank,
+            num_ranks,
+            handle.addr
+        );
         let mut stream = tcp::async_connect(&handle.addr, handle.magic).await?;
         let info = BootstrapExchangeInfo {
             rank,
@@ -294,7 +296,13 @@ impl BootstrapState {
         tag: u32,
         data: &[u8],
     ) -> Result<(), BootstrapError> {
-        log::trace!("Bootstrap rank {:?} send to peer {} ({:?}) tag {}", self.rank, peer, self.peer_addrs[peer], tag);
+        log::trace!(
+            "Bootstrap rank {:?} send to peer {} ({:?}) tag {}",
+            self.rank,
+            peer,
+            self.peer_addrs[peer],
+            tag
+        );
         let mut stream = tcp::async_connect(&self.peer_addrs[peer], self.magic).await?;
         let mut buf = [0u8; 8];
         LittleEndian::write_u64(&mut buf, self.rank as u64);
@@ -320,7 +328,13 @@ impl BootstrapState {
         loop {
             let mut stream = tcp::async_accept(&self.listener, self.magic).await?;
             let peer_addr = stream.peer_addr()?;
-            log::trace!("Bootstrap rank {:?} recv from peer {} ({:?}) tag {}", self.rank, peer, peer_addr, tag);
+            log::trace!(
+                "Bootstrap rank {:?} recv from peer {} ({:?}) tag {}",
+                self.rank,
+                peer,
+                peer_addr,
+                tag
+            );
 
             let mut buf = [0u8; 8];
             stream.read_exact(&mut buf).await?;
@@ -344,7 +358,7 @@ impl BootstrapState {
         data: Vec<u8>,
     ) -> Result<(), BootstrapError> {
         let mut stream = tcp::async_connect(&self.peer_addrs[peer], self.magic).await?;
-        
+
         let mut buf = [0u8; 8];
         LittleEndian::write_u64(&mut buf, self.rank as u64);
         stream.write_all(&buf).await?;
@@ -444,8 +458,10 @@ impl BootstrapState {
         while mask < num_ranks {
             let src_idx = (rank + num_ranks - mask) % num_ranks;
             let dst_idx = (rank + mask) % num_ranks;
-            self.bootstrap_send_internal(ranks[dst_idx], tag, data.as_slice()).await?;
-            self.bootstrap_recv_internal(ranks[src_idx], tag, data.as_mut_slice()).await?;
+            self.bootstrap_send_internal(ranks[dst_idx], tag, data.as_slice())
+                .await?;
+            self.bootstrap_recv_internal(ranks[src_idx], tag, data.as_mut_slice())
+                .await?;
             mask <<= 1;
         }
         log::trace!("Bootstrap barrier done: rank {} of {}", rank, num_ranks);

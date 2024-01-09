@@ -7,20 +7,11 @@ use smol::io::{AsyncReadExt, AsyncWriteExt};
 use smol::net::{TcpListener, TcpStream};
 use socket2::Socket;
 
-
 pub fn async_listen(addr: &SocketAddr) -> std::io::Result<TcpListener> {
     let socket = if addr.is_ipv4() {
-        Socket::new(
-            socket2::Domain::IPV4,
-            socket2::Type::STREAM,
-            None
-        )?
+        Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)?
     } else {
-        Socket::new(
-            socket2::Domain::IPV6,
-            socket2::Type::STREAM,
-            None
-        )?
+        Socket::new(socket2::Domain::IPV6, socket2::Type::STREAM, None)?
     };
     let addr = addr.to_owned().into();
     socket.bind(&addr)?;
