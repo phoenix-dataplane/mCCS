@@ -243,7 +243,10 @@ impl Communicator {
             .collect()
     }
 
-    fn finalize_one_plan(&mut self, submission_pool:&mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>) -> KernelPlan {
+    fn finalize_one_plan(
+        &mut self,
+        submission_pool: &mut HashMap<TransportEngineId, Vec<TransportEngineRequest>>,
+    ) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
         let mut chan_list = Vec::with_capacity(MCCS_MAX_ELEMENTS_PER_WORK);
         let mut channel_upper_bound = 0;
@@ -256,7 +259,9 @@ impl Communicator {
                 channel_mask |= 1 << idx.0;
                 work_count += chan.work_queue.len();
                 // upload ProxyOp
-                chan.agent_task_queue.into_iter().for_each(|task|submission_pool.get(k).unwrap().)
+                chan.agent_task_queue
+                    .into_iter()
+                    .for_each(|task| submission_pool.get(k).unwrap())
             }
         }
         let dev_work = self.upload_work(&chan_list, channel_upper_bound, channel_mask, work_count);
