@@ -675,7 +675,7 @@ impl Control {
         log::info!("Init communicator done");
 
         /// ----------------------------------------------------------
-        const BUFFER_SIZE: usize = 8 * 1024 * 1024;
+        const BUFFER_SIZE: usize = 24 * 1024 * 1024;
 
         let first = if host == 0 { 42 } else { 99 };
         let second = if host == 0 { 88 } else { 37 };

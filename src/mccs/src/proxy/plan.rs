@@ -14,12 +14,14 @@ use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpy
 
 use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
 use crate::comm::{ChannelCommPattern, MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
+use crate::pattern::MCCS_STEP;
 use crate::transport::channel::{ChannelId, CommChannel, ConnType, PeerConnId};
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::TransportEngineRequest;
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::task::TransportTask;
 use crate::transport::transporter::TransportAgentId;
+use crate::transport::Protocol;
 use crate::{
     comm::Communicator,
     cuda::{alloc::DeviceAlloc, ptr::DeviceNonNull},
@@ -148,19 +150,32 @@ impl Communicator {
             } else {
                 (1, 1)
             };
-            let chunk_size = chunk_steps * slice_steps;
+            // todo: line 1838
+            let step_size = self.profile.buff_sizes[Protocol::Simple as usize] as u32 / MCCS_STEP;
+
+            let chunk_size = chunk_steps * step_size;
             let n_loops = {
+                // DIVUP
+                let total_bytes = task.count * task.data_type.count_bytes();
                 let per_loop_size = schema.num_channels
                     * schema.get_num_chunks_per_loop(self.num_ranks as u32)
                     * chunk_size;
-                (task.count * task.data_type.count_bytes() / (per_loop_size as usize)) as u32
+                (total_bytes as u32 + per_loop_size - 1) / per_loop_size
             };
+
+            log::debug!("nloops={}, num_channels={}", n_loops, schema.num_channels);
             (
                 chunk_steps,
                 slice_steps,
                 task.chunk_steps * n_loops * schema.get_num_steps_per_loop(self.num_ranks as u32),
             )
         };
+        log::debug!(
+            "chunk_steps={}, slice_steps={}, num_step={}",
+            chunk_steps,
+            slice_steps,
+            num_step
+        );
         self.select_best_channels(schema.num_channels)
             .into_iter()
             .enumerate()
