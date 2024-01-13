@@ -21,6 +21,8 @@ struct Opts {
     config: PathBuf,
     #[structopt(short, long)]
     host: usize,
+    #[structopt(short, long)]
+    size: usize,
 }
 
 static TERMINATE: AtomicBool = AtomicBool::new(false);
@@ -31,6 +33,7 @@ extern "C" fn handle_sigint(sig: i32) {
 }
 
 fn main() -> Result<()> {
+    better_panic::install();
     // load config
     let opts = Opts::from_args();
     let config = Config::from_path(opts.config)?;
@@ -75,7 +78,7 @@ fn main() -> Result<()> {
     // let mut control = Control::new(config);
     log::info!("Started mCCS");
 
-    Control::dist_test(opts.host);
+    Control::dist_test(opts.host, opts.size);
     Ok(())
     // control.mainloop(&TERMINATE)
 }
