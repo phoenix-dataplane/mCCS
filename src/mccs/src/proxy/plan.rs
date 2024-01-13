@@ -107,7 +107,11 @@ impl Communicator {
         device_id: i32,
     ) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
-        self.compute_coll_work(&first_task, device_id);
+        let mut max_threads_per_block = 0;
+        max_threads_per_block = std::cmp::max(
+            max_threads_per_block,
+            self.compute_coll_work(&first_task, device_id),
+        );
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
             if first_task.func == coll_task.func
                 && first_task.data_type == coll_task.data_type
@@ -119,26 +123,29 @@ impl Communicator {
                 })
             {
                 let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
-                self.compute_coll_work(&coll_task, device_id);
+                max_threads_per_block = std::cmp::max(
+                    max_threads_per_block,
+                    self.compute_coll_work(&coll_task, device_id),
+                );
                 log::trace!("Compute more coll task");
             } else {
                 break;
             }
         }
-        let plan = self.finalize_one_plan(pool, mapping);
+        let plan = self.finalize_one_plan(max_threads_per_block, pool, mapping);
         self.unlaunched_plans.push_back(plan);
     }
 
     // convert one task to different WorkElem objects and append them to different channels
-    fn compute_coll_work(&mut self, task: &CollTask, device_id: i32) {
+    fn compute_coll_work(&mut self, task: &CollTask, device_id: i32) -> u32 {
         let schema = get_task_schema(
             task,
             TaskAlgorithm::Ring,
             TaskProtocol::Simple,
             self.channels.len(),
         );
-        log::trace!("task schema: {:?}", schema);
-        log::trace!("CollTask: {:?}", task);
+        log::debug!("task schema: {:?}", schema);
+        log::debug!("CollTask: {:?}", task);
         let num_wraps = schema.num_threads / 32;
 
         let (chunk_steps, slice_steps, num_step) = {
@@ -239,7 +246,8 @@ impl Communicator {
                         op: tx_op,
                     });
                 }
-            })
+            });
+        schema.num_threads
     }
 
     // block id -> ChannelId
@@ -257,6 +265,7 @@ impl Communicator {
 
     fn finalize_one_plan(
         &mut self,
+        thread_per_block: u32,
         submission_pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
         mapping: &DashMap<TransportAgentId, TransportEngineId>,
     ) -> KernelPlan {
@@ -293,10 +302,11 @@ impl Communicator {
             .iter_mut()
             .for_each(|(_, schedule)| schedule.clear());
         log::debug!(
-            "Finalized one KernelPlan: [{}/{}/{:b}]",
+            "Finalized one KernelPlan: [{}/{}/{:b}; {}]",
             chan_list.len(),
             channel_upper_bound,
-            channel_mask
+            channel_mask,
+            thread_per_block
         );
         KernelPlan {
             kernel_fn: ptr as _,
@@ -306,7 +316,7 @@ impl Communicator {
             channel_upper_bound,
             channel_mask,
 
-            thread_per_block: 512, //FIXME: should be bigger than maximum thread. Otherwise the program will hang
+            thread_per_block: thread_per_block as usize,
         }
     }
 
@@ -559,7 +569,7 @@ fn get_task_schema(
     }
     // warning: should not exceed thread_per_block?
     debug_assert!(num_thread <= MCCS_SIMPLE_MAX_N_THREADS + WARP_SIZE);
-    log::trace!("num_thread={}, num_channel={}", num_thread, num_channel);
+    log::debug!("num_thread={}, num_channel={}", num_thread, num_channel);
     TaskSchema {
         algorithm: algo,
         protocol: proto,
