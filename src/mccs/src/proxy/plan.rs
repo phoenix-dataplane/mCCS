@@ -167,7 +167,7 @@ impl Communicator {
                 let per_loop_size = schema.num_channels
                     * schema.get_num_chunks_per_loop(self.num_ranks as u32)
                     * chunk_size;
-                (total_bytes as u32 + per_loop_size - 1) / per_loop_size
+                ((total_bytes + per_loop_size as usize - 1) / per_loop_size as usize) as u32
             };
 
             log::debug!("nloops={}, num_channels={}", n_loops, schema.num_channels);
