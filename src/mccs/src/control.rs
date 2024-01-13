@@ -566,7 +566,7 @@ impl Control {
         Ok(())
     }
 
-    pub fn dist_test(host: usize) {
+    pub fn dist_test(host: usize, size_mb: usize) {
         let comm_id = 1042;
         use crate::transport::net::provider::NetProvierWrap;
         crate::transport::net::provider::RDMA_TRANSPORT
@@ -675,13 +675,13 @@ impl Control {
         log::info!("Init communicator done");
 
         /// ----------------------------------------------------------
-        const BUFFER_SIZE: usize = 24 * 1024 * 1024;
+        let buffer_size = size_mb * 1024 * 1024;
 
         let first = if host == 0 { 42 } else { 99 };
         let second = if host == 0 { 88 } else { 37 };
         log::info!("Buffer content: [{};{}]", first, second);
 
-        let dev_buf_0 = Self::initialize_test_region(BUFFER_SIZE, first, second);
+        let dev_buf_0 = Self::initialize_test_region(buffer_size, first, second);
 
         let handle = unsafe {
             let mut event = std::ptr::null_mut();
@@ -699,9 +699,9 @@ impl Control {
         daemon_cmd_tx
             .send(ProxyCommand::AllGather(AllGatherRequest {
                 communicator_id: CommunicatorId(comm_id),
-                send_buf_addr: dev_buf_0 as usize + if host == 0 { 0 } else { BUFFER_SIZE / 2 },
+                send_buf_addr: dev_buf_0 as usize + if host == 0 { 0 } else { buffer_size / 2 },
                 recv_buf_addr: dev_buf_0 as usize,
-                size: BUFFER_SIZE / 2,
+                size: buffer_size / 2,
                 app_ipc_event_handle: handle.into(),
             }))
             .unwrap();
@@ -724,12 +724,12 @@ impl Control {
         log::info!("synchronized");
 
         // check
-        let mut buf = vec![0u8; BUFFER_SIZE];
+        let mut buf = vec![0u8; buffer_size];
         unsafe {
             let err = cudaMemcpy(
                 buf.as_mut_ptr() as *mut _,
                 dev_buf_0,
-                BUFFER_SIZE,
+                buffer_size,
                 cudaMemcpyKind::cudaMemcpyDeviceToHost,
             );
             if err != cudaError::cudaSuccess {
@@ -737,20 +737,24 @@ impl Control {
             }
         };
         log::info!("memcpy done");
+        let show_num = (buffer_size as f32 / (1024.0 * 1024.0) / 2.0);
         println!(
-            "[0]={} [100]={} [4MB-1]={}",
+            "[0]={} [100]={} [{:.1}MB-1]={}",
             buf[0],
             buf[100],
-            buf[BUFFER_SIZE / 2 - 1]
+            show_num,
+            buf[buffer_size / 2 - 1]
         );
         println!(
-            "[4MB]={} [4MB+100]={} [Last]={}",
-            buf[BUFFER_SIZE / 2],
-            buf[BUFFER_SIZE / 2 + 100],
-            buf[BUFFER_SIZE - 1]
+            "[{:.1}MB]={} [{:.1}MB+100]={} [Last]={}",
+            show_num,
+            buf[buffer_size / 2],
+            show_num,
+            buf[buffer_size / 2 + 100],
+            buf[buffer_size - 1]
         );
         assert_eq!(buf[0], 42);
-        assert_eq!(buf[BUFFER_SIZE / 2], 37);
+        assert_eq!(buf[buffer_size / 2], 37);
         log::info!("Success");
     }
 
