@@ -553,13 +553,13 @@ fn get_task_schema(
             break;
         }
     }
-    // todo: determine if "Extra warp for sync" necessary to be added when exceeding 512
-    num_thread = if num_thread + WARP_SIZE > MCCS_SIMPLE_MAX_N_THREADS {
-        MCCS_SIMPLE_MAX_N_THREADS
-    } else {
-        num_thread + WARP_SIZE
-    }; // warning: should not exceed thread_per_block?
-    debug_assert!(num_thread <= MCCS_SIMPLE_MAX_N_THREADS);
+    num_thread += WARP_SIZE;
+    if num_thread / WARP_SIZE < 3 {
+        num_thread = WARP_SIZE * 3
+    }
+    // warning: should not exceed thread_per_block?
+    debug_assert!(num_thread <= MCCS_SIMPLE_MAX_N_THREADS + WARP_SIZE);
+    log::trace!("num_thread={}, num_channel={}", num_thread, num_channel);
     TaskSchema {
         algorithm: algo,
         protocol: proto,
