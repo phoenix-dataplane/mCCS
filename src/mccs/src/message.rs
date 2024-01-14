@@ -7,7 +7,6 @@ use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
 use crate::utils::duplex_chan::DuplexChannel;
 
 pub enum ControlRequest {
-    NewDaemon(DaemonId),
     NewTransportEngine(TransportEngineId),
 }
 

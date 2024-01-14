@@ -655,7 +655,9 @@ impl Engine for ProxyEngine {
 impl ProxyEngine {
     #[inline]
     fn enqueue_async_task(&mut self) {
-        for task in self.resources.task_submit_pool.drain(..) {}
+        for task in self.resources.task_submit_pool.drain(..) {
+            self.async_tasks.enqueue(task)
+        }
     }
 
     #[inline]
@@ -675,6 +677,7 @@ impl ProxyEngine {
                 ExchangeCompletion::RegisterBootstrapHandle => {}
                 ExchangeCompletion::RecvBootstrapHandle(comm_id, handle) => {
                     let comm = self.resources.comms_init.get_mut(&comm_id).unwrap();
+                    log::debug!("ProxyEngine: {:?}+{:?}", comm_id, handle);
                     comm.bootstrap_handle = Some(handle);
                 }
             },
@@ -689,9 +692,11 @@ impl ProxyEngine {
     // when a new transport engine is spawned on demand
     fn flush_transport_requests(&mut self) {
         for (id, queue) in self.resources.transport_submission_cache.drain() {
-            let tx = self.resources.transport_engines_tx.get_mut(&id).unwrap();
-            for req in queue.into_iter() {
-                tx.send(req).unwrap();
+            let tx = self.resources.transport_engines_tx.get_mut(&id);
+            if let Some(tx) = tx {
+                for req in queue.into_iter() {
+                    tx.send(req).unwrap();
+                }
             }
         }
     }
@@ -735,6 +740,7 @@ impl ProxyEngine {
         if let Ok(msg) = self.resources.control_chan.rx.try_recv() {
             match msg {
                 ControlNotification::NewTransportEngine { id, chan } => {
+                    log::debug!("ProxyEngine: check_control_notify: id={:?}", id);
                     self.resources.register_transport_engine(id, chan);
                 }
                 ControlNotification::NewDaemon { id, chan } => {

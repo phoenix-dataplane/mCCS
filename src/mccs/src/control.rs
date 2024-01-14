@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::anyhow;
 
+use crossbeam::channel::{Receiver, Sender};
 use cuda_runtime_sys::cudaGetDeviceCount;
 use ipc::customer::ShmCustomer;
 use ipc::unix::DomainSocket;
@@ -25,6 +26,7 @@ use crate::transport::catalog::TransportCatalog;
 use crate::transport::delegator::TransportDelegator;
 use crate::transport::engine::TransportEngine;
 use crate::transport::engine::TransportEngineId;
+use crate::transport::net::RDMA_TRANSPORT;
 use crate::utils::duplex_chan::DuplexChannel;
 
 // Imports for tests
@@ -61,11 +63,14 @@ pub struct Control {
     transport_catalog: Arc<TransportCatalog>,
     transport_delegator: Arc<TransportDelegator>,
     runtime_manager: RuntimeManager,
-    proxy_channels: Vec<DuplexChannel<ControlNotification, ControlRequest>>,
+    proxy_tx: Vec<Sender<ControlNotification>>,
+    proxy_rx: Vec<Receiver<ControlRequest>>,
 }
 
 impl Control {
     pub fn new(config: Config, host: usize) -> Self {
+        use crate::transport::net::provider::NetProvierWrap;
+
         let mccs_prefix = &config.control.prefix;
         fs::create_dir_all(mccs_prefix)
             .unwrap_or_else(|e| panic!("Failed to create directory for {mccs_prefix:?}: {e}"));
@@ -91,6 +96,7 @@ impl Control {
         transport_catalog.register_config(String::from("NetTransport"), net_config);
         let shm_config = config.comm_global_config.shm_config.clone();
         transport_catalog.register_config(String::from("ShmTransport"), shm_config);
+        RDMA_TRANSPORT.init(&transport_catalog).unwrap();
 
         let runtime_manager = RuntimeManager::new();
         let listen_addr = std::net::SocketAddr::new(config.addrs[host].clone(), config.listen_port);
@@ -103,6 +109,12 @@ impl Control {
             &transport_delegator,
             &transport_catalog,
         );
+        let mut proxy_tx = Vec::with_capacity(proxy_chans.len());
+        let mut proxy_rx = Vec::with_capacity(proxy_chans.len());
+        for chan in proxy_chans.into_iter() {
+            proxy_tx.push(chan.tx);
+            proxy_rx.push(chan.rx);
+        }
 
         Control {
             sock,
@@ -111,39 +123,8 @@ impl Control {
             transport_catalog,
             transport_delegator,
             runtime_manager,
-            proxy_channels: proxy_chans,
-        }
-    }
-
-    pub fn create_transport_engine(&mut self, engine_id: TransportEngineId) {
-        let mut proxy_endpoints = Vec::new();
-        let mut transport_endpoints = Vec::new();
-        for _ in 0..self.proxy_channels.len() {
-            let (proxy_endpoint, transport_endpoint) = DuplexChannel::new_unbound_pair();
-            proxy_endpoints.push(proxy_endpoint);
-            transport_endpoints.push(transport_endpoint);
-        }
-        let global_registry = GlobalRegistry {
-            default_comm_config: self.config.comm_default_config.clone(),
-            transport_delegator: Arc::clone(&self.transport_delegator),
-            transport_catalog: Arc::clone(&self.transport_catalog),
-        };
-        let engine = TransportEngine::new(engine_id, transport_endpoints, global_registry);
-        let container = Box::new(engine);
-        self.runtime_manager
-            .submit_engine(container, Some(engine_id.cuda_device_idx));
-        for (proxy_chan, proxy_endpoint) in self
-            .proxy_channels
-            .iter_mut()
-            .zip(proxy_endpoints.into_iter())
-        {
-            proxy_chan
-                .tx
-                .send(ControlNotification::NewTransportEngine {
-                    id: engine_id,
-                    chan: proxy_endpoint,
-                })
-                .unwrap();
+            proxy_tx,
+            proxy_rx,
         }
     }
 
@@ -168,8 +149,52 @@ impl Control {
                     // log
                 }
             }
+            self.check_proxy_requests();
         }
         Ok(())
+    }
+
+    fn check_proxy_requests(&mut self) {
+        for proxy_rx in self.proxy_rx.iter() {
+            match proxy_rx.try_recv() {
+                Ok(req) => match req {
+                    ControlRequest::NewTransportEngine(engine_id) => {
+                        let mut proxy_endpoints = Vec::new();
+                        let mut transport_endpoints = Vec::new();
+                        for _ in 0..self.proxy_tx.len() {
+                            let (proxy_endpoint, transport_endpoint) =
+                                DuplexChannel::new_unbound_pair();
+                            proxy_endpoints.push(proxy_endpoint);
+                            transport_endpoints.push(transport_endpoint);
+                        }
+                        let global_registry = GlobalRegistry {
+                            default_comm_config: self.config.comm_default_config.clone(),
+                            transport_delegator: Arc::clone(&self.transport_delegator),
+                            transport_catalog: Arc::clone(&self.transport_catalog),
+                        };
+                        let engine =
+                            TransportEngine::new(engine_id, transport_endpoints, global_registry);
+                        let container = Box::new(engine);
+                        self.runtime_manager
+                            .submit_engine(container, Some(engine_id.cuda_device_idx));
+                        for (proxy_tx, proxy_endpoint) in
+                            self.proxy_tx.iter_mut().zip(proxy_endpoints.into_iter())
+                        {
+                            proxy_tx
+                                .send(ControlNotification::NewTransportEngine {
+                                    id: engine_id,
+                                    chan: proxy_endpoint,
+                                })
+                                .unwrap();
+                        }
+                    }
+                },
+                Err(crossbeam::channel::TryRecvError::Empty) => (),
+                Err(crossbeam::channel::TryRecvError::Disconnected) => {
+                    panic!("Proxy engines shall never shutdown")
+                }
+            }
+        }
     }
 
     fn create_proxy_engines(
@@ -255,11 +280,11 @@ impl Control {
                 let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
 
                 let daemon_id = DaemonId(self.daemon_count as u32);
-                let num_devices = self.proxy_channels.len();
+                let num_devices = self.proxy_tx.len();
                 let mut daemon_channels = Vec::with_capacity(num_devices);
 
                 for device_idx in 0..num_devices {
-                    let endpoint_tx = &mut self.proxy_channels[device_idx].tx;
+                    let endpoint_tx = &mut self.proxy_tx[device_idx];
                     let (daemon_side, proxy_side) = DuplexChannel::new_unbound_pair();
                     let proxy_endpoint = ControlNotification::NewDaemon {
                         id: daemon_id,

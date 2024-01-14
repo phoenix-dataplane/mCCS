@@ -10,9 +10,13 @@ const COMM_ID: u32 = 42;
 #[derive(Debug, Clone, StructOpt)]
 #[structopt(name = "AllGather prototype")]
 struct Opts {
+    #[structopt(long)]
     root_addr: IpAddr,
+    #[structopt(long)]
     rank: usize,
+    #[structopt(long)]
     num_ranks: usize,
+    #[structopt(long)]
     cuda_device_idx: i32,
     #[structopt(short, long, default_value = "128")]
     size: usize,

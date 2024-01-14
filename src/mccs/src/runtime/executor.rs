@@ -54,8 +54,10 @@ impl Runtime {
 impl Runtime {
     pub fn mainloop(&self) {
         let cuda_idx = self.cuda_dev.load(Ordering::Relaxed);
-        unsafe {
-            cuda_warning!(cudaSetDevice(cuda_idx as i32));
+        if cuda_idx != -1 {
+            unsafe {
+                cuda_warning!(cudaSetDevice(cuda_idx as i32));
+            }
         }
 
         let mut shutdown = Vec::new();
@@ -86,8 +88,10 @@ impl Runtime {
                 )
             {
                 let cuda_dev = self.cuda_dev.load(Ordering::Relaxed);
-                unsafe {
-                    cuda_warning!(cudaSetDevice(cuda_idx as i32));
+                if cuda_idx != -1 {
+                    unsafe {
+                        cuda_warning!(cudaSetDevice(cuda_idx as i32));
+                    }
                 }
                 let mut pending_engines = self.pending.lock();
                 let num_pendings = pending_engines.len();
