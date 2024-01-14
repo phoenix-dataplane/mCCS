@@ -22,12 +22,12 @@ pub type CustomerType =
 
 pub struct CommunicatorDelegation {
     pub comm_id: u32,
-    pub cuda_device_idx: usize,
+    pub cuda_device_idx: i32,
 }
 
 pub(crate) struct DeviceMemory {
     addr: usize,
-    device_idx: usize,
+    device_idx: i32,
 }
 
 pub struct DaemonEngine {
@@ -131,11 +131,14 @@ impl DaemonEngine {
                     root_mccs_addr: init.root_addr.clone(),
                 };
                 let proxy_cmd = ProxyCommand::InitCommunicator(proxy_init);
-                self.proxy_chan[init.cuda_device_idx]
+                self.proxy_chan[init.cuda_device_idx as usize]
                     .tx
                     .send(proxy_cmd)
                     .unwrap();
-                let res = self.proxy_chan[init.cuda_device_idx].rx.recv().unwrap();
+                let res = self.proxy_chan[init.cuda_device_idx as usize]
+                    .rx
+                    .recv()
+                    .unwrap();
                 match res {
                     ProxyCompletion::InitCommunicator => {}
                     _ => panic!("unexpected result"),
@@ -173,11 +176,14 @@ impl DaemonEngine {
                 );
                 // send command
                 let proxy_cmd = ProxyCommand::AllGather(proxy_all_gather);
-                self.proxy_chan[comm.cuda_device_idx]
+                self.proxy_chan[comm.cuda_device_idx as usize]
                     .tx
                     .send(proxy_cmd)
                     .unwrap();
-                let res = self.proxy_chan[comm.cuda_device_idx].rx.recv().unwrap();
+                let res = self.proxy_chan[comm.cuda_device_idx as usize]
+                    .rx
+                    .recv()
+                    .unwrap();
                 let handle = match res {
                     ProxyCompletion::AllGather(handle) => handle,
                     _ => panic!("unexpected result"),

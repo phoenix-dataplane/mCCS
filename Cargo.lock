@@ -32,6 +32,7 @@ version = "0.1.0"
 dependencies = [
  "cuda-runtime-sys",
  "libmccs",
+ "structopt",
 ]
 
 [[package]]
