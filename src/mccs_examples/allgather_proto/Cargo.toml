@@ -8,3 +8,5 @@ edition = "2021"
 [dependencies]
 cuda-runtime-sys = { path = "../../cuda-sys/cuda-runtime-sys" }
 libmccs = { path = "../../libmccs" }
+
+structopt = "0.3.26"

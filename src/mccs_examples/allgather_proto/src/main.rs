@@ -1,126 +1,100 @@
+use std::net::IpAddr;
+
+use structopt::StructOpt;
+
 use cuda_runtime_sys::{cudaError, cudaMemcpyKind, cudaStream_t};
 use cuda_runtime_sys::{cudaMemcpy, cudaSetDevice};
 
-const BUFFER_SIZE: usize = 512 * 1024 * 1024;
+const COMM_ID: u32 = 42;
+
+#[derive(Debug, Clone, StructOpt)]
+#[structopt(name = "AllGather prototype")]
+struct Opts {
+    root_addr: IpAddr,
+    rank: usize,
+    num_ranks: usize,
+    cuda_device_idx: i32,
+    #[structopt(short, long, default_value = "128")]
+    size: usize,
+}
 
 fn main() {
-    let comm_id = std::env::args()
-        .nth(1)
-        .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(42);
+    let opts = Opts::from_args();
+    let buffer_size = opts.size * 1024 * 1024;
+    let rank = opts.rank;
+    let num_ranks = opts.num_ranks;
 
-    let handle = std::thread::spawn(move || {
-        // device 1
-        unsafe {
-            let err = cudaSetDevice(1);
-            if err != cudaError::cudaSuccess {
-                panic!("cudaSetDevice");
-            }
-        }
-        let dev_ptr = libmccs::cuda_malloc(1, BUFFER_SIZE).unwrap();
-        let mut buf = vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
-        buf.extend(vec![2042i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
-        let err = unsafe {
-            cudaMemcpy(
-                dev_ptr.ptr,
-                buf.as_ptr() as *const _,
-                BUFFER_SIZE,
-                cudaMemcpyKind::cudaMemcpyHostToDevice,
-            )
-        };
-        if err != cudaError::cudaSuccess {
-            panic!("cudaMemcpy failed");
-        }
-        println!(
-            "rank 1 - pre : buf[0]={}, buf[{}]={}",
-            buf[0],
-            BUFFER_SIZE / 2 / std::mem::size_of::<i32>(),
-            buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
-        );
-
-        let comm = libmccs::init_communicator_rank(comm_id, 1, 2, 1).unwrap();
-        libmccs::all_gather(
-            comm,
-            dev_ptr.add(BUFFER_SIZE / 2).unwrap(),
-            dev_ptr,
-            BUFFER_SIZE / 2,
-            0 as cudaStream_t,
-        )
-        .unwrap();
-        println!("rank 1 - all gather issued");
-
-        let mut buf = vec![0; BUFFER_SIZE];
-        unsafe {
-            let err = cudaMemcpy(
-                buf.as_mut_ptr() as *mut _,
-                dev_ptr.ptr,
-                BUFFER_SIZE,
-                cudaMemcpyKind::cudaMemcpyDeviceToHost,
-            );
-            if err != cudaError::cudaSuccess {
-                panic!("cudaMemcpy failed");
-            }
-        };
-        assert_eq!(buf[0], 1883);
-        assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 2042);
-        println!(
-            "rank 1 - post : buf[0]={}, buf[{}]={}",
-            buf[0],
-            BUFFER_SIZE / 2 / std::mem::size_of::<i32>(),
-            buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
-        )
-    });
-
-    // device 0
     unsafe {
-        let err = cudaSetDevice(0);
+        let err = cudaSetDevice(opts.cuda_device_idx);
         if err != cudaError::cudaSuccess {
             panic!("cudaSetDevice");
         }
     }
-    let dev_ptr = libmccs::cuda_malloc(0, BUFFER_SIZE).unwrap();
-    let mut buf = vec![1883i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()];
-    buf.extend(vec![0i32; BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]);
+    let dev_ptr = libmccs::cuda_malloc(opts.cuda_device_idx, buffer_size * num_ranks).unwrap();
+    let mut buf = vec![0i32; buffer_size * num_ranks / std::mem::size_of::<i32>()];
+    buf[rank * buffer_size / std::mem::size_of::<i32>()
+        ..(rank + 1) * buffer_size / std::mem::size_of::<i32>()]
+        .fill(2042 + rank as i32);
     let err = unsafe {
         cudaMemcpy(
             dev_ptr.ptr,
             buf.as_ptr() as *const _,
-            BUFFER_SIZE,
+            buffer_size * num_ranks,
             cudaMemcpyKind::cudaMemcpyHostToDevice,
         )
     };
     if err != cudaError::cudaSuccess {
         panic!("cudaMemcpy failed");
     }
-    println!(
-        "rank 0 - pre : buf[0]={}, buf[{}]={}",
-        buf[0],
-        BUFFER_SIZE / 2 / std::mem::size_of::<i32>(),
-        buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
-    );
-    let comm = libmccs::init_communicator_rank(comm_id, 0, 2, 0).unwrap();
-    libmccs::all_gather(comm, dev_ptr, dev_ptr, BUFFER_SIZE / 2, 0 as cudaStream_t).unwrap();
+    println!("rank {} - buffer initialized", rank);
+    for r in 0..num_ranks {
+        println!(
+            "buf[{}]={}",
+            r * buffer_size / std::mem::size_of::<i32>(),
+            buf[r * buffer_size / std::mem::size_of::<i32>()]
+        );
+    }
+    println!("**********");
+    let comm = libmccs::init_communicator_rank(
+        COMM_ID,
+        rank,
+        num_ranks,
+        opts.cuda_device_idx,
+        opts.root_addr,
+    )
+    .unwrap();
+    println!("rank {} - communicator initialized", rank);
+
+    libmccs::all_gather(
+        comm,
+        dev_ptr.add(rank * buffer_size).unwrap(),
+        dev_ptr,
+        buffer_size,
+        0 as cudaStream_t,
+    )
+    .unwrap();
+
     println!("rank 0 - all gather issued");
-    let mut buf = vec![0; BUFFER_SIZE];
+
+    let mut buf = vec![0; buffer_size * num_ranks / std::mem::size_of::<i32>()];
     unsafe {
         let err = cudaMemcpy(
             buf.as_mut_ptr() as *mut _,
             dev_ptr.ptr,
-            BUFFER_SIZE,
+            buffer_size * num_ranks,
             cudaMemcpyKind::cudaMemcpyDeviceToHost,
         );
         if err != cudaError::cudaSuccess {
             panic!("cudaMemcpy failed");
         }
     };
-    assert_eq!(buf[0], 1883);
-    assert_eq!(buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()], 2042);
-    println!(
-        "rank 0 - post : buf[0]={}, buf[{}]={}",
-        buf[0],
-        BUFFER_SIZE / 2 / std::mem::size_of::<i32>(),
-        buf[BUFFER_SIZE / 2 / std::mem::size_of::<i32>()]
-    );
 
-    handle.join().unwrap();
+    println!("rank 0 - all gather completed");
+    for r in 0..num_ranks {
+        println!(
+            "buf[{}]={}",
+            r * buffer_size / std::mem::size_of::<i32>(),
+            buf[r * buffer_size / std::mem::size_of::<i32>()]
+        );
+    }
 }
