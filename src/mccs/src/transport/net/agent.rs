@@ -467,6 +467,14 @@ pub fn net_agent_send_progress(
             VolatilePtr::new(non_null)
         };
         if size_ptr.read() != -1 && recv_tail.read() > op.base + op.transmitted {
+            log::trace!(
+                "net_agent_send_progress(): *size_ptr={}, *recv_tail={}, base={}, transmitted={}, done={}",
+                size_ptr.read(),
+                recv_tail.read(),
+                op.base,
+                op.transmitted,
+                op.done
+            );
             let size = size_ptr.read() as usize;
             let offset = buffer_slot * step_size;
             let buffer_ptr = unsafe { local_buffer.as_ptr().byte_add(offset) };
@@ -499,12 +507,6 @@ pub fn net_agent_send_progress(
             None,
         )?;
         if done {
-            log::trace!(
-                "NET send agent [{}/{}] request {} done",
-                op.done,
-                buffer_slot,
-                request_id.0
-            );
             op.done += op.slice_steps as u64;
             let send_head = if !resources.gdc_sync.is_null() {
                 unsafe {
@@ -523,8 +525,17 @@ pub fn net_agent_send_progress(
             if !resources.gdc_sync.is_null() {
                 wc_store_fence();
             }
+            log::trace!(
+                "[DONE] net_agent_send_progress(): *send_head={}, base={}, transmitted={}, done={}, num_steps={}",
+                send_head.read(),
+                op.base,
+                op.transmitted,
+                op.done,
+                num_steps,
+            );
             op.idle = false;
             if op.done == num_steps {
+                log::debug!("Send Completed");
                 resources.step = op.base + num_steps;
                 op.state = TransportOpState::Completed;
                 return Ok(());
@@ -673,6 +684,15 @@ pub fn net_agent_recv_progress(
                 if !resources.gdc_sync.is_null() {
                     wc_store_fence();
                 }
+                log::trace!(
+                    "[DONE] net_agent_recv_progress(): *recv_tail={}, base={}, transmitted={}, done={}, step={}, num_steps={}",
+                    recv_tail.read(),
+                    op.base,
+                    op.transmitted,
+                    op.done,
+                    step,
+                    num_steps,
+                );
             }
             op.idle = false;
         }
@@ -696,6 +716,7 @@ pub fn net_agent_recv_progress(
             op.done += op.slice_steps as u64;
             op.idle = false;
             if op.done == num_steps {
+                log::debug!("Recv Completed");
                 resources.step = op.base + num_steps;
                 op.state = TransportOpState::Completed;
                 return Ok(());
