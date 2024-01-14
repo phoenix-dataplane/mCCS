@@ -11,7 +11,7 @@ use crate::transport::NUM_PROTOCOLS;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DefaultCommConfig {
-    #[serde(rename = "buffer_size")]
+    #[serde(rename = "buffer_sizes")]
     pub buf_sizes: [usize; NUM_PROTOCOLS],
     // TODO: specify number of channels and ring for each channel
 }
@@ -27,7 +27,7 @@ impl Default for DefaultCommConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommGlobalConfig {
-    #[serde(rename = "net:rdma", default)]
+    #[serde(rename = "net_rdma", default)]
     pub rdma_config: RdmaTransportConfig,
     #[serde(rename = "net", default)]
     pub net_config: NetTransportConfig,
