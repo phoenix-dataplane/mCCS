@@ -5,11 +5,14 @@ pub mod provider;
 pub mod resources;
 pub mod transporter;
 
+pub use provider::RDMA_TRANSPORT;
+pub use provider::{NetProperties, NetProvierWrap};
+pub use transporter::NET_TRANSPORT;
+
 use thiserror::Error;
 
 use crate::transport::transporter::ConnectHandleError;
 use provider::NetProviderError;
-pub use transporter::NET_TRANSPORT;
 
 #[derive(Debug, Error)]
 pub enum NetTransportError {

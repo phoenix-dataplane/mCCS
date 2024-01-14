@@ -1,10 +1,12 @@
-use dashmap::DashMap;
-use itertools::Itertools;
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_void;
+use std::mem::MaybeUninit;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, AtomicU32};
-use std::{collections::VecDeque, mem::MaybeUninit};
+
+use crossbeam::channel::Sender;
+use itertools::Itertools;
 
 use collectives_sys::{
     mccsDevComm, mccsDevWork, mccsDevWorkElem, mccsDevWorkHeader, mccsDevWorkType,
@@ -102,8 +104,7 @@ pub struct KernelPlan {
 impl Communicator {
     pub fn pre_launch_schedule(
         &mut self,
-        pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
-        mapping: &DashMap<TransportAgentId, TransportEngineId>,
+        transport_tx: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
         device_id: i32,
     ) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
@@ -132,7 +133,7 @@ impl Communicator {
                 break;
             }
         }
-        let plan = self.finalize_one_plan(max_threads_per_block, pool, mapping);
+        let plan = self.finalize_one_plan(max_threads_per_block, transport_tx);
         self.unlaunched_plans.push_back(plan);
     }
 
@@ -271,8 +272,7 @@ impl Communicator {
     fn finalize_one_plan(
         &mut self,
         thread_per_block: u32,
-        submission_pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
-        mapping: &DashMap<TransportAgentId, TransportEngineId>,
+        transport_tx: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
     ) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
         let mut chan_list = Vec::with_capacity(MCCS_MAX_ELEMENTS_PER_WORK);
@@ -289,16 +289,28 @@ impl Communicator {
                 // upload ProxyOp
                 chan.agent_task_queue.iter().for_each(|task| {
                     let TransportTask { agent_id, op } = task;
-                    let tx_engine_id = mapping.get(&agent_id).unwrap().value().clone();
+                    let peer_conn = self.channels.
+                        get(&agent_id.peer_conn.channel)
+                        .unwrap()
+                        .peers
+                        .get(&agent_id.peer_conn.peer_rank)
+                        .unwrap();
+                    let connector = match agent_id.peer_conn.conn_type {
+                        ConnType::Send => &peer_conn.send[agent_id.peer_conn.conn_index as usize],
+                        ConnType::Recv => &peer_conn.recv[agent_id.peer_conn.conn_index as usize],
+                    }.as_ref().unwrap();
+                    // TODO: will it fail if transport engine is not required?
+                    let tx_engine_id = connector.transport_agent_engine.unwrap();
                     log::debug!(
                         "tx_engine_id={:?}, agent_id={:?}, op={{num_steps={:?}}}",
                         tx_engine_id,
                         agent_id,
                         op.num_steps,
                     );
-                    submission_pool.get_mut(&tx_engine_id).unwrap().push_back(
-                        TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()),
-                    );
+                    transport_tx.get_mut(&tx_engine_id)
+                        .expect("Channels to transport engine should be established after communicator init")
+                        .send(TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()))
+                        .unwrap();
                 })
             }
         }

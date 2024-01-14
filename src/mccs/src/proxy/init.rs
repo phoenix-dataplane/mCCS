@@ -13,6 +13,7 @@ use crate::comm::{
 };
 use crate::cuda::alloc::DeviceHostMapped;
 use crate::cuda_warning;
+use crate::daemon::DaemonId;
 use crate::transport::channel::{
     ChannelId, ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
 };
@@ -32,6 +33,8 @@ pub enum CommInitStage {
 
 pub struct CommInitState {
     pub id: CommunicatorId,
+    pub daemon: DaemonId,
+
     pub stage: CommInitStage,
 
     pub rank: usize,
@@ -40,7 +43,7 @@ pub struct CommInitState {
 
     pub peers_info: Option<Vec<PeerInfo>>,
 
-    pub comm_patterns: Option<BTreeMap<ChannelId, ChannelCommPattern>>,
+    pub comm_patterns: Option<Vec<ChannelCommPattern>>,
 
     pub bootstrap_handle: Option<BootstrapHandle>,
     pub bootstrap_state: Option<Arc<BootstrapState>>,
@@ -55,12 +58,14 @@ unsafe impl Send for CommInitState {}
 impl CommInitState {
     pub fn new(
         id: CommunicatorId,
+        daemon_id: DaemonId,
         rank: usize,
         num_ranks: usize,
         comm_profile: CommProfile,
     ) -> Self {
         CommInitState {
             id,
+            daemon: daemon_id,
             stage: CommInitStage::BootstrapInit,
             rank,
             num_ranks,
@@ -77,15 +82,15 @@ impl CommInitState {
 
 fn new_chan_peer_conn() -> ChannelPeerConn {
     ChannelPeerConn {
-        send: HashMap::new(),
-        recv: HashMap::new(),
+        send: std::array::from_fn(|_| None),
+        recv: std::array::from_fn(|_| None),
     }
 }
 
 impl CommInitState {
     pub fn finalize_communicator(mut self) -> Communicator {
         let mut channels = BTreeMap::new();
-        for chan_pattern in self.comm_patterns.unwrap().values() {
+        for chan_pattern in self.comm_patterns.unwrap().iter() {
             let channel = CommChannel {
                 peers: HashMap::new(),
                 ring: chan_pattern.ring.clone(),
@@ -110,7 +115,7 @@ impl CommInitState {
                 transporter: peer_connected.transporter,
                 transport_resources: peer_connected.resources,
             };
-            peer_conns.insert(peer_conn.conn_index, peer_connector);
+            peer_conns[peer_conn.conn_index as usize] = Some(peer_connector);
         }
 
         let dev_resources = CommDevResources::new(
@@ -159,6 +164,7 @@ impl CommInitState {
 
         Communicator {
             id: self.id,
+            daemon: self.daemon,
             rank: self.rank,
             num_ranks: self.num_ranks,
             peers_info,

@@ -10,4 +10,6 @@ pub(crate) enum Error {
     Customer(#[from] ipc::Error),
 }
 
-pub type DaemonId = u64;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[repr(transparent)]
+pub struct DaemonId(pub u32);

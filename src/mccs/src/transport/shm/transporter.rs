@@ -19,7 +19,7 @@ use crate::transport::{Protocol, NUM_PROTOCOLS};
 
 use super::agent::{shm_agent_connect, shm_agent_recv_progress, shm_agent_send_progress};
 use super::buffer::TransportBuffer;
-use super::config::{ShmConfig, ShmLocality};
+use super::config::{ShmLocality, ShmTransportConfig};
 use super::resources::{
     ShmAgentReply, ShmAgentRequest, ShmConnectHandle, ShmConnectedResources, ShmRecvSetupResources,
     ShmSendSetupResources,
@@ -38,12 +38,12 @@ impl Transporter for ShmTransporter {
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
         let mut buf_size = std::mem::size_of::<SendBufMeta>();
-        let config = catalog.get_config::<ShmConfig>("ShmTransport").unwrap();
+        let config = catalog
+            .get_config::<ShmTransportConfig>("ShmTransport")
+            .unwrap();
         if config.locality == ShmLocality::Sender {
             buf_size += profile.buff_sizes.iter().sum::<usize>();
         }
-        // TODO: ?
-        buf_size += 8 * 1024 * 1024;
         let send_buf_meta = SendBufMeta::new();
         let send_buf =
             TransportBuffer::new(send_buf_meta, buf_size, std::mem::align_of::<SendBufMeta>());
@@ -230,11 +230,12 @@ impl Transporter for ShmTransporter {
         catalog: &TransportCatalog,
     ) -> Result<TransportSetup, TransporterError> {
         let mut buf_size = std::mem::size_of::<RecvBufMeta>();
-        let config = catalog.get_config::<ShmConfig>("ShmTransport").unwrap();
+        let config = catalog
+            .get_config::<ShmTransportConfig>("ShmTransport")
+            .unwrap();
         if config.locality == ShmLocality::Receiver {
             buf_size += profile.buff_sizes.iter().sum::<usize>();
         }
-        buf_size += 8 * 1024 * 1024;
         let recv_buf_meta = RecvBufMeta::new();
         let recv_buf =
             TransportBuffer::new(recv_buf_meta, buf_size, std::mem::align_of::<RecvBufMeta>());

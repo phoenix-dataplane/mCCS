@@ -15,6 +15,7 @@ use super::message::ExchangeMessage;
 use super::ExchangeError;
 use crate::bootstrap::BootstrapHandle;
 use crate::comm::CommunicatorId;
+use crate::engine::{Engine, EngineStatus};
 use crate::utils::pool::WorkPool;
 use crate::utils::tcp;
 
@@ -254,11 +255,12 @@ impl ExchangeEngine {
             async_tasks: work_pool,
         }
     }
+}
 
-    pub fn mainloop(&mut self) {
-        loop {
-            self.check_proxy_requests();
-            self.progress_async_tasks();
-        }
+impl Engine for ExchangeEngine {
+    fn progress(&mut self) -> EngineStatus {
+        self.progress_async_tasks();
+        self.check_proxy_requests();
+        EngineStatus::Progressed
     }
 }

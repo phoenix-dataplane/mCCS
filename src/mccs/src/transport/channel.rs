@@ -36,11 +36,13 @@ pub struct PeerConnector {
     pub transport_resources: Box<dyn Any>,
 }
 
+pub const CHANNEL_MAX_CONNS: usize = 2;
+
 pub struct ChannelPeerConn {
     // conn_index -> PeerConnector
-    pub send: HashMap<u32, PeerConnector>,
+    pub send: [Option<PeerConnector>; CHANNEL_MAX_CONNS],
     // conn_index -> PeerConnector
-    pub recv: HashMap<u32, PeerConnector>,
+    pub recv: [Option<PeerConnector>; CHANNEL_MAX_CONNS],
 }
 
 pub struct CommChannel {

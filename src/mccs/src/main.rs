@@ -75,10 +75,8 @@ fn main() -> Result<()> {
         .expect("failed to register sighandler");
 
     // the Control now takes over
-    // let mut control = Control::new(config);
+    let mut control = Control::new(config, opts.host);
     log::info!("Started mCCS");
 
-    Control::dist_test(opts.host, opts.size);
-    Ok(())
-    // control.mainloop(&TERMINATE)
+    control.mainloop(&TERMINATE)
 }
