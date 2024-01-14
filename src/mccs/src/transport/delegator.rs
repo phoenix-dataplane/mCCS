@@ -61,6 +61,7 @@ impl TransportDelegator {
             None
         };
         let idx = idx.unwrap_or_else(|| engines.iter().max_by_key(|x| x.0).map_or(0, |x| x.0 + 1));
+        engines.push((idx, 1));
         let new_engine = TransportEngineId {
             cuda_device_idx: cuda_dev,
             index: idx,

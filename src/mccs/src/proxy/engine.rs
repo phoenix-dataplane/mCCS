@@ -642,7 +642,6 @@ impl Engine for ProxyEngine {
         if fastrand::usize(..10) < 1 {
             self.check_transport_reply();
             self.check_control_notify();
-            self.flush_transport_requests();
             self.check_exchange_reply();
             self.progress_async_tasks();
             self.enqueue_async_task();
@@ -677,7 +676,6 @@ impl ProxyEngine {
                 ExchangeCompletion::RegisterBootstrapHandle => {}
                 ExchangeCompletion::RecvBootstrapHandle(comm_id, handle) => {
                     let comm = self.resources.comms_init.get_mut(&comm_id).unwrap();
-                    log::debug!("ProxyEngine: {:?}+{:?}", comm_id, handle);
                     comm.bootstrap_handle = Some(handle);
                 }
             },
@@ -690,16 +688,16 @@ impl ProxyEngine {
 
     // Transport requests will only be buffered during communicator init
     // when a new transport engine is spawned on demand
-    fn flush_transport_requests(&mut self) {
-        for (id, queue) in self.resources.transport_submission_cache.drain() {
-            let tx = self.resources.transport_engines_tx.get_mut(&id);
-            if let Some(tx) = tx {
-                for req in queue.into_iter() {
-                    tx.send(req).unwrap();
-                }
-            }
-        }
-    }
+    // fn flush_transport_requests(&mut self) {
+    //     for (id, queue) in self.resources.transport_submission_cache.iter_mut() {
+    //         let tx = self.resources.transport_engines_tx.get_mut(&id);
+    //         if let Some(tx) = tx {
+    //             for req in queue.drain(..) {
+    //                 tx.send(req).unwrap();
+    //             }
+    //         }
+    //     }
+    // }
 
     fn check_transport_reply(&mut self) {
         for (_, transport_rx) in self.resources.transport_engines_rx.iter_mut() {
@@ -740,7 +738,6 @@ impl ProxyEngine {
         if let Ok(msg) = self.resources.control_chan.rx.try_recv() {
             match msg {
                 ControlNotification::NewTransportEngine { id, chan } => {
-                    log::debug!("ProxyEngine: check_control_notify: id={:?}", id);
                     self.resources.register_transport_engine(id, chan);
                 }
                 ControlNotification::NewDaemon { id, chan } => {
@@ -874,6 +871,8 @@ impl ProxyEngine {
                         }
                         ProxyCommand::DestroyCommunicator(comm_id) => {
                             let comm = self.resources.communicators.remove(&comm_id).unwrap();
+                            let request = ExchangeCommand::RemoveCommunicator(comm_id);
+                            self.resources.exchange_chan.tx.send(request).unwrap();
                             Self::shutdown_transport_agents(
                                 &self.resources.device_info,
                                 &mut self.resources.transport_engines_tx,
@@ -899,6 +898,8 @@ impl ProxyEngine {
                         comm,
                     );
                 }
+                let request = ExchangeCommand::RemoveCommunicator(comm.id);
+                self.resources.exchange_chan.tx.send(request).unwrap();
                 comm.daemon != daemon_id
             });
         }

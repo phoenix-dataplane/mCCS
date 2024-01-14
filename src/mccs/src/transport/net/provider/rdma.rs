@@ -541,8 +541,8 @@ impl IbQpInfo {
 
 pub struct IbVerbs<'ctx> {
     device: usize,
-    pd: Arc<ProtectionDomain<'ctx>>,
     cq: CompletionQueue<'ctx>,
+    pd: Arc<ProtectionDomain<'ctx>>,
     requests: [IbRequest; IB_MAX_REQUESTS],
 }
 
@@ -572,13 +572,13 @@ impl Default for IbSendFifo {
 }
 
 pub struct IbSendComm<'ctx> {
-    verbs: IbVerbs<'ctx>,
+    qps: Vec<QueuePair<'ctx>>,
     fifo: MemoryRegionAlloc<IbSendFifo>,
+    verbs: IbVerbs<'ctx>,
     fifo_head: u64,
     fifo_requests_idx: [[usize; IB_MAX_RECVS]; IB_MAX_REQUESTS],
     wrs: [ibv_send_wr; IB_MAX_RECVS + 1],
     sges: [ibv_sge; IB_MAX_RECVS],
-    qps: Vec<QueuePair<'ctx>>,
     adaptive_routing: bool,
     ar_threshold: usize,
     _pin: PhantomPinned,
@@ -610,10 +610,10 @@ pub struct IbGpuFlush<'ctx> {
 }
 
 pub struct IbRecvComm<'ctx> {
-    verbs: IbVerbs<'ctx>,
-    remote_fifo: IbRemoteFifo,
     qps: Vec<QueuePair<'ctx>>,
+    remote_fifo: IbRemoteFifo,
     flush: IbGpuFlush<'ctx>,
+    verbs: IbVerbs<'ctx>,
     _pinned: PhantomPinned,
 }
 

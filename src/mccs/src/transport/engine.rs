@@ -226,6 +226,7 @@ impl TransportEngine {
                             self.op_queue.submit_op(agent_id, tx_op);
                         }
                         TransportEngineRequest::AgentShutdown(agent_id) => {
+                            log::warn!("TODO: shutdown {:?}", agent_id);
                             self.resources
                                 .global_registry
                                 .transport_delegator

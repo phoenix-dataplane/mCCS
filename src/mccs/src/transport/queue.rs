@@ -38,9 +38,11 @@ impl TransrportOpQueue {
         F: FnMut(&TransportAgentId, &mut TransportOp) -> bool,
     {
         for (agent_id, agent_queue) in self.queue.iter_mut() {
-            let finished = f(agent_id, &mut agent_queue[0]);
-            if finished {
-                agent_queue.pop_front();
+            if !agent_queue.is_empty() {
+                let finished = f(agent_id, &mut agent_queue[0]);
+                if finished {
+                    agent_queue.pop_front();
+                }
             }
         }
     }

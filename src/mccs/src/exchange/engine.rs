@@ -217,6 +217,9 @@ impl ExchangeEngine {
                             );
                         }
                     }
+                    ExchangeCommand::RemoveCommunicator(comm_id) => {
+                        self.resources.comm_info.remove(&comm_id);
+                    }
                 },
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => {
