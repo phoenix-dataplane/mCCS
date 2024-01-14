@@ -422,7 +422,7 @@ pub fn net_agent_send_progress(
     op: &mut TransportOp,
 ) -> Result<()> {
     if op.state == TransportOpState::Init {
-        op.base = resources.step.div_ceil(op.chunk_steps as u64);
+        op.base = resources.step.div_ceil(op.chunk_steps as u64) * (op.chunk_steps as u64);
         op.posted = 0;
         op.transmitted = 0;
         op.done = 0;
@@ -550,7 +550,7 @@ pub fn net_agent_recv_progress(
     op: &mut TransportOp,
 ) -> Result<()> {
     if op.state == TransportOpState::Init {
-        op.base = resources.step.div_ceil(op.chunk_steps as u64);
+        op.base = resources.step.div_ceil(op.chunk_steps as u64) * (op.chunk_steps as u64);
         op.posted = 0;
         op.received = 0;
         op.transmitted = 0;
