@@ -433,7 +433,7 @@ pub fn net_agent_send_progress(
         return Ok(());
     }
 
-    log::trace!("Send op: {:?}", op);
+    // log::trace!("Send op: {:?}", op);
 
     let provider = resources.provider;
     let proto = op.protocol;
@@ -466,6 +466,14 @@ pub fn net_agent_send_progress(
             let non_null = NonNull::new_unchecked(recv_tail_ptr);
             VolatilePtr::new(non_null)
         };
+        log::trace!(
+            "net_agent_send_progress(): *size_ptr={}, *recv_tail={}, base={}, transmitted={}, done={}",
+            size_ptr.read(),
+            recv_tail.read(),
+            op.base,
+            op.transmitted,
+            op.done
+        );
         if size_ptr.read() != -1 && recv_tail.read() > op.base + op.transmitted {
             log::trace!(
                 "net_agent_send_progress(): *size_ptr={}, *recv_tail={}, base={}, transmitted={}, done={}",
@@ -561,7 +569,7 @@ pub fn net_agent_recv_progress(
     if op.state != TransportOpState::InProgress {
         return Ok(());
     }
-    log::trace!("Recv op: {:?}", op);
+    // log::trace!("Recv op: {:?}", op);
 
     let provider = resources.provider;
     let recv_comm = resources.recv_comm.as_mut();

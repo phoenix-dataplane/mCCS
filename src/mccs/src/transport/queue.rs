@@ -22,7 +22,6 @@ impl TransrportOpQueue {
     }
 
     pub fn submit_op(&mut self, agent: TransportAgentId, op: TransportOp) {
-        log::trace!("Submit to queue: {:?}={:?}", agent, op);
         match self.connections_index_map.entry(agent) {
             Entry::Occupied(entry) => {
                 let index = *entry.get();
@@ -50,11 +49,6 @@ impl TransrportOpQueue {
     {
         let mut conn_idx = 0;
         while conn_idx < self.active_connections {
-            log::trace!(
-                "conn_idx={}, active_connection={}",
-                conn_idx,
-                self.active_connections
-            );
             let (agent, conn_queue) = &mut self.queue[conn_idx];
             let finished = f(agent, &mut conn_queue[0]);
             let mut conn_inc = 1;

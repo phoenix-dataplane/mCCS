@@ -291,10 +291,10 @@ impl Communicator {
                     let TransportTask { agent_id, op } = task;
                     let tx_engine_id = mapping.get(&agent_id).unwrap().value().clone();
                     log::debug!(
-                        "tx_engine_id={:?}, agent_id={:?}, op={:?}",
+                        "tx_engine_id={:?}, agent_id={:?}, op={{num_steps={:?}}}",
                         tx_engine_id,
                         agent_id,
-                        op
+                        op.num_steps,
                     );
                     submission_pool.get_mut(&tx_engine_id).unwrap().push_back(
                         TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()),
