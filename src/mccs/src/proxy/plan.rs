@@ -142,6 +142,7 @@ impl Communicator {
             task,
             TaskAlgorithm::Ring,
             TaskProtocol::Simple,
+            self.num_ranks,
             self.channels.len(),
         );
         log::debug!("task schema: {:?}", schema);
@@ -157,24 +158,28 @@ impl Communicator {
             } else {
                 (1, 1)
             };
-            // todo: line 1838
             let step_size = self.profile.buff_sizes[Protocol::Simple as usize] as u32 / MCCS_STEP;
 
             let chunk_size = chunk_steps * step_size;
             let n_loops = {
+                let total_bytes = task.total_bytes(self.num_ranks);
+                let per_loop_size = schema.num_channels as usize
+                    * schema.get_num_chunks_per_loop(self.num_ranks as u32) as usize
+                    * chunk_size as usize;
+                log::debug!(
+                    "total_bytes={} per_loop_size={}",
+                    total_bytes,
+                    per_loop_size
+                );
                 // DIVUP
-                let total_bytes = task.count * task.data_type.count_bytes();
-                let per_loop_size = schema.num_channels
-                    * schema.get_num_chunks_per_loop(self.num_ranks as u32)
-                    * chunk_size;
-                ((total_bytes + per_loop_size as usize - 1) / per_loop_size as usize) as u32
+                ((total_bytes + per_loop_size - 1) / per_loop_size) as u32
             };
 
             log::debug!("nloops={}, num_channels={}", n_loops, schema.num_channels);
             (
                 chunk_steps,
                 slice_steps,
-                task.chunk_steps * n_loops * schema.get_num_steps_per_loop(self.num_ranks as u32),
+                schema.get_num_steps_per_loop(self.num_ranks as u32) * n_loops * chunk_steps,
             )
         };
         log::debug!(
@@ -202,7 +207,7 @@ impl Communicator {
                 schedule.enqueue_work_elem_coll(
                     elem,
                     schema.work_func_index,
-                    task.data_type.count_bytes(),
+                    task.data_type.count_bytes(), // FIXME: may buggy due to ncclInfoSetDerived
                 );
                 debug_assert!(schema.algorithm == TaskAlgorithm::Ring);
                 // proxy queue
@@ -547,6 +552,7 @@ fn get_task_schema(
     task: &CollTask,
     algo: TaskAlgorithm,
     proto: TaskProtocol,
+    n_rank: usize,
     mut num_channel: usize,
 ) -> TaskSchema {
     use super::task::TaskDataType;
@@ -554,7 +560,7 @@ fn get_task_schema(
     debug_assert_eq!(task.data_type, TaskDataType::Uint8);
     let mut num_thread = MCCS_SIMPLE_MAX_N_THREADS;
     let thread_th = MCCS_SIMPLE_THREAD_THRESHOLD;
-    while task.count * task.data_type.count_bytes() < num_channel * num_thread * thread_th {
+    while task.total_bytes(n_rank) < num_channel * num_thread * thread_th {
         if num_channel >= 2 {
             num_channel -= 1;
         } else if (num_thread % 128) == 0 {

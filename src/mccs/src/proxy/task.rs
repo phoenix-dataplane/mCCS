@@ -67,6 +67,17 @@ pub struct CollTask {
     pub slice_steps: u32,
 }
 
+impl CollTask {
+    pub fn total_bytes(&self, n_rank: usize) -> usize {
+        let n_bytes = self.count * self.data_type.count_bytes();
+        match self.func {
+            TaskFuncType::AllGather => n_bytes * n_rank,
+            TaskFuncType::AllReduce => n_bytes,
+            _ => unimplemented!(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskAlgorithm {
     Ring = 0,
