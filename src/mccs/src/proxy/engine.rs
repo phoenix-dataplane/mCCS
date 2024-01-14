@@ -806,22 +806,23 @@ impl ProxyEngine {
                         }
                         ProxyCommand::AllGather(coll) => {
                             // recover event and register waiting order
-                            // let event = {
-                            //     let event_handle = coll.app_ipc_event_handle.into();
-                            //     let mut event = std::ptr::null_mut();
-                            //     cuda_warning!(unsafe {
-                            //         cudaIpcOpenEventHandle(&mut event, event_handle)
-                            //     });
-                            //     event
-                            // };TODO
+                            let event: *mut cuda_runtime_sys::CUevent_st = {
+                                let event_handle = coll.app_ipc_event_handle.into();
+                                let mut event = std::ptr::null_mut();
+                                cuda_warning!(unsafe {
+                                    cudaIpcOpenEventHandle(&mut event, event_handle)
+                                });
+                                event
+                            };
 
                             let comm = self
                                 .resources
                                 .communicators
                                 .get_mut(&coll.communicator_id)
                                 .unwrap();
-                            // cuda_warning!(unsafe { cudaStreamWaitEvent(comm.stream, event, 0) });TODO
-                            // prepare arguments
+
+                            cuda_warning!(unsafe { cudaStreamWaitEvent(comm.stream, event, 0) });
+
                             let send_buf =
                                 DeviceNonNull::new(coll.send_buf_addr as *mut u8).unwrap();
                             let recv_buf =
