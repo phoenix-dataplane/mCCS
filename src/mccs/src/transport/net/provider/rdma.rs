@@ -1554,8 +1554,8 @@ pub fn ib_test(
                 for i in 0..request.num_requests as usize {
                     sizes[i] = unsafe { request.send_recv.recv.sizes[i] };
                 }
-                ib_free_request(request);
             }
+            ib_free_request(request);
             return Ok(true);
         }
 
