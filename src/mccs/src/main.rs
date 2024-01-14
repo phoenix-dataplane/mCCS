@@ -21,8 +21,6 @@ struct Opts {
     config: PathBuf,
     #[structopt(short, long)]
     host: usize,
-    #[structopt(short, long)]
-    size: usize,
 }
 
 static TERMINATE: AtomicBool = AtomicBool::new(false);
