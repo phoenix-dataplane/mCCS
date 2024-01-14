@@ -36,6 +36,7 @@ use ibverbs::{
 use super::NET_MAX_REQUESTS;
 use super::{AnyMrHandle, AnyNetComm, CommType, NetProvider, NetRequestId};
 use super::{MemoryRegion, NetListener, NetProperties};
+use crate::transport::catalog::TransportCatalog;
 use crate::utils::interfaces;
 use crate::utils::tcp;
 
@@ -57,6 +58,8 @@ macro_rules! ibv_check {
 
 #[derive(Debug, Error)]
 pub enum IbError {
+    #[error("RDMA transport config not found")]
+    ConfigNotFound,
     #[error("RDMA transport context is not initialized")]
     ContextUninitialized,
     #[error("RDMA transport context  initialized")]
@@ -140,21 +143,20 @@ pub struct IbDevice {
     _pinned: PhantomPinned,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RdmaTransportConfig {
     pub gid_index: u8,
-    qps_per_conn: usize,
-    timeout: u8,
-    retry_count: u8,
-    #[allow(unused)]
-    pkey: u32,
-    use_inline: bool,
-    service_level: u8,
-    traffic_class: u8,
-    adaptive_routing: Option<bool>,
-    ar_threshold: usize,
-    pci_relaxed_ordering: bool,
-    gdr_flush_disable: bool,
+    pub qps_per_conn: usize,
+    pub timeout: u8,
+    pub retry_count: u8,
+    pub pkey: u16,
+    pub use_inline: bool,
+    pub service_level: u8,
+    pub traffic_class: u8,
+    pub adaptive_routing: Option<bool>,
+    pub ar_threshold: usize,
+    pub pci_relaxed_ordering: bool,
+    pub gdr_flush_disable: bool,
     pub socket_if_prefix: Option<String>,
     pub ib_if_prefix: Option<String>,
 }
@@ -701,8 +703,7 @@ pub fn create_qp(
     };
     let mut qp_attr = ibv_qp_attr::default();
     qp_attr.qp_state = ibv_qp_state::IBV_QPS_INIT;
-    // ncclParamIbPkey()
-    qp_attr.pkey_index = 0;
+    qp_attr.pkey_index = transport_ctx.config.pkey;
     qp_attr.port_num = port;
     qp_attr.qp_access_flags = access_flags.0;
     unsafe {
@@ -1619,8 +1620,11 @@ impl NetProvider for RdmaTransportProvider {
     type NetHandle = IbConnectHandle;
 
     #[inline]
-    fn init(&self) -> Result<(), Self::NetError> {
-        let config = RdmaTransportConfig::default();
+    fn init(&self, catalog: &TransportCatalog) -> Result<(), Self::NetError> {
+        let config = catalog
+            .get_config::<RdmaTransportConfig>("NetProviderRdma")
+            .map_err(|_| IbError::ConfigNotFound)?
+            .clone();
         let context = ib_init_transport_context(config)?;
         RDMA_TRANSPORT
             .0

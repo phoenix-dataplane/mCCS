@@ -11,7 +11,7 @@ pub enum ControlRequest {
     NewTransportEngine(TransportEngineId),
 }
 
-pub enum ControlCommand {
+pub enum ControlNotification {
     NewDaemon {
         id: DaemonId,
         chan: DuplexChannel<ProxyCompletion, ProxyCommand>,

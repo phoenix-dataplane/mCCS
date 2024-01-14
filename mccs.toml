@@ -4,3 +4,32 @@ mccs_daemon_prefix = "/tmp/mccs"
 [control]
 prefix = "/tmp/mccs"
 path = "control.sock"
+
+[comm_default_config]
+buf_sizes = [4194304]
+
+[comm_global_config]
+[comm_global_config.net:rdma]
+gid_index = 3
+qps_per_conn = 1
+timeout = 18
+retry_count = 7
+pkey = 0
+use_inline = false
+service_level = 0
+traffic_class = 0
+adaptive_routing = false
+ar_threshold = 8192,
+pci_relaxed_ordering = false
+gdr_flush_disable = true
+socket_if_prefix = "rdma0"
+
+[comm_global_config.net]
+gdr_enable = false
+gdr_copy_sync_enable = false
+gdr_copy_flush_enable = false
+
+[comm_global_config.shm]
+locality = "Sender"
+memcpy_send = false
+memcpy_recv = false

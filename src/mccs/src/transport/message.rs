@@ -7,6 +7,7 @@ pub enum TransportEngineRequest {
     AgentSetup(&'static dyn Transporter, TransportAgentId, AgentMessage),
     AgentConnect(&'static dyn Transporter, TransportAgentId, AgentMessage),
     AgentTransportOp(TransportAgentId, TransportOp),
+    AgentShutdown(TransportAgentId),
 }
 
 pub enum TransportEngineReply {

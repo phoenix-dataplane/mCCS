@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::os::raw::c_void;
 
+use cuda_runtime_sys::cudaError;
 use cuda_runtime_sys::cudaIpcMemHandle_t;
-use cuda_runtime_sys::{cudaError, cudaStreamCreate};
 use cuda_runtime_sys::{cudaIpcGetMemHandle, cudaMalloc, cudaSetDevice};
 
 use ipc::customer::ShmCustomer;
@@ -11,10 +11,11 @@ use ipc::mccs::command::MccsDeviceMemoryHandle;
 use ipc::mccs::dp;
 use ipc::mccs::handle::{CommunicatorHandle, CudaMemHandle};
 
-use crate::comm::CommunicatorId;
-use crate::proxy::command::{AllGatherRequest, InitCommunicator, ProxyCommand, ProxyCompletion};
-
 use super::{DaemonId, Error};
+use crate::comm::CommunicatorId;
+use crate::engine::{Engine, EngineStatus};
+use crate::proxy::command::{AllGatherRequest, InitCommunicator, ProxyCommand, ProxyCompletion};
+use crate::utils::duplex_chan::DuplexChannel;
 
 pub type CustomerType =
     ShmCustomer<command::Command, command::Completion, dp::WorkRequestSlot, dp::CompletionSlot>;
@@ -39,9 +40,18 @@ pub struct DaemonEngine {
 }
 
 impl DaemonEngine {
-    pub fn mainloop(&mut self) {
-        loop {
-            self.check_cmd().unwrap();
+    pub fn new(
+        id: DaemonId,
+        customer: CustomerType,
+        proxy_chan: Vec<DuplexChannel<ProxyCommand, ProxyCompletion>>,
+    ) -> Self {
+        DaemonEngine {
+            id,
+            customer,
+            proxy_chan,
+            device_mem: HashMap::new(),
+            comm_delegation: HashMap::new(),
+            mem_counter: 0,
         }
     }
 }
@@ -52,9 +62,6 @@ enum Status {
     Disconnected,
 }
 
-use crate::cuda_warning;
-use crate::message::CudaStream;
-use crate::utils::duplex_chan::DuplexChannel;
 use Status::Progress;
 
 impl DaemonEngine {
@@ -98,7 +105,7 @@ impl DaemonEngine {
                 };
                 log::debug!(
                     "[Daemon-{}] cudaMalloc {} bytes at {:p} on GPU {}",
-                    self.id,
+                    self.id.0,
                     size,
                     dev_ptr,
                     dev_idx
@@ -111,7 +118,7 @@ impl DaemonEngine {
             Command::InitCommunicator(init) => {
                 log::debug!(
                     "[Daemon-{}] initCommunicator {} ({}/{}) on GPU {}",
-                    self.id,
+                    self.id.0,
                     init.id,
                     init.rank,
                     init.num_ranks,
@@ -158,7 +165,7 @@ impl DaemonEngine {
                 };
                 log::debug!(
                     "[Daemon-{}] try to issue allGather ({:p},{:p}) on communicator {}@{}",
-                    self.id,
+                    self.id.0,
                     send_buf_addr as *const c_void,
                     recv_buf_addr as *const c_void,
                     comm.cuda_device_idx,
@@ -177,7 +184,7 @@ impl DaemonEngine {
                 };
                 log::debug!(
                     "[Daemon-{}] SUCCESS for issuing allGather on communicator {}@{}",
-                    self.id,
+                    self.id.0,
                     comm.cuda_device_idx,
                     comm.comm_id,
                 );
@@ -201,6 +208,22 @@ impl DaemonEngine {
             Err(ipc::TryRecvError::Empty) => Ok(Progress(0)),
             Err(ipc::TryRecvError::Disconnected) => Ok(Status::Disconnected),
             Err(ipc::TryRecvError::Other(_e)) => Err(Error::IpcTryRecv),
+        }
+    }
+}
+
+impl Engine for DaemonEngine {
+    fn progress(&mut self) -> EngineStatus {
+        let status = self.check_cmd().unwrap();
+        match status {
+            Progress(x) => {
+                if x != 0 {
+                    EngineStatus::Progressed
+                } else {
+                    EngineStatus::Idle
+                }
+            }
+            Status::Disconnected => EngineStatus::Completed,
         }
     }
 }

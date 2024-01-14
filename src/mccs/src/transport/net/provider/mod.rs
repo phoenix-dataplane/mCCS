@@ -9,9 +9,11 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use thiserror::Error;
 
+use crate::transport::catalog::TransportCatalog;
 use crate::transport::transporter::{ConnectHandle, ConnectHandleError};
 
 pub mod rdma;
+pub use rdma::RdmaTransportConfig;
 pub use rdma::RDMA_TRANSPORT;
 
 pub type AnyNetComm = dyn Any + Send;
@@ -88,7 +90,7 @@ pub trait NetProvider: Send + Sync {
 
     // Initialize the network transport provider.
     // Any state modifications should be achieved with interior mutability
-    fn init(&self) -> Result<(), Self::NetError>;
+    fn init(&self, catalog: &TransportCatalog) -> Result<(), Self::NetError>;
     // Return the number of network adapters
     fn get_num_devices(&self) -> Result<usize, Self::NetError>;
     // Get various device properties
@@ -189,7 +191,7 @@ pub enum NetProviderError {
 
 #[async_trait]
 pub trait NetProvierWrap: private::Sealed + Send + Sync {
-    fn init(&self) -> Result<(), NetProviderError>;
+    fn init(&self, catalog: &TransportCatalog) -> Result<(), NetProviderError>;
     fn get_num_devices(&self) -> Result<usize, NetProviderError>;
     fn get_properties(&self, device: usize) -> Result<NetProperties, NetProviderError>;
     async fn listen(&self, device: usize) -> Result<NetListenerErased, NetProviderError>;
@@ -259,8 +261,8 @@ impl<T: NetProvider> private::Sealed for T {}
 #[async_trait]
 impl<T: NetProvider> NetProvierWrap for T {
     #[inline]
-    fn init(&self) -> Result<(), NetProviderError> {
-        <Self as NetProvider>::init(self).map_err(anyhow::Error::new)?;
+    fn init(&self, catalog: &TransportCatalog) -> Result<(), NetProviderError> {
+        <Self as NetProvider>::init(self, catalog).map_err(anyhow::Error::new)?;
         Ok(())
     }
     #[inline]

@@ -9,18 +9,20 @@ pub struct CommProfile {
 
 impl CommProfile {
     // (net_device, proxy_rank)
+    // TODO: choose net dev that is closest to the specified GPU
+    // and allow admins to specify the set of allowed net devs
     #[inline]
-    pub fn get_network_device(&self, rank: usize, peer_rank: usize) -> (usize, usize) {
+    pub fn get_network_device(&self, rank: usize, _peer_rank: usize) -> (usize, usize) {
         (0, rank)
     }
 
     #[inline]
-    pub fn check_gdr(&self, rank: usize, net_dev: usize, read: bool) -> bool {
+    pub fn check_gdr(&self, _rank: usize, _net_dev: usize, _read: bool) -> bool {
         false
     }
 
     #[inline]
-    pub fn check_gdr_need_flush(&self, rank: usize) -> bool {
+    pub fn check_gdr_need_flush(&self, _rank: usize) -> bool {
         false
     }
 
