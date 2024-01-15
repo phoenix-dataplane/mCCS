@@ -53,7 +53,7 @@ impl<T> DeviceHostMapped<T> {
             let mut device = 0;
             unsafe {
                 cudaGetDevice(&mut device);
-                cudaHostRegister(ptr_host as *mut _, size, cudaHostRegisterMapped);
+                cuda_warning!(cudaHostRegister(ptr_host as *mut _, size, cudaHostRegisterMapped));
                 cuda_warning!(
                     cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0),
                     format!("Random bug {:p}, please re-run", ptr_host)
