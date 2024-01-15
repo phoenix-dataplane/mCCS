@@ -5,8 +5,6 @@ use structopt::StructOpt;
 use cuda_runtime_sys::{cudaError, cudaMemcpyKind, cudaStream_t};
 use cuda_runtime_sys::{cudaMemcpy, cudaSetDevice};
 
-const COMM_ID: u32 = 42;
-
 #[derive(Debug, Clone, StructOpt)]
 #[structopt(name = "AllGather prototype")]
 struct Opts {
@@ -18,6 +16,8 @@ struct Opts {
     num_ranks: usize,
     #[structopt(long)]
     cuda_device_idx: i32,
+    #[structopt(short, long, default_value = "42")]
+    communicator: u32,
     #[structopt(short, long, default_value = "128")]
     size: usize,
 }
@@ -60,7 +60,7 @@ fn main() {
     }
     println!("**********");
     let comm = libmccs::init_communicator_rank(
-        COMM_ID,
+        opts.communicator,
         rank,
         num_ranks,
         opts.cuda_device_idx,
