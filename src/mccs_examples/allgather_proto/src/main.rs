@@ -1,4 +1,5 @@
 use std::net::IpAddr;
+use std::process::ExitCode;
 
 use structopt::StructOpt;
 
@@ -22,7 +23,7 @@ struct Opts {
     size: usize,
 }
 
-fn main() {
+fn main() -> ExitCode {
     let opts = Opts::from_args();
     let buffer_size = opts.size * 1024 * 1024;
     let rank = opts.rank;
@@ -78,7 +79,7 @@ fn main() {
     )
     .unwrap();
 
-    println!("rank 0 - all gather issued");
+    println!("rank {} - all gather issued", rank);
 
     let mut buf = vec![0; buffer_size * num_ranks / std::mem::size_of::<i32>()];
     unsafe {
@@ -93,7 +94,7 @@ fn main() {
         }
     };
 
-    println!("rank 0 - all gather completed");
+    println!("rank {}- all gather completed", rank);
     for r in 0..num_ranks {
         println!(
             "buf[{}]={}",
@@ -101,4 +102,13 @@ fn main() {
             buf[r * buffer_size / std::mem::size_of::<i32>()]
         );
     }
+    for r in 0..num_ranks {
+        let data = buf[r * buffer_size / std::mem::size_of::<i32>()];
+        let expected = 2042 + r;
+        if data != expected {
+            eprintln!("Rank{}: expected {}, got {}", r, expected, data);
+            return ExitCode::FAILURE;
+        }
+    }
+    return ExitCode::SUCCESS;
 }
