@@ -86,7 +86,7 @@ impl ExchangeEngineResources {
                         match msg {
                             ExchangeMessage::BootstrapHandle(comm_id, handle) => {
                                 let requests =
-                                    self.outstanding_requests.drain_filter(|x| match x {
+                                    self.outstanding_requests.extract_if(|x| match x {
                                         OutstandingRequest::BootstrapHandleRecv((id, _)) => {
                                             id == &comm_id
                                         }
@@ -174,7 +174,7 @@ impl ExchangeEngine {
                         let requests =
                             self.resources
                                 .outstanding_requests
-                                .drain_filter(|x| match x {
+                                .extract_if(|x| match x {
                                     OutstandingRequest::BootstrapHandleSend((id, _)) => {
                                         id == &comm_id
                                     }
