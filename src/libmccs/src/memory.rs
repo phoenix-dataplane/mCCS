@@ -9,7 +9,7 @@ use crate::Error;
 use crate::MCCS_CTX;
 use crate::{rx_recv_impl, DevicePtr};
 
-pub fn cuda_malloc(device_idx: usize, size: usize) -> Result<DevicePtr, Error> {
+pub fn cuda_malloc(device_idx: i32, size: usize) -> Result<DevicePtr, Error> {
     MCCS_CTX.with(|ctx| {
         let req = Command::CudaMalloc(device_idx, size);
         ctx.service.send_cmd(req)?;

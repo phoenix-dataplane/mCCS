@@ -76,6 +76,10 @@ pub async fn bootstrap_root(listen_sock: Socket, magic: u64) -> Result<(), Boots
 
     let mut recv_buf = [0u8; EXCHANGE_INFO_SEND_SIZE];
     let mut stream = tcp::async_accept(&listener, magic).await?;
+    log::trace!(
+        "before net receive: Bootstrap root listen {:?}",
+        listener.local_addr(),
+    );
     bootstrap_net_recv(&mut stream, recv_buf.as_mut_slice()).await?;
     let mut buf = recv_buf.as_slice();
     let exchange_info = BootstrapExchangeInfo::decode(&mut buf);
@@ -86,6 +90,10 @@ pub async fn bootstrap_root(listen_sock: Socket, magic: u64) -> Result<(), Boots
     rank_addrs_root[exchange_info.rank] = Some(exchange_info.listen_addr_root);
     let num_ranks = exchange_info.num_ranks;
     let mut received = 1;
+    log::trace!(
+        "Bootstrap root received check-in from rank {}",
+        exchange_info.rank
+    );
 
     while received < num_ranks {
         let mut stream = tcp::async_accept(&listener, magic).await?;

@@ -7,6 +7,7 @@ pub enum ExchangeCommand {
     RegisterBootstrapHandle(CommunicatorId, BootstrapHandle),
     // communicator id, root mccs exchange engine listen addr
     RecvBootstrapHandle(CommunicatorId, SocketAddr),
+    RemoveCommunicator(CommunicatorId),
 }
 
 pub enum ExchangeCompletion {

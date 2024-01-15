@@ -1,3 +1,5 @@
+use std::net::IpAddr;
+
 use ipc::mccs::command::{Command, CommunicatorInit, CompletionKind};
 use ipc::mccs::handle::CommunicatorHandle;
 
@@ -9,15 +11,15 @@ pub fn init_communicator_rank(
     unique_id: u32,
     rank: usize,
     num_ranks: usize,
-    cuda_device_idx: usize,
+    cuda_device_idx: i32,
+    root_addr: IpAddr,
 ) -> Result<CommunicatorHandle, Error> {
-    // TODO
     let init = CommunicatorInit {
         id: unique_id,
         rank,
         num_ranks,
+        root_addr,
         cuda_device_idx,
-        root_addr: todo!(),
     };
     MCCS_CTX.with(move |ctx| {
         let req = Command::InitCommunicator(init);

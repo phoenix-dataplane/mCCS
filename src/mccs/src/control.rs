@@ -1,76 +1,76 @@
-use std::collections::HashMap;
 use std::fs;
 use std::io;
-use std::iter::zip;
-use std::net::SocketAddr;
-use std::net::{IpAddr, Ipv4Addr};
-use std::os::unix::net::UCred;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::anyhow;
+
+use crossbeam::channel::{Receiver, Sender};
+use cuda_runtime_sys::cudaGetDeviceCount;
+use ipc::customer::ShmCustomer;
+use ipc::unix::DomainSocket;
+
+use crate::config::Config;
+use crate::cuda_warning;
+use crate::daemon::engine::DaemonEngine;
+use crate::daemon::DaemonId;
+use crate::exchange::command::{ExchangeCommand, ExchangeCompletion};
+use crate::exchange::engine::ExchangeEngine;
+use crate::message::{ControlNotification, ControlRequest};
+use crate::proxy::engine::ProxyEngine;
+use crate::proxy::DeviceInfo;
+use crate::registry::GlobalRegistry;
+use crate::runtime::RuntimeManager;
+use crate::transport::catalog::TransportCatalog;
+use crate::transport::delegator::TransportDelegator;
+use crate::transport::engine::TransportEngine;
+use crate::transport::engine::TransportEngineId;
+use crate::transport::net::RDMA_TRANSPORT;
+use crate::utils::duplex_chan::DuplexChannel;
+
+// Imports for tests
+
+use std::collections::HashMap;
+
+use cuda_runtime_sys::cudaError;
 use cuda_runtime_sys::cudaEventCreateWithFlags;
 use cuda_runtime_sys::cudaEventDisableTiming;
 use cuda_runtime_sys::cudaEventInterprocess;
 use cuda_runtime_sys::cudaEventRecord;
 use cuda_runtime_sys::cudaIpcEventHandle_t;
 use cuda_runtime_sys::cudaIpcGetEventHandle;
-use cuda_runtime_sys::cudaIpcOpenEventHandle;
 use cuda_runtime_sys::cudaMalloc;
 use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind;
-use cuda_runtime_sys::cudaStreamSynchronize;
-use cuda_runtime_sys::cudaStreamWaitEvent;
-use dashmap::DashMap;
-use nix::libc;
-
-use cuda_runtime_sys::cudaError;
-use cuda_runtime_sys::cudaGetDeviceCount;
 use cuda_runtime_sys::cudaSetDevice;
-use ipc::customer::ShmCustomer;
-use ipc::unix::DomainSocket;
+use cuda_runtime_sys::cudaStreamSynchronize;
 
 use crate::comm::CommunicatorId;
-use crate::config::Config;
-use crate::cuda_warning;
-use crate::daemon::DaemonId;
-use crate::exchange::command::{ExchangeCommand, ExchangeCompletion};
-use crate::exchange::engine::ExchangeEngine;
-use crate::message::{ControlCommand, ControlRequest};
-use crate::proxy::command::AllGatherRequest;
-use crate::proxy::command::InitCommunicator;
-use crate::proxy::command::ProxyCommand;
-use crate::proxy::command::ProxyCompletion;
-use crate::proxy::engine::ProxyEngine;
-use crate::proxy::engine::ProxyResources;
-use crate::proxy::message::ProxyPeerMessage;
-use crate::proxy::DeviceInfo;
-use crate::registry::GlobalRegistry;
-use crate::transport;
-use crate::transport::catalog::TransportCatalog;
-use crate::transport::delegator::TransportDelegator;
-use crate::transport::engine::TransportEngine;
-use crate::transport::engine::TransportEngineId;
+use crate::engine::Engine;
+use crate::proxy::command::{AllGatherRequest, InitCommunicator};
+use crate::proxy::command::{ProxyCommand, ProxyCompletion};
 use crate::transport::engine::TransportEngineResources;
-use crate::transport::message::TransportEngineReply;
-use crate::transport::message::TransportEngineRequest;
+use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
 use crate::transport::net::config::NetTransportConfig;
 use crate::transport::queue::TransrportOpQueue;
-use crate::transport::shm::config::ShmConfig;
-use crate::utils::duplex_chan::DuplexChannel;
 use crate::utils::pool::WorkPool;
 
 pub struct Control {
     sock: DomainSocket,
     config: Config,
-    daemon_cnt: DaemonId,
-    proxy_channels: Vec<DuplexChannel<ControlCommand, ControlRequest>>,
+    daemon_count: usize,
+    transport_catalog: Arc<TransportCatalog>,
+    transport_delegator: Arc<TransportDelegator>,
+    runtime_manager: RuntimeManager,
+    proxy_tx: Vec<Sender<ControlNotification>>,
+    proxy_rx: Vec<Receiver<ControlRequest>>,
 }
 
 impl Control {
-    pub fn new(config: Config) -> Self {
+    pub fn new(config: Config, host: usize) -> Self {
+        use crate::transport::net::provider::NetProvierWrap;
+
         let mccs_prefix = &config.control.prefix;
         fs::create_dir_all(mccs_prefix)
             .unwrap_or_else(|e| panic!("Failed to create directory for {mccs_prefix:?}: {e}"));
@@ -87,182 +87,517 @@ impl Control {
         sock.set_write_timeout(Some(Duration::from_millis(1)))
             .expect("set_write_timeout");
 
-        let transport_delegator = TransportDelegator::new();
+        let transport_delegator = Arc::new(TransportDelegator::new());
         let transport_catalog = Arc::new(TransportCatalog::new());
-        let shm_config = ShmConfig {
-            locality: crate::transport::shm::config::ShmLocality::Sender,
-            use_memcpy_send: false,
-            use_memcpy_recv: false,
-        };
+
+        let rdma_config = config.comm_global_config.rdma_config.clone();
+        transport_catalog.register_config(String::from("NetProviderRdma"), rdma_config);
+        let net_config = config.comm_global_config.net_config.clone();
+        transport_catalog.register_config(String::from("NetTransport"), net_config);
+        let shm_config = config.comm_global_config.shm_config.clone();
         transport_catalog.register_config(String::from("ShmTransport"), shm_config);
-        let registry = GlobalRegistry {
-            transport_delegator,
+        RDMA_TRANSPORT.init(&transport_catalog).unwrap();
+
+        let runtime_manager = RuntimeManager::new();
+        let listen_addr = std::net::SocketAddr::new(config.addrs[host].clone(), config.listen_port);
+        let exchange_chans = Self::create_exchange_engine(&listen_addr, &runtime_manager);
+        let proxy_chans = Self::create_proxy_engines(
+            &config.addrs[host],
+            exchange_chans,
+            &runtime_manager,
+            &config,
+            &transport_delegator,
+            &transport_catalog,
+        );
+        let mut proxy_tx = Vec::with_capacity(proxy_chans.len());
+        let mut proxy_rx = Vec::with_capacity(proxy_chans.len());
+        for chan in proxy_chans.into_iter() {
+            proxy_tx.push(chan.tx);
+            proxy_rx.push(chan.rx);
+        }
+
+        Control {
+            sock,
+            config,
+            daemon_count: 0,
             transport_catalog,
-        };
-        let registry = Arc::new(registry);
-
-        // FIXME: problematic, should be checked whenever encountered a bug with inter-host
-        // let sock_addr = "127.0.0.1:8000".parse().unwrap();
-
-        // let chan = Self::create_proxies(registry, sock_addr).expect("Create proxies failed");
-
-        // Control {
-        //     sock,
-        //     config,
-        //     daemon_cnt: 0,
-        //     proxy_channels: chan,
-        // }
-        todo!()
+            transport_delegator,
+            runtime_manager,
+            proxy_tx,
+            proxy_rx,
+        }
     }
 
-    // pub fn mainloop(&mut self, exit_flag: &AtomicBool) -> anyhow::Result<()> {
-    //     let mut buf = vec![0u8; 65536];
-    //     while !exit_flag.load(Ordering::Relaxed) {
-    //         match self.sock.recv_with_credential_from(buf.as_mut_slice()) {
-    //             Ok((size, sender, cred)) => {
-    //                 if let Some(cred) = cred {
-    //                     if let Err(_e) = self.dispatch(&mut buf[..size], &sender, &cred) {
-    //                         // log
-    //                     }
-    //                 } else {
-    //                     // log
-    //                 }
-    //             }
-    //             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
-    //             Err(_e) => {
-    //                 if exit_flag.load(Ordering::Relaxed) {
-    //                     break;
-    //                 }
-    //                 // log
-    //             }
-    //         }
-    //     }
-    //     Ok(())
-    // }
+    pub fn mainloop(&mut self, exit_flag: &AtomicBool) -> anyhow::Result<()> {
+        let mut buf = vec![0u8; 65536];
+        while !exit_flag.load(Ordering::Relaxed) {
+            match self.sock.recv_with_credential_from(buf.as_mut_slice()) {
+                Ok((size, sender, cred)) => {
+                    if let Some(cred) = cred {
+                        if let Err(_e) = self.dispatch(&mut buf[..size], &sender, &cred) {
+                            // log
+                        }
+                    } else {
+                        // log
+                    }
+                }
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                Err(_e) => {
+                    if exit_flag.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    // log
+                }
+            }
+            self.check_proxy_requests();
+        }
+        Ok(())
+    }
 
-    // fn create_proxies(
-    //     registry: Arc<GlobalRegistry>,
-    //     sock_addr: std::net::SocketAddr,
-    // ) -> anyhow::Result<Vec<DuplexChannel<ControlCommand, ControlRequest>>> {
-    //     // we don't allow device hot-plug, so we create connected proxies in advance
-    //     let device_cnt = {
-    //         let mut i = 0;
-    //         cuda_warning!(unsafe { cudaGetDeviceCount(&mut i) });
-    //         i as i32 as usize
-    //     };
-    //     // proxies <--> proxies
-    //     let mut inter_senders = vec![vec![]; device_cnt];
-    //     let mut inter_receivers = vec![];
-    //     for _ in 0..device_cnt {
-    //         let (sender, receiver) = crossbeam::channel::unbounded();
-    //         inter_receivers.push(receiver);
-    //         inter_senders
-    //             .iter_mut()
-    //             .for_each(|x| x.push(sender.clone()));
-    //     }
-    //     // control <--> proxies
-    //     let mut control_command_local = vec![];
-    //     let mut control_command_proxy = vec![];
-    //     for _ in 0..device_cnt {
-    //         let (local_side, proxy_side) = DuplexChannel::new_unbound_pair();
-    //         control_command_local.push(local_side);
-    //         control_command_proxy.push(proxy_side)
-    //     }
+    fn check_proxy_requests(&mut self) {
+        for proxy_rx in self.proxy_rx.iter() {
+            match proxy_rx.try_recv() {
+                Ok(req) => match req {
+                    ControlRequest::NewTransportEngine(engine_id) => {
+                        let mut proxy_endpoints = Vec::new();
+                        let mut transport_endpoints = Vec::new();
+                        for _ in 0..self.proxy_tx.len() {
+                            let (proxy_endpoint, transport_endpoint) =
+                                DuplexChannel::new_unbound_pair();
+                            proxy_endpoints.push(proxy_endpoint);
+                            transport_endpoints.push(transport_endpoint);
+                        }
+                        let global_registry = GlobalRegistry {
+                            default_comm_config: self.config.comm_default_config.clone(),
+                            transport_delegator: Arc::clone(&self.transport_delegator),
+                            transport_catalog: Arc::clone(&self.transport_catalog),
+                        };
+                        let engine =
+                            TransportEngine::new(engine_id, transport_endpoints, global_registry);
+                        let container = Box::new(engine);
+                        self.runtime_manager
+                            .submit_engine(container, Some(engine_id.cuda_device_idx));
+                        for (proxy_tx, proxy_endpoint) in
+                            self.proxy_tx.iter_mut().zip(proxy_endpoints.into_iter())
+                        {
+                            proxy_tx
+                                .send(ControlNotification::NewTransportEngine {
+                                    id: engine_id,
+                                    chan: proxy_endpoint,
+                                })
+                                .unwrap();
+                        }
+                    }
+                },
+                Err(crossbeam::channel::TryRecvError::Empty) => (),
+                Err(crossbeam::channel::TryRecvError::Disconnected) => {
+                    panic!("Proxy engines shall never shutdown")
+                }
+            }
+        }
+    }
 
-    //     zip(control_command_proxy, zip(inter_senders, inter_receivers))
-    //         .enumerate()
-    //         .map(
-    //             |(idx, (chan, (inter_sender, inter_receiver)))| ProxyResources {
-    //                 device_info: DeviceInfo {
-    //                     host: HostIdent(sock_addr),
-    //                     cuda_device_idx: idx as i32,
-    //                 },
-    //                 control_chan: chan,
-    //                 daemon_tx: Default::default(),
-    //                 daemon_rx: vec![],
-    //                 proxy_peer_tx: inter_sender,
-    //                 proxy_peer_rx: inter_receiver,
-    //                 comms_init: Default::default(),
-    //                 communicators: Default::default(),
-    //                 global_registry: registry.clone(),
-    //                 transport_engines_tx: Default::default(),
-    //                 transport_engines_rx: vec![],
-    //                 transport_submission_pool: Default::default(),
-    //             },
-    //         )
-    //         .enumerate()
-    //         .for_each(|(cuda_idx, res)| {
-    //             let mut proxy = ProxyEngine {
-    //                 resources: res,
-    //                 ops: WorkPool::new(),
-    //             };
-    //             std::thread::spawn(move || {
-    //                 unsafe {
-    //                     let error = cudaSetDevice(cuda_idx as i32);
-    //                     if error != cudaError::cudaSuccess {
-    //                         panic!("cudaSetDevice");
-    //                     }
-    //                 }
-    //                 proxy.mainloop();
-    //             });
-    //         });
+    fn create_proxy_engines(
+        addr: &std::net::IpAddr,
+        exchange_chans: Vec<DuplexChannel<ExchangeCommand, ExchangeCompletion>>,
+        runtime_manager: &RuntimeManager,
+        config: &Config,
+        transport_delegator: &Arc<TransportDelegator>,
+        transport_catalog: &Arc<TransportCatalog>,
+    ) -> Vec<DuplexChannel<ControlNotification, ControlRequest>> {
+        // we don't allow device hot-plug, so we create connected proxies in advance
+        let device_cnt = {
+            let mut i = 0;
+            cuda_warning!(unsafe { cudaGetDeviceCount(&mut i) });
+            i as i32 as usize
+        };
+        assert_eq!(device_cnt, exchange_chans.len());
+        let mut control_endpoints = Vec::new();
+        for (dev_idx, exchange_chan) in exchange_chans.into_iter().enumerate() {
+            let (control_endpoint, proxy_endpoint) = DuplexChannel::new_unbound_pair();
+            control_endpoints.push(control_endpoint);
+            let device_info = DeviceInfo {
+                host: addr.clone(),
+                listen_port: config.listen_port,
+                cuda_device_idx: dev_idx as i32,
+            };
+            let global_registry = GlobalRegistry {
+                default_comm_config: config.comm_default_config.clone(),
+                transport_delegator: Arc::clone(transport_delegator),
+                transport_catalog: Arc::clone(transport_catalog),
+            };
+            let engine =
+                ProxyEngine::new(device_info, global_registry, proxy_endpoint, exchange_chan);
+            let container = Box::new(engine);
+            runtime_manager.submit_engine(container, Some(dev_idx as i32));
+        }
+        control_endpoints
+    }
 
-    //     Ok(control_command_local)
-    // }
+    fn create_exchange_engine(
+        addr: &std::net::SocketAddr,
+        runtime_manager: &RuntimeManager,
+    ) -> Vec<DuplexChannel<ExchangeCommand, ExchangeCompletion>> {
+        let mut exchange_txs = Vec::new();
+        let mut exchange_rxs = Vec::new();
+        let mut proxy_endpoints = Vec::new();
+        let device_cnt = {
+            let mut i = 0;
+            cuda_warning!(unsafe { cudaGetDeviceCount(&mut i) });
+            i as i32 as usize
+        };
+        for _ in 0..device_cnt {
+            let (exchange_endpoint, proxy_endpoint) = DuplexChannel::new_unbound_pair();
+            proxy_endpoints.push(proxy_endpoint);
+            exchange_txs.push(exchange_endpoint.tx);
+            exchange_rxs.push(exchange_endpoint.rx);
+        }
+        let engine = ExchangeEngine::new(addr.clone(), exchange_txs, exchange_rxs);
+        let container = Box::new(engine);
+        runtime_manager.submit_engine(container, None);
+        proxy_endpoints
+    }
 
-    // fn dispatch(
-    //     &mut self,
-    //     buf: &mut [u8],
-    //     sender: &SocketAddr,
-    //     _cred: &UCred,
-    // ) -> anyhow::Result<()> {
-    //     use ipc::control;
-    //     let msg: control::Request = bincode::deserialize(buf).unwrap();
-    //     match msg {
-    //         control::Request::NewClient => {
-    //             let client_path = sender
-    //                 .as_pathname()
-    //                 .ok_or_else(|| anyhow!("peer is unnamed, something is wrong"))?;
+    fn dispatch(
+        &mut self,
+        buf: &mut [u8],
+        sender: &std::os::unix::net::SocketAddr,
+        _cred: &std::os::unix::net::UCred,
+    ) -> anyhow::Result<()> {
+        use ipc::control;
+        let msg: control::Request = bincode::deserialize(buf).unwrap();
+        match msg {
+            control::Request::NewClient => {
+                let client_path = sender
+                    .as_pathname()
+                    .ok_or_else(|| anyhow!("peer is unnamed, something is wrong"))?;
 
-    //             let uuid = uuid::Uuid::new_v4();
-    //             let instance_name = format!("{}-{}.sock", self.config.mccs_daemon_basename, uuid);
-    //             let engine_path = self.config.mccs_daemon_prefix.join(instance_name);
+                let uuid = uuid::Uuid::new_v4();
+                let instance_name = format!("{}-{}.sock", self.config.mccs_daemon_basename, uuid);
+                let engine_path = self.config.mccs_daemon_prefix.join(instance_name);
 
-    //             // create customer stub
-    //             let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
+                // create customer stub
+                let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
 
-    //             let daemon_id = self.daemon_cnt;
-    //             let num_devices = self.proxy_channels.len();
-    //             let mut daemon_channels = Vec::with_capacity(num_devices);
+                let daemon_id = DaemonId(self.daemon_count as u32);
+                let num_devices = self.proxy_tx.len();
+                let mut daemon_channels = Vec::with_capacity(num_devices);
 
-    //             for device_idx in 0..num_devices {
-    //                 let endpoint_tx = &mut self.proxy_channels[device_idx].tx;
-    //                 let (daemon_side, proxy_side) = DuplexChannel::new_unbound_pair();
-    //                 let proxy_endpoint = ControlCommand::NewDaemon {
-    //                     id: daemon_id,
-    //                     chan: proxy_side,
-    //                 };
-    //                 endpoint_tx.send(proxy_endpoint).unwrap();
-    //                 daemon_channels.push(daemon_side);
-    //             }
+                for device_idx in 0..num_devices {
+                    let endpoint_tx = &mut self.proxy_tx[device_idx];
+                    let (daemon_side, proxy_side) = DuplexChannel::new_unbound_pair();
+                    let proxy_endpoint = ControlNotification::NewDaemon {
+                        id: daemon_id,
+                        chan: proxy_side,
+                    };
+                    endpoint_tx.send(proxy_endpoint).unwrap();
+                    daemon_channels.push(daemon_side);
+                }
 
-    //             let mut engine = crate::daemon::engine::DaemonEngine {
-    //                 id: daemon_id,
-    //                 proxy_chan: daemon_channels,
-    //                 device_mem: HashMap::new(),
-    //                 comm_delegation: HashMap::new(),
-    //                 customer,
-    //                 mem_counter: 0,
-    //             };
-    //             std::thread::spawn(move || {
-    //                 engine.mainloop();
-    //             });
-    //             self.daemon_cnt += 1;
+                let engine = DaemonEngine::new(daemon_id, customer, daemon_channels);
+                let container = Box::new(engine);
+                // TODO: check cuda dev
+                self.runtime_manager.submit_engine(container, None);
+                self.daemon_count += 1;
 
-    //             Ok(())
-    //         }
-    //     }
-    // }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Control {
+    fn start_test_proxy(
+        cuda_device: i32,
+        ip_addr: std::net::IpAddr,
+        listen_port: u16,
+        daemon_tx: HashMap<DaemonId, crossbeam::channel::Sender<ProxyCompletion>>,
+        daemon_rx: Vec<(DaemonId, crossbeam::channel::Receiver<ProxyCommand>)>,
+        exchange_chan: DuplexChannel<ExchangeCommand, ExchangeCompletion>,
+        transport_engines_tx: HashMap<
+            TransportEngineId,
+            crossbeam::channel::Sender<TransportEngineRequest>,
+        >,
+        transport_engines_rx: Vec<(
+            TransportEngineId,
+            crossbeam::channel::Receiver<TransportEngineReply>,
+        )>,
+        global_registry: GlobalRegistry,
+    ) -> anyhow::Result<()> {
+        let dev_info = DeviceInfo {
+            host: ip_addr,
+            listen_port,
+            cuda_device_idx: cuda_device,
+        };
+        let (control_req_tx, _control_req_rx) = crossbeam::channel::unbounded();
+        let (_control_notify_tx, control_notify_rx) = crossbeam::channel::unbounded();
+
+        let proxy_resources = crate::proxy::engine::ProxyResources {
+            device_info: dev_info,
+            control_chan: DuplexChannel {
+                tx: control_req_tx,
+                rx: control_notify_rx,
+            },
+            daemon_tx,
+            daemon_rx,
+            exchange_chan,
+            comms_init: HashMap::new(),
+            communicators: HashMap::new(),
+            global_registry,
+            transport_engines_tx,
+            transport_engines_rx,
+            transport_submission_cache: HashMap::new(),
+            task_submit_pool: Vec::new(),
+            daemon_shutdown: Vec::new(),
+            transport_shutdown: Vec::new(),
+        };
+        let mut proxy = ProxyEngine {
+            resources: proxy_resources,
+            ops: WorkPool::new(),
+            async_tasks: WorkPool::new(),
+        };
+        std::thread::spawn(move || {
+            unsafe {
+                let error = cudaSetDevice(cuda_device);
+                if error != cudaError::cudaSuccess {
+                    panic!("cudaSetDevice");
+                }
+            }
+            loop {
+                proxy.progress();
+            }
+        });
+        Ok(())
+    }
+
+    pub fn dist_test(host: usize) {
+        let comm_id = 1042;
+        use crate::transport::net::provider::NetProvierWrap;
+        let transport_delegator = Arc::new(TransportDelegator::new());
+        transport_delegator
+            .active_connections
+            .insert(0, vec![(0, 0)]);
+        let transport_engine_id = TransportEngineId {
+            cuda_device_idx: 0,
+            index: 0,
+        };
+        let (transport_cmd_tx, transport_cmd_rx) = crossbeam::channel::unbounded();
+        let (transport_comp_tx, transport_comp_rx) = crossbeam::channel::unbounded();
+        let mut transport_engines_tx = HashMap::new();
+        transport_engines_tx.insert(transport_engine_id, transport_cmd_tx);
+        let transport_engines_rx = vec![(transport_engine_id, transport_comp_rx)];
+
+        let transport_catalog = TransportCatalog::new();
+        let net_config = NetTransportConfig {
+            gdr_enable: false,
+            gdr_copy_sync_enable: false,
+            gdr_copy_flush_enable: false,
+        };
+        let rdma_config = crate::transport::net::provider::RdmaTransportConfig::default();
+        transport_catalog.register_config(String::from("NetTransport"), net_config);
+        transport_catalog.register_config(String::from("NetProviderRdma"), rdma_config);
+        crate::transport::net::provider::RDMA_TRANSPORT
+            .init(&transport_catalog)
+            .unwrap();
+        let registry = GlobalRegistry {
+            default_comm_config: crate::config::DefaultCommConfig::default(),
+            transport_delegator,
+            transport_catalog: Arc::new(transport_catalog),
+        };
+
+        let resources = TransportEngineResources {
+            agent_setup: HashMap::new(),
+            agent_connected: HashMap::new(),
+            proxy_chan: vec![DuplexChannel {
+                tx: transport_comp_tx,
+                rx: transport_cmd_rx,
+            }],
+            global_registry: registry.clone(),
+        };
+        let mut transport_engine = TransportEngine {
+            id: transport_engine_id,
+            resources,
+            async_tasks: WorkPool::new(),
+            op_queue: TransrportOpQueue::new(),
+        };
+        std::thread::spawn(move || {
+            unsafe {
+                let error = cudaSetDevice(0);
+                if error != cudaError::cudaSuccess {
+                    panic!("cudaSetDevice");
+                }
+            }
+            loop {
+                transport_engine.progress();
+            }
+        });
+
+        let (daemon_cmd_tx, daemon_cmd_rx) = crossbeam::channel::unbounded();
+        let (daemon_comp_tx, daemon_comp_rx) = crossbeam::channel::unbounded();
+        let (exchange_chans_proxy_endpoint, exchange_chans_exchange_endpoint) =
+            DuplexChannel::new_unbound_pair();
+        let sock_addr = if host == 0 {
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 211, 66)),
+                5000,
+            )
+        } else {
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 211, 194)),
+                5000,
+            )
+        };
+        let mut daemon_tx = HashMap::new();
+        daemon_tx.insert(DaemonId(0), daemon_comp_tx);
+        let daemon_rx = vec![(DaemonId(0), daemon_cmd_rx)];
+        Self::start_test_proxy(
+            0,
+            sock_addr.ip(),
+            sock_addr.port(),
+            daemon_tx,
+            daemon_rx,
+            exchange_chans_proxy_endpoint,
+            transport_engines_tx,
+            transport_engines_rx,
+            registry.clone(),
+        )
+        .unwrap();
+
+        let proxy_tx = vec![exchange_chans_exchange_endpoint.tx];
+        let proxy_rx = vec![exchange_chans_exchange_endpoint.rx];
+        let mut exchange_engine = ExchangeEngine::new(sock_addr, proxy_tx, proxy_rx);
+        std::thread::spawn(move || loop {
+            exchange_engine.progress();
+        });
+
+        let root_sock_addr = std::net::IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 211, 66));
+        let rank = host;
+        let init_comm = InitCommunicator {
+            communicator_id: CommunicatorId(comm_id),
+            root_mccs_addr: root_sock_addr,
+            rank,
+            num_ranks: 2,
+        };
+        let cmd = ProxyCommand::InitCommunicator(init_comm);
+        daemon_cmd_tx.send(cmd).unwrap();
+        let comp = daemon_comp_rx.recv().unwrap();
+        match comp {
+            ProxyCompletion::InitCommunicator => (),
+            _ => panic!("unexpected"),
+        }
+        log::info!("Init communicator done");
+
+        /// ----------------------------------------------------------
+        const BUFFER_SIZE: usize = 8 * 1024 * 1024;
+
+        let first = if host == 0 { 42 } else { 99 };
+        let second = if host == 0 { 88 } else { 37 };
+        log::info!("Buffer content: [{};{}]", first, second);
+
+        let dev_buf_0 = Self::initialize_test_region(BUFFER_SIZE, first, second);
+
+        let handle = unsafe {
+            let mut event = std::ptr::null_mut();
+            cuda_warning!(cudaEventCreateWithFlags(
+                &mut event,
+                cudaEventInterprocess | cudaEventDisableTiming
+            ));
+            cuda_warning!(cudaEventRecord(event, std::ptr::null_mut()));
+            let mut handle = cudaIpcEventHandle_t::default();
+            cuda_warning!(cudaIpcGetEventHandle(&mut handle, event));
+            handle
+        };
+        log::info!("Start proxying");
+
+        daemon_cmd_tx
+            .send(ProxyCommand::AllGather(AllGatherRequest {
+                communicator_id: CommunicatorId(comm_id),
+                send_buf_addr: dev_buf_0 as usize + if host == 0 { 0 } else { BUFFER_SIZE / 2 },
+                recv_buf_addr: dev_buf_0 as usize,
+                size: BUFFER_SIZE / 2,
+                app_ipc_event_handle: handle.into(),
+            }))
+            .unwrap();
+        log::info!("Sent request");
+        let handle = match daemon_comp_rx.recv().unwrap() {
+            ProxyCompletion::AllGather(comp_handle) => comp_handle,
+            _ => panic!("Unexpected"),
+        };
+        log::info!("Got handle");
+
+        // wait
+        unsafe {
+            // let mut event = std::ptr::null_mut();
+            // cuda_warning!(cudaIpcOpenEventHandle(&mut event, handle.into()));
+            // cuda_warning!(cudaStreamWaitEvent(std::ptr::null_mut(), event, 0));
+            std::thread::sleep(Duration::from_secs(4));
+            log::info!("wake up");
+            cuda_warning!(cudaStreamSynchronize(std::ptr::null_mut()));
+        }
+        log::info!("synchronized");
+
+        // check
+        let mut buf = vec![0u8; BUFFER_SIZE];
+        unsafe {
+            let err = cudaMemcpy(
+                buf.as_mut_ptr() as *mut _,
+                dev_buf_0,
+                BUFFER_SIZE,
+                cudaMemcpyKind::cudaMemcpyDeviceToHost,
+            );
+            if err != cudaError::cudaSuccess {
+                panic!("cudaMemcpy failed");
+            }
+        };
+        log::info!("memcpy done");
+        println!(
+            "[0]={} [100]={} [4MB-1]={}",
+            buf[0],
+            buf[100],
+            buf[BUFFER_SIZE / 2 - 1]
+        );
+        println!(
+            "[4MB]={} [4MB+100]={} [Last]={}",
+            buf[BUFFER_SIZE / 2],
+            buf[BUFFER_SIZE / 2 + 100],
+            buf[BUFFER_SIZE - 1]
+        );
+        assert_eq!(buf[0], 42);
+        assert_eq!(buf[BUFFER_SIZE / 2], 37);
+        log::info!("Success");
+    }
+
+    fn initialize_test_region(
+        buf_size: usize,
+        first_content: u8,
+        second_content: u8,
+    ) -> *mut nix::libc::c_void {
+        unsafe {
+            let error = cudaSetDevice(0);
+            if error != cudaError::cudaSuccess {
+                panic!("cudaSetDevice");
+            }
+        }
+        // Inference
+        let dev_buf_0 = unsafe {
+            let mut dev_ptr = std::ptr::null_mut();
+            cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
+            dev_ptr
+        };
+        let mut buf = vec![first_content; buf_size / 2];
+        buf.extend(vec![second_content; buf_size / 2]);
+
+        unsafe {
+            cudaMemcpy(
+                dev_buf_0,
+                buf.as_ptr() as *const _,
+                buf_size,
+                cudaMemcpyKind::cudaMemcpyHostToDevice,
+            )
+        };
+
+        dev_buf_0
+    }
 }
 
 impl Control {
@@ -506,285 +841,6 @@ impl Control {
     //     log::info!("Pass data check");
     //     Ok(())
     // }
-
-    fn start_test_proxy(
-        cuda_device: i32,
-        sock_addr: std::net::SocketAddr,
-        daemon_tx: HashMap<DaemonId, crossbeam::channel::Sender<ProxyCompletion>>,
-        daemon_rx: Vec<(DaemonId, crossbeam::channel::Receiver<ProxyCommand>)>,
-        exchange_tx: crossbeam::channel::Sender<ExchangeCommand>,
-        exchange_rx: crossbeam::channel::Receiver<ExchangeCompletion>,
-        transport_engines_tx: HashMap<
-            TransportEngineId,
-            crossbeam::channel::Sender<TransportEngineRequest>,
-        >,
-        transport_engines_rx: Vec<(
-            TransportEngineId,
-            crossbeam::channel::Receiver<TransportEngineReply>,
-        )>,
-        global_registry: Arc<GlobalRegistry>,
-    ) -> anyhow::Result<()> {
-        let dev_info = DeviceInfo {
-            host: sock_addr,
-            cuda_device_idx: cuda_device,
-        };
-        let (control_req_tx, _control_req_rx) = crossbeam::channel::unbounded();
-        let (_control_notify_tx, control_notify_rx) = crossbeam::channel::unbounded();
-
-        let proxy_resources = ProxyResources {
-            device_info: dev_info,
-            control_chan: DuplexChannel {
-                tx: control_req_tx,
-                rx: control_notify_rx,
-            },
-            daemon_tx,
-            daemon_rx,
-            comms_init: HashMap::new(),
-            communicators: HashMap::new(),
-            global_registry,
-            transport_engines_tx,
-            transport_engines_rx,
-            transport_submission_pool: HashMap::new(),
-            exchange_tx,
-            exchange_rx,
-            task_submit_pool: Vec::new(),
-        };
-        let mut proxy = ProxyEngine {
-            resources: proxy_resources,
-            ops: WorkPool::new(),
-            async_tasks: WorkPool::new(),
-        };
-        std::thread::spawn(move || {
-            unsafe {
-                let error = cudaSetDevice(cuda_device);
-                if error != cudaError::cudaSuccess {
-                    panic!("cudaSetDevice");
-                }
-            }
-            proxy.mainloop();
-        });
-        Ok(())
-    }
-
-    pub fn dist_test(host: usize) {
-        let comm_id = 1042;
-        use crate::transport::net::provider::NetProvierWrap;
-        crate::transport::net::provider::RDMA_TRANSPORT
-            .init()
-            .unwrap();
-        let transport_delegator = TransportDelegator::new();
-        transport_delegator
-            .active_connections
-            .insert(0, vec![(0, 0)]);
-        let transport_engine_id = TransportEngineId {
-            cuda_device_idx: 0,
-            index: 0,
-        };
-        let (transport_cmd_tx, transport_cmd_rx) = crossbeam::channel::unbounded();
-        let (transport_comp_tx, transport_comp_rx) = crossbeam::channel::unbounded();
-        let mut transport_engines_tx = HashMap::new();
-        transport_engines_tx.insert(transport_engine_id, transport_cmd_tx);
-        let transport_engines_rx = vec![(transport_engine_id, transport_comp_rx)];
-
-        let transport_catalog = TransportCatalog::new();
-        let net_config = NetTransportConfig {
-            gdr_enable: false,
-            gdr_copy_sync_enable: false,
-            gdr_copy_flush_enable: false,
-        };
-        transport_catalog.register_config(String::from("NetTransport"), net_config);
-        let registry = GlobalRegistry {
-            transport_delegator,
-            transport_catalog: Arc::new(transport_catalog),
-        };
-        let registry = Arc::new(registry);
-
-        let resources = TransportEngineResources {
-            agent_setup: HashMap::new(),
-            agent_connected: HashMap::new(),
-            proxy_chan: vec![DuplexChannel {
-                tx: transport_comp_tx,
-                rx: transport_cmd_rx,
-            }],
-            global_registry: Arc::clone(&registry),
-        };
-        let mut transport_engine = TransportEngine {
-            id: transport_engine_id,
-            resources,
-            async_tasks: WorkPool::new(),
-            op_queue: TransrportOpQueue::new(),
-        };
-        std::thread::spawn(move || {
-            unsafe {
-                let error = cudaSetDevice(0);
-                if error != cudaError::cudaSuccess {
-                    panic!("cudaSetDevice");
-                }
-            }
-            transport_engine.mainloop();
-        });
-
-        let (daemon_cmd_tx, daemon_cmd_rx) = crossbeam::channel::unbounded();
-        let (daemon_comp_tx, daemon_comp_rx) = crossbeam::channel::unbounded();
-        let (exchange_cmd_tx, exchange_cmd_rx) = crossbeam::channel::unbounded();
-        let (exchange_comp_tx, exchange_comp_rx) = crossbeam::channel::unbounded();
-
-        let sock_addr = if host == 0 {
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 211, 66)), 5000)
-        } else {
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 211, 194)), 5000)
-        };
-        let mut daemon_tx = HashMap::new();
-        daemon_tx.insert(0, daemon_comp_tx);
-        let daemon_rx = vec![(0, daemon_cmd_rx)];
-        Self::start_test_proxy(
-            0,
-            sock_addr.clone(),
-            daemon_tx,
-            daemon_rx,
-            exchange_cmd_tx,
-            exchange_comp_rx,
-            transport_engines_tx,
-            transport_engines_rx,
-            registry.clone(),
-        )
-        .unwrap();
-
-        let proxy_tx = vec![exchange_comp_tx];
-        let proxy_rx = vec![exchange_cmd_rx];
-        let mut exchange_engine = ExchangeEngine::new(sock_addr, proxy_tx, proxy_rx);
-        std::thread::spawn(move || {
-            exchange_engine.mainloop();
-        });
-
-        let root_sock_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 211, 66)), 5000);
-        let rank = host;
-        let init_comm = InitCommunicator {
-            communicator_id: CommunicatorId(comm_id),
-            root_mccs_addr: root_sock_addr,
-            rank,
-            num_ranks: 2,
-        };
-        let cmd = ProxyCommand::InitCommunicator(init_comm);
-        daemon_cmd_tx.send(cmd).unwrap();
-        let comp = daemon_comp_rx.recv().unwrap();
-        match comp {
-            ProxyCompletion::InitCommunicator => (),
-            _ => panic!("unexpected"),
-        }
-        log::info!("Init communicator done");
-
-        /// ----------------------------------------------------------
-        const BUFFER_SIZE: usize = 8 * 1024 * 1024;
-
-        let first = if host == 0 { 42 } else { 99 };
-        let second = if host == 0 { 88 } else { 37 };
-        log::info!("Buffer content: [{};{}]", first, second);
-
-        let dev_buf_0 = Self::initialize_test_region(BUFFER_SIZE, first, second);
-
-        let handle = unsafe {
-            let mut event = std::ptr::null_mut();
-            cuda_warning!(cudaEventCreateWithFlags(
-                &mut event,
-                cudaEventInterprocess | cudaEventDisableTiming
-            ));
-            cuda_warning!(cudaEventRecord(event, std::ptr::null_mut()));
-            let mut handle = cudaIpcEventHandle_t::default();
-            cuda_warning!(cudaIpcGetEventHandle(&mut handle, event));
-            handle
-        };
-        log::info!("Start proxying");
-
-        daemon_cmd_tx
-            .send(ProxyCommand::AllGather(AllGatherRequest {
-                communicator_id: CommunicatorId(comm_id),
-                send_buf_addr: dev_buf_0 as usize + if host == 0 { 0 } else { BUFFER_SIZE / 2 },
-                recv_buf_addr: dev_buf_0 as usize,
-                size: BUFFER_SIZE / 2,
-                app_ipc_event_handle: handle.into(),
-            }))
-            .unwrap();
-        log::info!("Sent request");
-        let handle = match daemon_comp_rx.recv().unwrap() {
-            ProxyCompletion::AllGather(comp_handle) => comp_handle,
-            _ => panic!("Unexpected"),
-        };
-        log::info!("Got handle");
-
-        // wait
-        unsafe {
-            // let mut event = std::ptr::null_mut();
-            // cuda_warning!(cudaIpcOpenEventHandle(&mut event, handle.into()));
-            // cuda_warning!(cudaStreamWaitEvent(std::ptr::null_mut(), event, 0));
-            std::thread::sleep(Duration::from_secs(4));
-            log::info!("wake up");
-            cuda_warning!(cudaStreamSynchronize(std::ptr::null_mut()));
-        }
-        log::info!("synchronized");
-
-        // check
-        let mut buf = vec![0u8; BUFFER_SIZE];
-        unsafe {
-            let err = cudaMemcpy(
-                buf.as_mut_ptr() as *mut _,
-                dev_buf_0,
-                BUFFER_SIZE,
-                cudaMemcpyKind::cudaMemcpyDeviceToHost,
-            );
-            if err != cudaError::cudaSuccess {
-                panic!("cudaMemcpy failed");
-            }
-        };
-        log::info!("memcpy done");
-        println!(
-            "[0]={} [100]={} [4MB-1]={}",
-            buf[0],
-            buf[100],
-            buf[BUFFER_SIZE / 2 - 1]
-        );
-        println!(
-            "[4MB]={} [4MB+100]={} [Last]={}",
-            buf[BUFFER_SIZE / 2],
-            buf[BUFFER_SIZE / 2 + 100],
-            buf[BUFFER_SIZE - 1]
-        );
-        assert_eq!(buf[0], 42);
-        assert_eq!(buf[BUFFER_SIZE / 2], 37);
-        log::info!("Success");
-    }
-
-    fn initialize_test_region(
-        buf_size: usize,
-        first_content: u8,
-        second_content: u8,
-    ) -> *mut libc::c_void {
-        unsafe {
-            let error = cudaSetDevice(0);
-            if error != cudaError::cudaSuccess {
-                panic!("cudaSetDevice");
-            }
-        }
-        // Inference
-        let dev_buf_0 = unsafe {
-            let mut dev_ptr = std::ptr::null_mut();
-            cuda_warning!(cudaMalloc(&mut dev_ptr, buf_size));
-            dev_ptr
-        };
-        let mut buf = vec![first_content; buf_size / 2];
-        buf.extend(vec![second_content; buf_size / 2]);
-
-        unsafe {
-            cudaMemcpy(
-                dev_buf_0,
-                buf.as_ptr() as *const _,
-                buf_size,
-                cudaMemcpyKind::cudaMemcpyHostToDevice,
-            )
-        };
-
-        dev_buf_0
-    }
 
     /*
     #[allow(dead_code)]

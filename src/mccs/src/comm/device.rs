@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::mem::MaybeUninit;
 
 use collectives_sys::{
@@ -96,13 +96,17 @@ impl CommDevResources {
             for (peer_rank, peer_conn) in chan.peers.iter() {
                 let mut dev_chan_peer =
                     unsafe { MaybeUninit::<mccsDevChannelPeer>::zeroed().assume_init() };
-                for (conn_index, send_conn) in peer_conn.send.iter() {
-                    let conn_info = conn_info_to_dev(&send_conn.conn_info);
-                    dev_chan_peer.send[*conn_index as usize] = conn_info;
+                for (conn_index, send_conn) in peer_conn.send.iter().enumerate() {
+                    if let Some(send_conn) = send_conn {
+                        let conn_info = conn_info_to_dev(&send_conn.conn_info);
+                        dev_chan_peer.send[conn_index as usize] = conn_info;
+                    }
                 }
-                for (conn_index, recv_conn) in peer_conn.recv.iter() {
-                    let conn_info = conn_info_to_dev(&recv_conn.conn_info);
-                    dev_chan_peer.recv[*conn_index as usize] = conn_info;
+                for (conn_index, recv_conn) in peer_conn.recv.iter().enumerate() {
+                    if let Some(recv_conn) = recv_conn {
+                        let conn_info = conn_info_to_dev(&recv_conn.conn_info);
+                        dev_chan_peer.recv[conn_index as usize] = conn_info;
+                    }
                 }
                 dev_chan_peers[*peer_rank] = MaybeUninit::new(dev_chan_peer);
             }

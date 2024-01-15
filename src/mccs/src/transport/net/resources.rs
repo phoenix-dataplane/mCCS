@@ -57,6 +57,7 @@ pub struct AgentSendConnectReply {
 // https://github.com/NVIDIA/nccl/blob/v2.17.1-1/src/transport/net.cc#L84
 pub struct AgentSendResources {
     pub(crate) map: BufferMap,
+    pub(crate) mr_handles: [Option<Box<AnyMrHandle>>; NUM_PROTOCOLS],
     pub(crate) send_comm: Pin<Box<AnyNetComm>>,
     pub(crate) send_mem: DeviceHostPtr<SendBufMeta>,
     pub(crate) recv_mem: DeviceHostPtr<RecvBufMeta>,
@@ -71,7 +72,6 @@ pub struct AgentSendResources {
     // gdr_desc
     pub(crate) buffers: [*mut c_void; NUM_PROTOCOLS],
     pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
-    pub(crate) mr_handles: [Option<Box<AnyMrHandle>>; NUM_PROTOCOLS],
     pub(crate) step: u64,
     pub(crate) provider: &'static dyn NetProvierWrap,
 }
@@ -109,6 +109,7 @@ pub struct AgentRecvConnectReply {
 // https://github.com/NVIDIA/nccl/blob/v2.17.1-1/src/transport/net.cc#L84
 pub struct AgentRecvResources {
     pub(crate) map: BufferMap,
+    pub(crate) mr_handles: [Option<Box<AnyMrHandle>>; NUM_PROTOCOLS],
     pub(crate) recv_comm: Pin<Box<AnyNetComm>>,
     pub(crate) send_mem: DeviceHostPtr<SendBufMeta>,
     pub(crate) recv_mem: DeviceHostPtr<RecvBufMeta>,
@@ -126,7 +127,6 @@ pub struct AgentRecvResources {
     // gdr_desc
     pub(crate) buffers: [*mut c_void; NUM_PROTOCOLS],
     pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
-    pub(crate) mr_handles: [Option<Box<AnyMrHandle>>; NUM_PROTOCOLS],
     pub(crate) step: u64,
     pub(crate) provider: &'static dyn NetProvierWrap,
 }

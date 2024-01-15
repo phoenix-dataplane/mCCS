@@ -31,6 +31,7 @@ extern "C" fn handle_sigint(sig: i32) {
 }
 
 fn main() -> Result<()> {
+    better_panic::install();
     // load config
     let opts = Opts::from_args();
     let config = Config::from_path(opts.config)?;
@@ -72,10 +73,8 @@ fn main() -> Result<()> {
         .expect("failed to register sighandler");
 
     // the Control now takes over
-    // let mut control = Control::new(config);
+    let mut control = Control::new(config, opts.host);
     log::info!("Started mCCS");
 
-    Control::dist_test(opts.host);
-    Ok(())
-    // control.mainloop(&TERMINATE)
+    control.mainloop(&TERMINATE)
 }

@@ -6,6 +6,7 @@ use crossbeam::channel::TryRecvError;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
+use crate::engine::{Engine, EngineStatus};
 use crate::registry::GlobalRegistry;
 use crate::utils::duplex_chan::DuplexChannel;
 use crate::utils::pool::WorkPool;
@@ -102,7 +103,7 @@ pub struct TransportEngineResources {
     pub agent_setup: HashMap<TransportAgentId, AnyResources>,
     pub agent_connected: HashMap<TransportAgentId, TransportAgent>,
     pub proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
-    pub global_registry: Arc<GlobalRegistry>,
+    pub global_registry: GlobalRegistry,
 }
 
 impl TransportEngineResources {
@@ -169,6 +170,28 @@ pub struct TransportEngine {
 }
 
 impl TransportEngine {
+    pub fn new(
+        id: TransportEngineId,
+        proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
+        global_registry: GlobalRegistry,
+    ) -> Self {
+        let resources = TransportEngineResources {
+            agent_setup: HashMap::new(),
+            agent_connected: HashMap::new(),
+            proxy_chan,
+            global_registry,
+        };
+        let engine = TransportEngine {
+            id,
+            resources,
+            async_tasks: WorkPool::new(),
+            op_queue: TransrportOpQueue::new(),
+        };
+        engine
+    }
+}
+
+impl TransportEngine {
     fn progress_ops(&mut self) {
         self.op_queue
             .progress_ops(|agent_id, op| self.resources.progress_op(agent_id, op));
@@ -202,23 +225,35 @@ impl TransportEngine {
                         TransportEngineRequest::AgentTransportOp(agent_id, tx_op) => {
                             self.op_queue.submit_op(agent_id, tx_op);
                         }
+                        TransportEngineRequest::AgentShutdown(agent_id) => {
+                            log::warn!("TODO: shutdown {:?}", agent_id);
+                            self.resources
+                                .global_registry
+                                .transport_delegator
+                                .register_agent_shutdown(self.id);
+                            self.resources.agent_connected.remove(&agent_id);
+                            self.op_queue.remove_agent(&agent_id);
+                        }
                     };
                 }
                 Err(TryRecvError::Empty) => (),
                 Err(TryRecvError::Disconnected) => {
-                    unreachable!("Proxy engines shall never shutdown")
+                    panic!("Proxy engines shall never shutdown")
                 }
             }
         }
     }
 }
 
-impl TransportEngine {
-    pub fn mainloop(&mut self) {
-        loop {
-            self.check_proxy_requests();
+impl Engine for TransportEngine {
+    fn progress(&mut self) -> EngineStatus {
+        self.check_proxy_requests();
+        if fastrand::usize(..10) < 1 {
             self.progress_async_tasks();
-            self.progress_ops();
         }
+        self.progress_ops();
+        // TODO: implement transport engine shutdown
+
+        EngineStatus::Progressed
     }
 }

@@ -10,9 +10,9 @@ pub type ConfigRefMut<'a, T> = MappedRefMut<'a, String, AnyConfig, T>;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("fail to downcast to a concrete type")]
+    #[error("Fail to downcast to a concrete type")]
     Downcast,
-    #[error("resources not found")]
+    #[error("Resources not found")]
     NotFound,
 }
 

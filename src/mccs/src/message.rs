@@ -7,11 +7,10 @@ use crate::transport::message::{TransportEngineReply, TransportEngineRequest};
 use crate::utils::duplex_chan::DuplexChannel;
 
 pub enum ControlRequest {
-    NewDaemon(DaemonId),
     NewTransportEngine(TransportEngineId),
 }
 
-pub enum ControlCommand {
+pub enum ControlNotification {
     NewDaemon {
         id: DaemonId,
         chan: DuplexChannel<ProxyCompletion, ProxyCommand>,

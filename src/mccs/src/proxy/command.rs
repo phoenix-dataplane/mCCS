@@ -1,11 +1,11 @@
-use std::net::SocketAddr;
+use std::net::IpAddr;
 
 use crate::comm::CommunicatorId;
 use ipc::mccs::handle::CudaEventHandle;
 
 pub struct InitCommunicator {
     pub communicator_id: CommunicatorId,
-    pub root_mccs_addr: SocketAddr,
+    pub root_mccs_addr: IpAddr,
     pub rank: usize,
     pub num_ranks: usize,
 }
@@ -21,6 +21,7 @@ pub struct AllGatherRequest {
 pub enum ProxyCommand {
     InitCommunicator(InitCommunicator),
     AllGather(AllGatherRequest),
+    DestroyCommunicator(CommunicatorId),
 }
 
 pub enum ProxyCompletion {

@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,8 +11,8 @@ pub struct CommunicatorInit {
     pub id: u32,
     pub rank: usize,
     pub num_ranks: usize,
-    pub root_addr: SocketAddr,
-    pub cuda_device_idx: usize,
+    pub root_addr: IpAddr,
+    pub cuda_device_idx: i32,
 }
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -50,7 +50,7 @@ pub struct AllGather {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Command {
     // device, size
-    CudaMalloc(usize, usize),
+    CudaMalloc(i32, usize),
     InitCommunicator(CommunicatorInit),
     AllGather(AllGather),
 }

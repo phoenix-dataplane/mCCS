@@ -1,10 +1,12 @@
-use dashmap::DashMap;
-use itertools::Itertools;
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_void;
+use std::mem::MaybeUninit;
 use std::sync::atomic;
 use std::sync::atomic::{AtomicPtr, AtomicU32};
-use std::{collections::VecDeque, mem::MaybeUninit};
+
+use crossbeam::channel::Sender;
+use itertools::Itertools;
 
 use collectives_sys::{
     mccsDevComm, mccsDevWork, mccsDevWorkElem, mccsDevWorkHeader, mccsDevWorkType,
@@ -14,12 +16,14 @@ use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpy
 
 use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
 use crate::comm::{ChannelCommPattern, MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
+use crate::pattern::MCCS_STEP;
 use crate::transport::channel::{ChannelId, CommChannel, ConnType, PeerConnId};
 use crate::transport::engine::TransportEngineId;
 use crate::transport::message::TransportEngineRequest;
 use crate::transport::op::{TransportOp, TransportOpState};
 use crate::transport::task::TransportTask;
 use crate::transport::transporter::TransportAgentId;
+use crate::transport::Protocol;
 use crate::{
     comm::Communicator,
     cuda::{alloc::DeviceAlloc, ptr::DeviceNonNull},
@@ -100,12 +104,15 @@ pub struct KernelPlan {
 impl Communicator {
     pub fn pre_launch_schedule(
         &mut self,
-        pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
-        mapping: &DashMap<TransportAgentId, TransportEngineId>,
+        transport_tx: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
         device_id: i32,
     ) {
         let first_task = self.task_queue.coll_queue.pop_front().unwrap();
-        self.compute_coll_work(&first_task, device_id);
+        let mut max_threads_per_block = 0;
+        max_threads_per_block = std::cmp::max(
+            max_threads_per_block,
+            self.compute_coll_work(&first_task, device_id),
+        );
         while let Some(coll_task) = self.task_queue.coll_queue.front() {
             if first_task.func == coll_task.func
                 && first_task.data_type == coll_task.data_type
@@ -117,26 +124,30 @@ impl Communicator {
                 })
             {
                 let coll_task = self.task_queue.coll_queue.pop_front().unwrap();
-                self.compute_coll_work(&coll_task, device_id);
+                max_threads_per_block = std::cmp::max(
+                    max_threads_per_block,
+                    self.compute_coll_work(&coll_task, device_id),
+                );
                 log::trace!("Compute more coll task");
             } else {
                 break;
             }
         }
-        let plan = self.finalize_one_plan(pool, mapping);
+        let plan = self.finalize_one_plan(max_threads_per_block, transport_tx);
         self.unlaunched_plans.push_back(plan);
     }
 
     // convert one task to different WorkElem objects and append them to different channels
-    fn compute_coll_work(&mut self, task: &CollTask, device_id: i32) {
+    fn compute_coll_work(&mut self, task: &CollTask, device_id: i32) -> u32 {
         let schema = get_task_schema(
             task,
             TaskAlgorithm::Ring,
             TaskProtocol::Simple,
+            self.num_ranks,
             self.channels.len(),
         );
-        log::trace!("task schema: {:?}", schema);
-        log::trace!("CollTask: {:?}", task);
+        log::debug!("task schema: {:?}", schema);
+        log::debug!("CollTask: {:?}", task);
         let num_wraps = schema.num_threads / 32;
 
         let (chunk_steps, slice_steps, num_step) = {
@@ -148,19 +159,36 @@ impl Communicator {
             } else {
                 (1, 1)
             };
-            let chunk_size = chunk_steps * slice_steps;
+            let step_size = self.profile.buff_sizes[Protocol::Simple as usize] as u32 / MCCS_STEP;
+
+            let chunk_size = chunk_steps * step_size;
             let n_loops = {
-                let per_loop_size = schema.num_channels
-                    * schema.get_num_chunks_per_loop(self.num_ranks as u32)
-                    * chunk_size;
-                (task.count * task.data_type.count_bytes() / (per_loop_size as usize)) as u32
+                let total_bytes = task.total_bytes(self.num_ranks);
+                let per_loop_size = schema.num_channels as usize
+                    * schema.get_num_chunks_per_loop(self.num_ranks as u32) as usize
+                    * chunk_size as usize;
+                log::debug!(
+                    "total_bytes={} per_loop_size={}",
+                    total_bytes,
+                    per_loop_size
+                );
+                // DIVUP
+                ((total_bytes + per_loop_size - 1) / per_loop_size) as u32
             };
+
+            log::debug!("nloops={}, num_channels={}", n_loops, schema.num_channels);
             (
                 chunk_steps,
                 slice_steps,
-                task.chunk_steps * n_loops * schema.get_num_steps_per_loop(self.num_ranks as u32),
+                schema.get_num_steps_per_loop(self.num_ranks as u32) * n_loops * chunk_steps,
             )
         };
+        log::debug!(
+            "chunk_steps={}, slice_steps={}, num_step={}",
+            chunk_steps,
+            slice_steps,
+            num_step
+        );
         self.select_best_channels(schema.num_channels)
             .into_iter()
             .enumerate()
@@ -180,7 +208,7 @@ impl Communicator {
                 schedule.enqueue_work_elem_coll(
                     elem,
                     schema.work_func_index,
-                    task.data_type.count_bytes(),
+                    task.data_type.count_bytes(), // FIXME: may buggy due to ncclInfoSetDerived
                 );
                 debug_assert!(schema.algorithm == TaskAlgorithm::Ring);
                 // proxy queue
@@ -224,7 +252,8 @@ impl Communicator {
                         op: tx_op,
                     });
                 }
-            })
+            });
+        schema.num_threads
     }
 
     // block id -> ChannelId
@@ -242,8 +271,8 @@ impl Communicator {
 
     fn finalize_one_plan(
         &mut self,
-        submission_pool: &mut HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
-        mapping: &DashMap<TransportAgentId, TransportEngineId>,
+        thread_per_block: u32,
+        transport_tx: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
     ) -> KernelPlan {
         let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
         let mut chan_list = Vec::with_capacity(MCCS_MAX_ELEMENTS_PER_WORK);
@@ -260,16 +289,28 @@ impl Communicator {
                 // upload ProxyOp
                 chan.agent_task_queue.iter().for_each(|task| {
                     let TransportTask { agent_id, op } = task;
-                    let tx_engine_id = mapping.get(&agent_id).unwrap().value().clone();
+                    let peer_conn = self.channels.
+                        get(&agent_id.peer_conn.channel)
+                        .unwrap()
+                        .peers
+                        .get(&agent_id.peer_conn.peer_rank)
+                        .unwrap();
+                    let connector = match agent_id.peer_conn.conn_type {
+                        ConnType::Send => &peer_conn.send[agent_id.peer_conn.conn_index as usize],
+                        ConnType::Recv => &peer_conn.recv[agent_id.peer_conn.conn_index as usize],
+                    }.as_ref().unwrap();
+                    // TODO: will it fail if transport engine is not required?
+                    let tx_engine_id = connector.transport_agent_engine.unwrap();
                     log::debug!(
-                        "tx_engine_id={:?}, agent_id={:?}, op={:?}",
+                        "tx_engine_id={:?}, agent_id={:?}, op={{num_steps={:?}}}",
                         tx_engine_id,
                         agent_id,
-                        op
+                        op.num_steps,
                     );
-                    submission_pool.get_mut(&tx_engine_id).unwrap().push_back(
-                        TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()),
-                    );
+                    transport_tx.get_mut(&tx_engine_id)
+                        .expect("Channels to transport engine should be established after communicator init")
+                        .send(TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()))
+                        .unwrap();
                 })
             }
         }
@@ -278,10 +319,11 @@ impl Communicator {
             .iter_mut()
             .for_each(|(_, schedule)| schedule.clear());
         log::debug!(
-            "Finalized one KernelPlan: [{}/{}/{:b}]",
+            "Finalized one KernelPlan: [{}/{}/{:b}; {}]",
             chan_list.len(),
             channel_upper_bound,
-            channel_mask
+            channel_mask,
+            thread_per_block
         );
         KernelPlan {
             kernel_fn: ptr as _,
@@ -291,7 +333,7 @@ impl Communicator {
             channel_upper_bound,
             channel_mask,
 
-            thread_per_block: 512, //FIXME: should be bigger than maximum thread. Otherwise the program will hang
+            thread_per_block: thread_per_block as usize,
         }
     }
 
@@ -522,6 +564,7 @@ fn get_task_schema(
     task: &CollTask,
     algo: TaskAlgorithm,
     proto: TaskProtocol,
+    n_rank: usize,
     mut num_channel: usize,
 ) -> TaskSchema {
     use super::task::TaskDataType;
@@ -529,7 +572,7 @@ fn get_task_schema(
     debug_assert_eq!(task.data_type, TaskDataType::Uint8);
     let mut num_thread = MCCS_SIMPLE_MAX_N_THREADS;
     let thread_th = MCCS_SIMPLE_THREAD_THRESHOLD;
-    while task.count * task.data_type.count_bytes() < num_channel * num_thread * thread_th {
+    while task.total_bytes(n_rank) < num_channel * num_thread * thread_th {
         if num_channel >= 2 {
             num_channel -= 1;
         } else if (num_thread % 128) == 0 {
@@ -538,13 +581,13 @@ fn get_task_schema(
             break;
         }
     }
-    // todo: determine if "Extra warp for sync" necessary to be added when exceeding 512
-    num_thread = if num_thread + WARP_SIZE > MCCS_SIMPLE_MAX_N_THREADS {
-        MCCS_SIMPLE_MAX_N_THREADS
-    } else {
-        num_thread + WARP_SIZE
-    }; // warning: should not exceed thread_per_block?
-    debug_assert!(num_thread <= MCCS_SIMPLE_MAX_N_THREADS);
+    num_thread += WARP_SIZE;
+    if num_thread / WARP_SIZE < 3 {
+        num_thread = WARP_SIZE * 3
+    }
+    // warning: should not exceed thread_per_block?
+    debug_assert!(num_thread <= MCCS_SIMPLE_MAX_N_THREADS + WARP_SIZE);
+    log::debug!("num_thread={}, num_channel={}", num_thread, num_channel);
     TaskSchema {
         algorithm: algo,
         protocol: proto,
