@@ -299,18 +299,25 @@ impl Communicator {
                         ConnType::Send => &peer_conn.send[agent_id.peer_conn.conn_index as usize],
                         ConnType::Recv => &peer_conn.recv[agent_id.peer_conn.conn_index as usize],
                     }.as_ref().unwrap();
-                    // TODO: will it fail if transport engine is not required?
-                    let tx_engine_id = connector.transport_agent_engine.unwrap();
-                    log::debug!(
-                        "tx_engine_id={:?}, agent_id={:?}, op={{num_steps={:?}}}",
-                        tx_engine_id,
-                        agent_id,
-                        op.num_steps,
-                    );
-                    transport_tx.get_mut(&tx_engine_id)
-                        .expect("Channels to transport engine should be established after communicator init")
-                        .send(TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()))
-                        .unwrap();
+                    if connector.transporter.need_op() {
+                        let tx_engine_id = connector.transport_agent_engine.unwrap();
+                        log::debug!(
+                            "tx_engine_id={:?}, agent_id={:?}, op={{num_steps={:?}}}",
+                            tx_engine_id,
+                            agent_id,
+                            op.num_steps,
+                        );
+                        transport_tx.get_mut(&tx_engine_id)
+                            .expect("Channels to transport engine should be established after communicator init")
+                            .send(TransportEngineRequest::AgentTransportOp(*agent_id, op.clone()))
+                            .unwrap();
+                    }else{
+                        log::trace!(
+                            "No Transporter Needed: agent_id={:?}, op={{num_steps={:?}}}",
+                            agent_id,
+                            op.num_steps,
+                        );
+                    }
                 })
             }
         }
