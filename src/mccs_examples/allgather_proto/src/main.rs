@@ -24,6 +24,7 @@ struct Opts {
 }
 
 fn main() -> ExitCode {
+    let base_val = 2042;
     let opts = Opts::from_args();
     let buffer_size = opts.size * 1024 * 1024;
     let rank = opts.rank;
@@ -39,7 +40,7 @@ fn main() -> ExitCode {
     let mut buf = vec![0i32; buffer_size * num_ranks / std::mem::size_of::<i32>()];
     buf[rank * buffer_size / std::mem::size_of::<i32>()
         ..(rank + 1) * buffer_size / std::mem::size_of::<i32>()]
-        .fill(2042 + rank as i32);
+        .fill(base_val + rank as i32);
     let err = unsafe {
         cudaMemcpy(
             dev_ptr.ptr,
@@ -104,7 +105,7 @@ fn main() -> ExitCode {
     }
     for r in 0..num_ranks {
         let data = buf[r * buffer_size / std::mem::size_of::<i32>()];
-        let expected = 2042 + r;
+        let expected = base_val + r as i32;
         if data != expected {
             eprintln!("Rank{}: expected {}, got {}", r, expected, data);
             return ExitCode::FAILURE;
