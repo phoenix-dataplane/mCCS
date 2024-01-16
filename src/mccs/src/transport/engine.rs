@@ -193,8 +193,21 @@ impl TransportEngine {
 
 impl TransportEngine {
     fn progress_ops(&mut self) {
-        self.op_queue
+        let removed_agents = self
+            .op_queue
             .progress_ops(|agent_id, op| self.resources.progress_op(agent_id, op));
+        for agent_id in removed_agents.drain(..) {
+            self.resources
+                .global_registry
+                .transport_delegator
+                .register_agent_shutdown(self.id);
+            self.resources.agent_connected.remove(&agent_id);
+            let reply = TransportEngineReply::AgentShutdown(agent_id);
+            self.resources.proxy_chan[agent_id.client_cuda_dev as usize]
+                .tx
+                .send(reply)
+                .unwrap();
+        }
     }
 
     fn progress_async_tasks(&mut self) {
@@ -203,8 +216,8 @@ impl TransportEngine {
     }
 
     fn check_proxy_requests(&mut self) {
-        for rx in self.resources.proxy_chan.iter_mut().map(|c| &mut c.rx) {
-            match rx.try_recv() {
+        for chan in self.resources.proxy_chan.iter_mut() {
+            match chan.rx.try_recv() {
                 Ok(request) => {
                     match request {
                         TransportEngineRequest::AgentSetup(transporter, agent_id, request) => {
@@ -227,12 +240,15 @@ impl TransportEngine {
                         }
                         TransportEngineRequest::AgentShutdown(agent_id) => {
                             log::info!("shutdown {:?}", agent_id);
-                            self.resources
-                                .global_registry
-                                .transport_delegator
-                                .register_agent_shutdown(self.id);
-                            self.resources.agent_connected.remove(&agent_id);
-                            self.op_queue.remove_agent(&agent_id);
+                            if self.op_queue.remove_agent(&agent_id) {
+                                self.resources
+                                    .global_registry
+                                    .transport_delegator
+                                    .register_agent_shutdown(self.id);
+                                self.resources.agent_connected.remove(&agent_id);
+                                let reply = TransportEngineReply::AgentShutdown(agent_id);
+                                chan.tx.send(reply).unwrap();
+                            }
                         }
                     };
                 }

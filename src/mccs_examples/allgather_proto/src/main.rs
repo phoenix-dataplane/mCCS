@@ -71,6 +71,9 @@ fn main() -> ExitCode {
     .unwrap();
     println!("rank {} - communicator initialized", rank);
 
+    libmccs::register_stream(opts.cuda_device_idx, 0 as cudaStream_t).unwrap();
+    println!("rank {} - stream registered", rank);
+
     libmccs::all_gather(
         comm,
         dev_ptr.add(rank * buffer_size).unwrap(),

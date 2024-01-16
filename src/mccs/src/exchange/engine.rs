@@ -10,7 +10,7 @@ use futures::FutureExt;
 use smol::io::{AsyncReadExt, AsyncWriteExt};
 use smol::net::TcpListener;
 
-use super::command::{ExchangeCommand, ExchangeCompletion};
+use super::command::{ExchangeCommand, ExchangeNotification};
 use super::message::ExchangeMessage;
 use super::ExchangeError;
 use crate::bootstrap::BootstrapHandle;
@@ -32,7 +32,7 @@ const EXCHANGE_MAGIC: u64 = 0x424ab9f2fc4b9d6e;
 
 struct ExchangeEngineResources {
     listener: Arc<TcpListener>,
-    proxy_tx: Vec<Sender<ExchangeCompletion>>,
+    proxy_tx: Vec<Sender<ExchangeNotification>>,
     proxy_rx: Vec<Receiver<ExchangeCommand>>,
     comm_info: HashMap<CommunicatorId, CommunicatorInfo>,
     outstanding_requests: Vec<OutstandingRequest>,
@@ -94,7 +94,7 @@ impl ExchangeEngineResources {
                                 for req in requests {
                                     match req {
                                         OutstandingRequest::BootstrapHandleRecv((id, cuda_dev)) => {
-                                            let reply = ExchangeCompletion::RecvBootstrapHandle(
+                                            let reply = ExchangeNotification::RecvBootstrapHandle(
                                                 id,
                                                 handle.clone(),
                                             );
@@ -195,7 +195,7 @@ impl ExchangeEngine {
                     }
                     ExchangeCommand::RecvBootstrapHandle(comm_id, root_addr) => {
                         if let Some(info) = self.resources.comm_info.get(&comm_id) {
-                            let msg = ExchangeCompletion::RecvBootstrapHandle(
+                            let msg = ExchangeNotification::RecvBootstrapHandle(
                                 comm_id,
                                 info.bootstrap_handle.clone(),
                             );
@@ -228,7 +228,7 @@ impl ExchangeEngine {
 impl ExchangeEngine {
     pub fn new(
         listen_addr: SocketAddr,
-        proxy_tx: Vec<Sender<ExchangeCompletion>>,
+        proxy_tx: Vec<Sender<ExchangeNotification>>,
         proxy_rx: Vec<Receiver<ExchangeCommand>>,
     ) -> Self {
         if listen_addr.port() == 0 {

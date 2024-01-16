@@ -3,15 +3,19 @@ pub mod profile;
 
 pub use profile::CommProfile;
 
-use collectives_sys::mccsDevWork;
-use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 
 use bytes::{Buf, BufMut};
 use serde::{Deserialize, Serialize};
 
+use collectives_sys::mccsDevWork;
+use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
+
+use crate::bootstrap::BootstrapState;
 use crate::cuda::alloc::DeviceHostMapped;
+use crate::cuda_warning;
 use crate::daemon::DaemonId;
 use crate::pattern::RingPattern;
 use crate::proxy::plan::{ChanWorkSchedule, KernelPlan};
@@ -74,6 +78,7 @@ impl PeerInfoExchange {
 
 pub struct Communicator {
     pub id: CommunicatorId,
+    pub cuda_dev: i32,
     pub daemon: DaemonId,
 
     pub rank: usize,
@@ -87,6 +92,8 @@ pub struct Communicator {
     pub profile: CommProfile,
     pub dev_resources: CommDevResources,
 
+    pub bootstrap_state: Arc<BootstrapState>,
+
     pub work_queue_acked_min: u32,
     pub work_queue_next_available: u32,
 
@@ -95,6 +102,7 @@ pub struct Communicator {
     pub plan_schedule: BTreeMap<ChannelId, ChanWorkSchedule>,
     pub unlaunched_plans: VecDeque<KernelPlan>,
 
+    // backend stream and backend event
     pub stream: cudaStream_t,
     pub event: cudaEvent_t,
 }
