@@ -85,13 +85,12 @@ impl ExchangeEngineResources {
                         new_recv = true;
                         match msg {
                             ExchangeMessage::BootstrapHandle(comm_id, handle) => {
-                                let requests =
-                                    self.outstanding_requests.extract_if(|x| match x {
-                                        OutstandingRequest::BootstrapHandleRecv((id, _)) => {
-                                            id == &comm_id
-                                        }
-                                        _ => false,
-                                    });
+                                let requests = self.outstanding_requests.extract_if(|x| match x {
+                                    OutstandingRequest::BootstrapHandleRecv((id, _)) => {
+                                        id == &comm_id
+                                    }
+                                    _ => false,
+                                });
                                 for req in requests {
                                     match req {
                                         OutstandingRequest::BootstrapHandleRecv((id, cuda_dev)) => {
@@ -172,14 +171,10 @@ impl ExchangeEngine {
                 Ok(cmd) => match cmd {
                     ExchangeCommand::RegisterBootstrapHandle(comm_id, handle) => {
                         let requests =
-                            self.resources
-                                .outstanding_requests
-                                .extract_if(|x| match x {
-                                    OutstandingRequest::BootstrapHandleSend((id, _)) => {
-                                        id == &comm_id
-                                    }
-                                    _ => false,
-                                });
+                            self.resources.outstanding_requests.extract_if(|x| match x {
+                                OutstandingRequest::BootstrapHandleSend((id, _)) => id == &comm_id,
+                                _ => false,
+                            });
                         for req in requests {
                             match req {
                                 OutstandingRequest::BootstrapHandleSend((comm_id, addr)) => {
