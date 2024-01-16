@@ -15,7 +15,7 @@ use crate::config::Config;
 use crate::cuda_warning;
 use crate::daemon::engine::DaemonEngine;
 use crate::daemon::DaemonId;
-use crate::exchange::command::{ExchangeCommand, ExchangeCompletion};
+use crate::exchange::command::{ExchangeCommand, ExchangeNotification};
 use crate::exchange::engine::ExchangeEngine;
 use crate::message::{ControlNotification, ControlRequest};
 use crate::proxy::engine::ProxyEngine;
@@ -199,7 +199,7 @@ impl Control {
 
     fn create_proxy_engines(
         addr: &std::net::IpAddr,
-        exchange_chans: Vec<DuplexChannel<ExchangeCommand, ExchangeCompletion>>,
+        exchange_chans: Vec<DuplexChannel<ExchangeCommand, ExchangeNotification>>,
         runtime_manager: &RuntimeManager,
         config: &Config,
         transport_delegator: &Arc<TransportDelegator>,
@@ -237,7 +237,7 @@ impl Control {
     fn create_exchange_engine(
         addr: &std::net::SocketAddr,
         runtime_manager: &RuntimeManager,
-    ) -> Vec<DuplexChannel<ExchangeCommand, ExchangeCompletion>> {
+    ) -> Vec<DuplexChannel<ExchangeCommand, ExchangeNotification>> {
         let mut exchange_txs = Vec::new();
         let mut exchange_rxs = Vec::new();
         let mut proxy_endpoints = Vec::new();
@@ -313,7 +313,7 @@ impl Control {
         listen_port: u16,
         daemon_tx: HashMap<DaemonId, crossbeam::channel::Sender<ProxyCompletion>>,
         daemon_rx: Vec<(DaemonId, crossbeam::channel::Receiver<ProxyCommand>)>,
-        exchange_chan: DuplexChannel<ExchangeCommand, ExchangeCompletion>,
+        exchange_chan: DuplexChannel<ExchangeCommand, ExchangeNotification>,
         transport_engines_tx: HashMap<
             TransportEngineId,
             crossbeam::channel::Sender<TransportEngineRequest>,
@@ -342,6 +342,8 @@ impl Control {
             daemon_rx,
             exchange_chan,
             comms_init: HashMap::new(),
+            comms_suspended: HashMap::new(),
+            user_events: HashMap::new(),
             communicators: HashMap::new(),
             global_registry,
             transport_engines_tx,
@@ -482,7 +484,7 @@ impl Control {
         daemon_cmd_tx.send(cmd).unwrap();
         let comp = daemon_comp_rx.recv().unwrap();
         match comp {
-            ProxyCompletion::InitCommunicator => (),
+            ProxyCompletion::InitCommunicator(_) => (),
             _ => panic!("unexpected"),
         }
         log::info!("Init communicator done");
@@ -515,12 +517,12 @@ impl Control {
                 send_buf_addr: dev_buf_0 as usize + if host == 0 { 0 } else { BUFFER_SIZE / 2 },
                 recv_buf_addr: dev_buf_0 as usize,
                 size: BUFFER_SIZE / 2,
-                app_ipc_event_handle: handle.into(),
+                user_stream: 0,
             }))
             .unwrap();
         log::info!("Sent request");
-        let handle = match daemon_comp_rx.recv().unwrap() {
-            ProxyCompletion::AllGather(comp_handle) => comp_handle,
+        match daemon_comp_rx.recv().unwrap() {
+            ProxyCompletion::AllGather => (),
             _ => panic!("Unexpected"),
         };
         log::info!("Got handle");

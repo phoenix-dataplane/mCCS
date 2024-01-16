@@ -9,12 +9,12 @@ use futures::FutureExt;
 
 use cuda_runtime_sys::{
     cudaError, cudaEventCreateWithFlags, cudaEventDisableTiming, cudaEventInterprocess,
-    cudaEventQuery, cudaEventRecord, cudaIpcEventHandle_t, cudaIpcGetEventHandle,
-    cudaIpcOpenEventHandle, cudaStreamWaitEvent,
+    cudaEventRecord, cudaEvent_t, cudaIpcEventHandle_t, cudaIpcGetEventHandle,
+    cudaIpcOpenEventHandle, cudaStreamQuery, cudaStreamWaitEvent,
 };
 
-use super::command::{ProxyCommand, ProxyCompletion};
-use super::init::{CommInitStage, CommInitState};
+use super::command::{self, ProxyCommand, ProxyCompletion};
+use super::init::{CommInitStage, CommInitState, CommSuspendState};
 use super::op::ProxyOp;
 use super::task::{CollTask, TaskDataType, TaskFuncType};
 use super::DeviceInfo;
@@ -28,9 +28,10 @@ use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::daemon::DaemonId;
 use crate::engine::{Engine, EngineStatus};
-use crate::exchange::command::{ExchangeCommand, ExchangeCompletion};
+use crate::exchange::command::{ExchangeCommand, ExchangeNotification};
 use crate::message::{ControlNotification, ControlRequest};
 use crate::pattern::{ALLGATHER_CHUNK_STEPS, ALLGATHER_SLICE_STEPS};
+use crate::proxy::init::CommReconfigOutout;
 use crate::registry::GlobalRegistry;
 use crate::transport::channel::{ChannelId, ConnType, PeerConnId};
 use crate::transport::engine::TransportEngineId;
@@ -51,18 +52,24 @@ pub struct ProxyResources {
     pub daemon_tx: HashMap<DaemonId, Sender<ProxyCompletion>>,
     pub daemon_rx: Vec<(DaemonId, Receiver<ProxyCommand>)>,
     // exchange engine
-    pub exchange_chan: DuplexChannel<ExchangeCommand, ExchangeCompletion>,
+    pub exchange_chan: DuplexChannel<ExchangeCommand, ExchangeNotification>,
     // communications and transport
     pub comms_init: HashMap<CommunicatorId, CommInitState>,
+    pub comms_suspended: HashMap<CommunicatorId, (Communicator, CommSuspendState)>,
+    // for each daemon, user stream handle -> user event
+    pub user_events: HashMap<DaemonId, HashMap<usize, cudaEvent_t>>,
+    // established communicators
     pub communicators: HashMap<CommunicatorId, Communicator>,
     pub global_registry: GlobalRegistry,
     pub transport_engines_tx: HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
     pub transport_engines_rx: Vec<(TransportEngineId, Receiver<TransportEngineReply>)>,
     pub transport_submission_cache: HashMap<TransportEngineId, VecDeque<TransportEngineRequest>>,
-    pub task_submit_pool: Vec<AsyncTask>,
+    pub task_submit_pool: Vec<TaskSubmission>,
     pub daemon_shutdown: Vec<(DaemonId, usize)>,
     pub transport_shutdown: Vec<(TransportEngineId, usize)>,
 }
+
+unsafe impl Send for ProxyResources {}
 
 enum AsyncTaskOutput {
     BootstrapRoot,
@@ -74,6 +81,11 @@ enum AsyncTaskOutput {
 pub struct AsyncTask {
     comm_id: CommunicatorId,
     fut: BoxFuture<'static, Result<AsyncTaskOutput, anyhow::Error>>,
+}
+
+pub enum TaskSubmission {
+    AsyncTask(AsyncTask),
+    ProxyOp(ProxyOp),
 }
 
 impl ProxyResources {
@@ -215,7 +227,7 @@ impl ProxyResources {
                     comm_id,
                     fut: Box::pin(fut),
                 };
-                self.task_submit_pool.push(task);
+                self.task_submit_pool.push(TaskSubmission::AsyncTask(task));
             } else if let Some(state) = comm.bootstrap_state.as_ref() {
                 let peer_info_exchange = PeerInfoExchange {
                     rank: comm.rank,
@@ -243,7 +255,7 @@ impl ProxyResources {
                     comm_id,
                     fut: Box::pin(fut),
                 };
-                self.task_submit_pool.push(task);
+                self.task_submit_pool.push(TaskSubmission::AsyncTask(task));
                 comm.stage = CommInitStage::AllGatherPeerInfo;
             }
         } else if comm.stage == CommInitStage::AllGatherPeerInfo {
@@ -544,7 +556,7 @@ impl ProxyResources {
                         comm_id: comm.id,
                         fut: Box::pin(fut),
                     };
-                    self.task_submit_pool.push(task);
+                    self.task_submit_pool.push(TaskSubmission::AsyncTask(task));
                 }
             }
         }
@@ -567,30 +579,55 @@ impl ProxyResources {
             ProxyOp::InitCommunicator(daemon_id, comm_id) => {
                 let res = self.init_communicator(*comm_id);
                 if res {
-                    let _ = self
-                        .daemon_tx
+                    let comm = self.communicators.get(comm_id).unwrap();
+                    let mut handle = cudaIpcEventHandle_t::default();
+                    unsafe {
+                        cuda_warning!(cudaIpcGetEventHandle(&mut handle, comm.event));
+                    }
+                    self.daemon_tx
                         .get_mut(daemon_id)
                         .unwrap()
-                        .send(ProxyCompletion::InitCommunicator);
+                        .send(ProxyCompletion::InitCommunicator(handle.into()))
+                        .unwrap();
                 }
                 res
             }
-            ProxyOp::PollCudaEvent(daemon_id, comm_id) => {
-                todo!("Should not be invoked for now");
-                let comm = self.communicators.get_mut(comm_id).unwrap();
-                unsafe {
-                    let state = cudaEventQuery(comm.event);
-                    if state == cudaError::cudaSuccess {
-                        let _ = self
-                            .daemon_tx
-                            .get_mut(daemon_id)
-                            .unwrap()
-                            .send(ProxyCompletion::AllGather(todo!()));
-                        true
-                    } else {
-                        false
+            ProxyOp::RebootCommunicator(comm_id) => {
+                let res = self.init_communicator(*comm_id);
+                res
+            }
+            ProxyOp::PollCommunicatorComplete(comm_id) => {
+                let (comm, state) = self.comms_suspended.get_mut(comm_id).unwrap();
+                let stream_completed = unsafe {
+                    match cudaStreamQuery(comm.stream) {
+                        cudaError::cudaSuccess => true,
+                        cudaError::cudaErrorNotReady => false,
+                        e => {
+                            log::error!(
+                                "CUDA runtime failed with {:?} at {}:{}.",
+                                e,
+                                file!(),
+                                line!()
+                            );
+                            panic!("CUDA runtime error");
+                        }
+                    }
+                };
+                if stream_completed {
+                    state.stream_completed = true;
+                    if state.check_suspended() {
+                        let (comm, state) = self.comms_suspended.remove(&comm_id).unwrap();
+                        let output = state.emit(comm, &self.global_registry.transport_catalog);
+                        match output {
+                            CommReconfigOutout::CommPattern(init) => {
+                                let op = ProxyOp::RebootCommunicator(init.id);
+                                self.comms_init.insert(init.id, init);
+                                self.task_submit_pool.push(TaskSubmission::ProxyOp(op));
+                            }
+                        }
                     }
                 }
+                stream_completed
             }
         }
     }
@@ -607,7 +644,7 @@ impl ProxyEngine {
         device_info: DeviceInfo,
         global_registry: GlobalRegistry,
         control_chan: DuplexChannel<ControlRequest, ControlNotification>,
-        exchange_chan: DuplexChannel<ExchangeCommand, ExchangeCompletion>,
+        exchange_chan: DuplexChannel<ExchangeCommand, ExchangeNotification>,
     ) -> Self {
         let resources = ProxyResources {
             device_info,
@@ -616,6 +653,8 @@ impl ProxyEngine {
             daemon_rx: Vec::new(),
             exchange_chan,
             comms_init: HashMap::new(),
+            comms_suspended: HashMap::new(),
+            user_events: HashMap::new(),
             communicators: HashMap::new(),
             global_registry,
             transport_engines_tx: HashMap::new(),
@@ -637,9 +676,9 @@ impl ProxyEngine {
 impl Engine for ProxyEngine {
     fn progress(&mut self) -> EngineStatus {
         self.check_daemon_command();
-        self.progress_ops();
 
         if fastrand::usize(..10) < 1 {
+            self.progress_ops();
             self.check_transport_reply();
             self.check_control_notify();
             self.check_exchange_reply();
@@ -655,7 +694,14 @@ impl ProxyEngine {
     #[inline]
     fn enqueue_async_task(&mut self) {
         for task in self.resources.task_submit_pool.drain(..) {
-            self.async_tasks.enqueue(task)
+            match task {
+                TaskSubmission::AsyncTask(task) => {
+                    self.async_tasks.enqueue(task);
+                }
+                TaskSubmission::ProxyOp(op) => {
+                    self.ops.enqueue(op);
+                }
+            }
         }
     }
 
@@ -673,8 +719,8 @@ impl ProxyEngine {
     fn check_exchange_reply(&mut self) {
         match self.resources.exchange_chan.rx.try_recv() {
             Ok(msg) => match msg {
-                ExchangeCompletion::RegisterBootstrapHandle => {}
-                ExchangeCompletion::RecvBootstrapHandle(comm_id, handle) => {
+                ExchangeNotification::RegisterBootstrapHandle => {}
+                ExchangeNotification::RecvBootstrapHandle(comm_id, handle) => {
                     let comm = self.resources.comms_init.get_mut(&comm_id).unwrap();
                     comm.bootstrap_handle = Some(handle);
                 }
@@ -685,19 +731,6 @@ impl ProxyEngine {
             }
         }
     }
-
-    // Transport requests will only be buffered during communicator init
-    // when a new transport engine is spawned on demand
-    // fn flush_transport_requests(&mut self) {
-    //     for (id, queue) in self.resources.transport_submission_cache.iter_mut() {
-    //         let tx = self.resources.transport_engines_tx.get_mut(&id);
-    //         if let Some(tx) = tx {
-    //             for req in queue.drain(..) {
-    //                 tx.send(req).unwrap();
-    //             }
-    //         }
-    //     }
-    // }
 
     fn check_transport_reply(&mut self) {
         for (_, transport_rx) in self.resources.transport_engines_rx.iter_mut() {
@@ -728,6 +761,30 @@ impl ProxyEngine {
                             .unwrap()
                             .put_peer_agent_connect_message(&peer_conn, reply)
                             .unwrap();
+                    }
+                    TransportEngineReply::AgentShutdown(agent_id) => {
+                        let comm_id = agent_id.communicator_id;
+                        let removed = if let Some((communicator, suspend_state)) =
+                            self.resources.comms_suspended.get_mut(&comm_id)
+                        {
+                            suspend_state.agents_pending_shutdown.remove(&agent_id);
+                            suspend_state.check_suspended()
+                        } else {
+                            false
+                        };
+                        if removed {
+                            let (comm, state) =
+                                self.resources.comms_suspended.remove(&comm_id).unwrap();
+                            let output =
+                                state.emit(comm, &self.resources.global_registry.transport_catalog);
+                            match output {
+                                CommReconfigOutout::CommPattern(init) => {
+                                    let op = ProxyOp::RebootCommunicator(init.id);
+                                    self.resources.comms_init.insert(init.id, init);
+                                    self.ops.enqueue(op);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -762,6 +819,7 @@ impl ProxyEngine {
                             };
                             let mut comm_init = CommInitState::new(
                                 init.communicator_id,
+                                self.resources.device_info.cuda_device_idx,
                                 *daemon_id,
                                 init.rank,
                                 init.num_ranks,
@@ -808,76 +866,49 @@ impl ProxyEngine {
                             self.ops.enqueue(op);
                         }
                         ProxyCommand::AllGather(coll) => {
-                            // recover event and register waiting order
-                            let event: *mut cuda_runtime_sys::CUevent_st = {
-                                let event_handle = coll.app_ipc_event_handle.into();
-                                let mut event = std::ptr::null_mut();
-                                cuda_warning!(unsafe {
-                                    cudaIpcOpenEventHandle(&mut event, event_handle)
-                                });
-                                event
-                            };
-
                             let comm = self
                                 .resources
                                 .communicators
                                 .get_mut(&coll.communicator_id)
                                 .unwrap();
-
-                            cuda_warning!(unsafe { cudaStreamWaitEvent(comm.stream, event, 0) });
-
-                            let send_buf =
-                                DeviceNonNull::new(coll.send_buf_addr as *mut u8).unwrap();
-                            let recv_buf =
-                                DeviceNonNull::new(coll.recv_buf_addr as *mut u8).unwrap();
-                            let task = CollTask {
-                                func: TaskFuncType::AllGather,
-                                send_buf,
-                                recv_buf,
-                                count: coll.size,
-                                root: 0,
-                                data_type: TaskDataType::Uint8,
-                                reduce_op: None,
-                                chunk_steps: ALLGATHER_CHUNK_STEPS,
-                                slice_steps: ALLGATHER_SLICE_STEPS,
-                            };
-                            comm.task_queue.coll_queue.push_back(task);
-                            comm.pre_launch_schedule(
+                            let user_events = self.resources.user_events.get(daemon_id).unwrap();
+                            comm.schedule_all_gather(coll, user_events);
+                            comm.launch_scheduled_and_record(
                                 &mut self.resources.transport_engines_tx,
-                                self.resources.device_info.cuda_device_idx,
-                            );
-                            comm.launch_plan();
-
-                            // record event for daemon_stream
-                            let handle = unsafe {
-                                let mut event = std::ptr::null_mut();
-                                cuda_warning!(cudaEventCreateWithFlags(
-                                    &mut event,
-                                    cudaEventInterprocess | cudaEventDisableTiming
-                                ));
-                                cuda_warning!(cudaEventRecord(event, comm.stream));
-                                let mut handle = cudaIpcEventHandle_t::default();
-                                cuda_warning!(cudaIpcGetEventHandle(&mut handle, event));
-                                handle
+                            )
+                        }
+                        ProxyCommand::GroupCall(colls) => {
+                            let comm_id = match &colls[0] {
+                                command::CollRequest::AllGather(all_gather) => {
+                                    all_gather.communicator_id
+                                }
                             };
-                            let _ = self
-                                .resources
-                                .daemon_tx
-                                .get_mut(daemon_id)
-                                .unwrap()
-                                .send(ProxyCompletion::AllGather(handle.into()));
-                            // let op = ProxyOp::PollCudaEvent(*daemon_id, coll.communicator_id);
-                            // self.ops.enqueue(op);
+                            let comm = self.resources.communicators.get_mut(&comm_id).unwrap();
+                            let user_events = self.resources.user_events.get(daemon_id).unwrap();
+                            comm.schedule_group_call(colls, user_events);
+                            comm.launch_scheduled_and_record(
+                                &mut self.resources.transport_engines_tx,
+                            )
                         }
                         ProxyCommand::DestroyCommunicator(comm_id) => {
-                            let comm = self.resources.communicators.remove(&comm_id).unwrap();
+                            let mut comm = self.resources.communicators.remove(&comm_id).unwrap();
                             let request = ExchangeCommand::RemoveCommunicator(comm_id);
                             self.resources.exchange_chan.tx.send(request).unwrap();
                             Self::shutdown_transport_agents(
-                                &self.resources.device_info,
                                 &mut self.resources.transport_engines_tx,
                                 &comm,
                             );
+                            comm.destory_stream_and_event();
+                        }
+                        ProxyCommand::RegisterStream(user_stream, user_event_handle) => {
+                            let user_events =
+                                self.resources.user_events.get_mut(daemon_id).unwrap();
+                            let mut event = std::ptr::null_mut();
+                            unsafe {
+                                let event_handle = user_event_handle.into();
+                                cuda_warning!(cudaIpcOpenEventHandle(&mut event, event_handle));
+                            }
+                            user_events.insert(user_stream, event);
                         }
                     }
                 }
@@ -890,23 +921,20 @@ impl ProxyEngine {
         for (daemon_id, idx) in self.resources.daemon_shutdown.drain(..).rev() {
             self.resources.daemon_tx.remove(&daemon_id);
             self.resources.daemon_rx.swap_remove(idx);
+            self.resources.user_events.remove(&daemon_id);
             self.resources.communicators.retain(|_, comm| {
                 if comm.daemon == daemon_id {
-                    Self::shutdown_transport_agents(
-                        &self.resources.device_info,
-                        &mut self.resources.transport_engines_tx,
-                        comm,
-                    );
+                    Self::shutdown_transport_agents(&mut self.resources.transport_engines_tx, comm);
+                    let request = ExchangeCommand::RemoveCommunicator(comm.id);
+                    self.resources.exchange_chan.tx.send(request).unwrap();
+                    comm.destory_stream_and_event();
                 }
-                let request = ExchangeCommand::RemoveCommunicator(comm.id);
-                self.resources.exchange_chan.tx.send(request).unwrap();
                 comm.daemon != daemon_id
             });
         }
     }
 
     fn shutdown_transport_agents(
-        device_info: &DeviceInfo,
         transport_txs: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
         comm: &Communicator,
     ) {
@@ -924,7 +952,7 @@ impl ProxyEngine {
                             let agent_id = TransportAgentId {
                                 communicator_id: comm.id,
                                 client_rank: comm.rank,
-                                client_cuda_dev: device_info.cuda_device_idx,
+                                client_cuda_dev: comm.cuda_dev,
                                 peer_conn,
                             };
                             let sender = transport_txs.get_mut(&transport_engine).unwrap();
@@ -945,7 +973,7 @@ impl ProxyEngine {
                             let agent_id = TransportAgentId {
                                 communicator_id: comm.id,
                                 client_rank: comm.rank,
-                                client_cuda_dev: device_info.cuda_device_idx,
+                                client_cuda_dev: comm.cuda_dev,
                                 peer_conn,
                             };
                             let sender = transport_txs.get_mut(&transport_engine).unwrap();
@@ -956,5 +984,82 @@ impl ProxyEngine {
                 }
             }
         }
+    }
+}
+
+impl Communicator {
+    fn destory_stream_and_event(&mut self) {
+        unsafe {
+            if !self.stream.is_null() {
+                cuda_warning!(cuda_runtime_sys::cudaStreamDestroy(self.stream));
+                self.stream = std::ptr::null_mut();
+            }
+            if !self.event.is_null() {
+                cuda_warning!(cuda_runtime_sys::cudaEventDestroy(self.event));
+                self.event = std::ptr::null_mut();
+            }
+        }
+    }
+
+    #[inline]
+    fn wait_user_event(&self, user_event: cudaEvent_t) {
+        unsafe {
+            cuda_warning!(cudaStreamWaitEvent(self.stream, user_event, 0));
+        }
+    }
+
+    fn schedule_all_gather(
+        &mut self,
+        coll: command::AllGatherRequest,
+        user_events: &HashMap<usize, cudaEvent_t>,
+    ) {
+        let user_event = *user_events.get(&coll.user_stream).unwrap();
+        self.wait_user_event(user_event);
+
+        let send_buf = DeviceNonNull::new(coll.send_buf_addr as *mut u8).unwrap();
+        let recv_buf = DeviceNonNull::new(coll.recv_buf_addr as *mut u8).unwrap();
+        let task = CollTask {
+            func: TaskFuncType::AllGather,
+            send_buf,
+            recv_buf,
+            count: coll.size,
+            root: 0,
+            data_type: TaskDataType::Uint8,
+            reduce_op: None,
+            chunk_steps: ALLGATHER_CHUNK_STEPS,
+            slice_steps: ALLGATHER_SLICE_STEPS,
+        };
+        self.task_queue.coll_queue.push_back(task);
+    }
+
+    fn schedule_group_call(
+        &mut self,
+        colls: Vec<command::CollRequest>,
+        user_events: &HashMap<usize, cudaEvent_t>,
+    ) {
+        for coll in colls.into_iter() {
+            match coll {
+                command::CollRequest::AllGather(all_gather) => {
+                    self.schedule_all_gather(all_gather, user_events);
+                }
+            }
+        }
+    }
+
+    #[inline]
+    fn record_backend_event(&self) {
+        unsafe {
+            cuda_warning!(cudaEventRecord(self.event, self.stream));
+        };
+    }
+
+    #[inline]
+    fn launch_scheduled_and_record(
+        &mut self,
+        transport_txs: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
+    ) {
+        self.pre_launch_schedule(transport_txs, self.cuda_dev);
+        self.launch_plan();
+        self.record_backend_event()
     }
 }

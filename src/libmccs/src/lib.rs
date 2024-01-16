@@ -1,8 +1,15 @@
+#![feature(local_key_cell_methods)]
+#![feature(strict_provenance)]
+
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
+use ipc::mccs::handle::CommunicatorHandle;
 use thiserror::Error;
 
+use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use ipc::mccs::command;
 use ipc::mccs::dp;
 use ipc::service::ShmService;
@@ -12,7 +19,7 @@ pub mod communicator;
 pub mod memory;
 
 pub use collectives::all_gather;
-pub use communicator::init_communicator_rank;
+pub use communicator::{init_communicator_rank, register_stream};
 pub use memory::cuda_malloc;
 
 const DEFAULT_MCCS_PREFIX: &str = "/tmp/mccs";
@@ -86,8 +93,14 @@ pub(crate) use _checked_cuda as checked_cuda;
 pub(crate) use _rx_recv_impl as rx_recv_impl;
 use ipc::mccs::command::MccsDeviceMemoryHandle;
 
+pub struct MccsCommunicatorHandle {
+    pub(crate) comm_handle: CommunicatorHandle,
+    pub(crate) backend_event: cudaEvent_t,
+}
+
 thread_local! {
     pub(crate) static MCCS_CTX: Context = Context::register().expect("mCCS register failed");
+    pub(crate) static MCCS_STREAM_SYNC: RefCell<HashMap<cudaStream_t, cudaEvent_t>> = RefCell::new(HashMap::new());
 }
 
 pub(crate) struct Context {

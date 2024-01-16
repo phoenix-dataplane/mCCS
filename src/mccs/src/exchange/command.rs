@@ -10,7 +10,7 @@ pub enum ExchangeCommand {
     RemoveCommunicator(CommunicatorId),
 }
 
-pub enum ExchangeCompletion {
+pub enum ExchangeNotification {
     RegisterBootstrapHandle,
     RecvBootstrapHandle(CommunicatorId, BootstrapHandle),
 }
