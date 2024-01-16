@@ -1,6 +1,6 @@
 mccs_daemon_basename = "mccs-deamon"
 mccs_daemon_prefix = "/tmp/mccs"
-addrs = ["192.168.211.66", "192.168.211.194"]
+addrs = ["10.0.0.0", "10.0.0.1", "10.0.0.2", "192.168.211.66",  "192.168.211.130", "192.168.211.162", "192.168.211.194"]
 listen_port = 5000
 
 [control]

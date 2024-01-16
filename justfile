@@ -1,7 +1,11 @@
-back03 LEVEL='info':
-  RUST_LOG={{LEVEL}} ./target/debug/mccs --host 0
-back06 LEVEL='info':
-  RUST_LOG={{LEVEL}} ./target/debug/mccs --host 1
+build:
+  ./_private/remote_build.sh
+
+sync:
+  ./_private/sync.sh
+
+back host LEVEL='info':
+  RUST_LOG={{LEVEL}} ./target/debug/mccs --host {{host}}
 
 root_addr := '192.168.211.66'
 
