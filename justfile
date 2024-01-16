@@ -3,26 +3,26 @@ back03 LEVEL='info':
 back06 LEVEL='info':
   RUST_LOG={{LEVEL}} ./target/debug/mccs --host 1
 
-front03 SIZE='128' COMM='42':
-  ./target/debug/allgather_proto --root-addr 192.168.211.66 --rank 0 \
-  --num-ranks 2 --cuda-device-idx 0 --size {{SIZE}} --communicator {{COMM}}
+root_addr := '192.168.211.66'
 
-front06 SIZE='128' COMM='42':
-  ./target/debug/allgather_proto --root-addr 192.168.211.66 --rank 1 \
-  --num-ranks 2 --cuda-device-idx 0 --size {{SIZE}} --communicator {{COMM}}
+base rank num_ranks size='128' comm='42' cuda_dev='0':
+  ./target/debug/allgather_proto --root-addr {{root_addr}} --rank {{rank}} \
+  --num-ranks {{num_ranks}} --cuda-device-idx {{cuda_dev}} --size {{size}} --communicator {{comm}}
 
-alt-front03 SIZE='128' COMM='42':
-  ./target/debug/allgather_proto --root-addr 192.168.211.66 --rank 1 \
-  --num-ranks 2 --cuda-device-idx 1 --size {{SIZE}} --communicator {{COMM}}
+double0 size='128' comm='42':
+  just base 0 2 {{size}} {{comm}}
 
-triple03 SIZE='128' COMM='42':
-  ./target/debug/allgather_proto --root-addr 192.168.211.66 --rank 0 \
-  --num-ranks 3 --cuda-device-idx 0 --size {{SIZE}} --communicator {{COMM}}
+shm-double1 size='128' comm='42':
+  just base 1 2 {{size}} {{comm}} 1
 
-alt-triple03 SIZE='128' COMM='42':
-  ./target/debug/allgather_proto --root-addr 192.168.211.66 --rank 1 \
-  --num-ranks 3 --cuda-device-idx 1 --size {{SIZE}} --communicator {{COMM}}
+double1 size='128' comm='42':
+  just base 1 2 {{size}} {{comm}}
 
-triple06 SIZE='128' COMM='42':
-  ./target/debug/allgather_proto --root-addr 192.168.211.66 --rank 2 \
-  --num-ranks 3 --cuda-device-idx 0 --size {{SIZE}} --communicator {{COMM}}
+triple0 size='128' comm='42':
+  just base 0 3 {{size}} {{comm}}
+
+triple1 size='128' comm='42':
+  just base 1 3 {{size}} {{comm}} 1
+
+triple2 size='128' comm='42':
+  just base 2 3 {{size}} {{comm}}
