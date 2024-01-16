@@ -240,7 +240,6 @@ impl TransportEngine {
                             self.op_queue.submit_op(agent_id, tx_op);
                         }
                         TransportEngineRequest::AgentShutdown(agent_id) => {
-                            log::info!("shutdown {:?}", agent_id);
                             if self.op_queue.remove_agent(&agent_id) {
                                 self.resources
                                     .global_registry
