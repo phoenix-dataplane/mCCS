@@ -15,16 +15,26 @@ pub struct AllGatherRequest {
     pub send_buf_addr: usize,
     pub recv_buf_addr: usize,
     pub size: usize,
-    pub app_ipc_event_handle: CudaEventHandle,
+    // user stream handle
+    pub user_stream: usize,
+}
+
+pub enum CollRequest {
+    AllGather(AllGatherRequest),
 }
 
 pub enum ProxyCommand {
     InitCommunicator(InitCommunicator),
+    // user stream and user event IPC handle
+    RegisterStream(usize, CudaEventHandle),
     AllGather(AllGatherRequest),
+    GroupCall(Vec<CollRequest>),
     DestroyCommunicator(CommunicatorId),
 }
 
 pub enum ProxyCompletion {
-    InitCommunicator,
-    AllGather(CudaEventHandle),
+    InitCommunicator(CudaEventHandle),
+    RegisterStream,
+    AllGather,
+    GroupCall,
 }
