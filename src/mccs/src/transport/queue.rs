@@ -80,7 +80,6 @@ impl TransrportOpQueue {
             let (agent_id, agent_queue, removal) = &mut self.queue[index];
             if agent_queue.is_empty() {
                 let agent_id = *agent_id;
-                self.removed_agents.push(agent_id);
                 self.queue.swap_remove(index);
                 // TODO: yechen, please test this
                 if self.queue.len() > 0 {
