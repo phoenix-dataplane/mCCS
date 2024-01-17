@@ -99,7 +99,7 @@ impl ExchangeEngineResources {
                             ExchangeMessage::ProxyMessage(msg) => match msg {
                                 ExchangeProxyMessage::BootstrapHandle(comm_id, handle) => {
                                     let requests =
-                                        self.outstanding_requests.drain_filter(|x| match x {
+                                        self.outstanding_requests.extract_if(|x| match x {
                                             OutstandingRequest::BootstrapHandleRecv((id, _)) => {
                                                 id == &comm_id
                                             }
