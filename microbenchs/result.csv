@@ -1,3 +1,6 @@
+# alg bw
+# bus bw = alg bw * 2/3
+ GB/s
 mCCS,128M,3.837349588687289
 mCCS,128M,3.89171081163964
 mCCS,128M,9.615384615384615
@@ -7,22 +10,17 @@ mCCS,128M,4.098551025594085
 mCCS,512M,9.657350756910962
 mCCS,512M,5.580141244535182
 mCCS,512M,9.372768109593903
+
 mCCS,1024M,10.268936603692984 
 mCCS,1024M,9.562179666981155
 mCCS,1024M,5.00194742486408
-mCCS,1024M,10.648776721774086
-nccl-shm,128M,12.32
-nccl-shm,512M,12.33
-nccl-shm,1024M,12.34
-nccl-shm-degrade,128M,6.52
-nccl-shm-degrade,128M,6.75
-nccl-shm-degrade,512M,6.52
-nccl-shm-degrade,512M,6.76
-nccl-shm-degrade,1024M,6.53
-nccl-shm-degrade,1024M,6.76
-nccl-net,128M,11.07
-nccl-net,128M,11.16
-nccl-net,512M,11.08
-nccl-net,512M,11.17
-nccl-net,1024M,11.07
-nccl-net,1024M,11.18
+mCCS,1024M,10.648776721774086 => ~ 56Gbps NIC/bus bandwidth
+
+
+issues:
+- numa binding/memory affnity 
+- inefficient event sync
+- seems still buggy for multiple consequtive queued allgather
+
+- single channel
+- params tuning (thread num, ...)
