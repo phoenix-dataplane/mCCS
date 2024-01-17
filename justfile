@@ -7,7 +7,7 @@ sync:
 back host LEVEL='info':
   RUST_LOG={{LEVEL}} ./target/debug/mccs --host {{host}}
 
-root_addr := '192.168.211.66'
+root_addr := '192.168.211.130'
 
 base rank num_ranks size='128' comm='42' cuda_dev='0':
   ./target/debug/allgather_proto --root-addr {{root_addr}} --rank {{rank}} \
