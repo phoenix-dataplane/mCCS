@@ -1,6 +1,6 @@
 use std::net::IpAddr;
 use std::process::ExitCode;
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 use structopt::StructOpt;
 
@@ -140,7 +140,9 @@ fn main() -> ExitCode {
     let end = Instant::now();
     let dura = end.duration_since(start);
     if opts.rank == 0 {
-        let tput = (opts.size * num_ranks * opts.round) as f64 / 1024.0 / (dura.as_micros() as f64 / 1.0e6);
+        let tput = (opts.size * num_ranks * opts.round) as f64
+            / 1024.0
+            / (dura.as_micros() as f64 / 1.0e6);
         println!("Algorithm bandwidth: {:.} GB/s", tput);
     }
     return ExitCode::SUCCESS;
