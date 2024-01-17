@@ -87,6 +87,7 @@ impl ChanWorkSchedule {
     fn clear(&mut self) {
         self.coll_bytes = 0;
         self.work_queue.clear();
+        self.agent_task_queue.clear();
     }
 }
 
@@ -302,7 +303,7 @@ impl Communicator {
                     if connector.transporter.need_op() {
                         let tx_engine_id = connector.transport_agent_engine.unwrap();
                         log::debug!(
-                            "tx_engine_id={:?}, agent_id={:?}, op={{num_steps={:?}}}",
+                            "Submit new TxOp: tx_engine_id={:?}, agent_id={:?}, op={{num_steps={:?}}}",
                             tx_engine_id,
                             agent_id,
                             op.num_steps,
