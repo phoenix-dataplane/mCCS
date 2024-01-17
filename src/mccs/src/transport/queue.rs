@@ -28,7 +28,9 @@ impl TransrportOpQueue {
             Entry::Vacant(entry) => {
                 let mut agent_queue = VecDeque::with_capacity(PER_CONN_QUEUE_INIT_CAPACITY);
                 agent_queue.push_back(op);
+                let idx = self.queue.len();
                 self.queue.push((agent, agent_queue));
+                entry.insert(idx);
             }
         }
     }
@@ -48,8 +50,9 @@ impl TransrportOpQueue {
     }
 
     pub fn remove_agent(&mut self, agent_id: &TransportAgentId) {
-        if let Some(index) = self.connections_index_map.remove(agent_id) {
-            self.queue.swap_remove(index);
-        }
+        // TODO
+        // if let Some(index) = self.connections_index_map.remove(agent_id) {
+        //     self.queue.swap_remove(index);
+        // }
     }
 }

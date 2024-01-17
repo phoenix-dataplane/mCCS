@@ -1,6 +1,6 @@
 mccs_daemon_basename = "mccs-deamon"
 mccs_daemon_prefix = "/tmp/mccs"
-addrs = ["10.0.0.0", "10.0.0.1", "10.0.0.2", "192.168.211.66",  "192.168.211.130", "192.168.211.162", "192.168.211.195"]
+addrs = ["192.168.211.130", "192.168.211.195"]
 listen_port = 5000
 
 [control]
@@ -24,7 +24,7 @@ adaptive_routing = false
 ar_threshold = 8192
 pci_relaxed_ordering = false
 gdr_flush_disable = true
-socket_if_prefix = "rdma0"
+socket_if_prefix = "rdma"
 
 [comm_global_config.net]
 gdr_enable = false
