@@ -10,7 +10,7 @@ back host LEVEL='info':
 root_addr := '192.168.211.130'
 
 base rank num_ranks size='128' comm='42' cuda_dev='0':
-  ./target/debug/allgather_proto --root-addr {{root_addr}} --rank {{rank}} \
+  ./target/debug/allgather_bench --root-addr {{root_addr}} --rank {{rank}} \
   --num-ranks {{num_ranks}} --cuda-device-idx {{cuda_dev}} --size {{size}} --communicator {{comm}}
 
 double0 size='128' comm='42':
@@ -30,3 +30,9 @@ triple1 size='128' comm='42':
 
 triple2 size='128' comm='42':
   just base 2 3 {{size}} {{comm}}
+
+auto-triple size='128' comm='42':
+  just base $RK 3 {{size}} {{comm}} $DEV
+
+auto-back LEVEL='info':
+  just back $MACHINE {{LEVEL}}
