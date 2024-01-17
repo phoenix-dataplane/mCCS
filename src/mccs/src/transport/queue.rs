@@ -79,9 +79,15 @@ impl TransrportOpQueue {
         if let Some(index) = self.connections_index_map.get(agent_id).copied() {
             let (agent_id, agent_queue, removal) = &mut self.queue[index];
             if agent_queue.is_empty() {
-                self.removed_agents.push(*agent_id);
-                self.removal_indices.push(index);
-                self.connections_index_map.remove(agent_id);
+                let agent_id = *agent_id;
+                self.removed_agents.push(agent_id);
+                self.queue.swap_remove(index);
+                // TODO: yechen, please test this
+                if self.queue.len() > 0 {
+                    let swap_agent_id = self.queue[index].0;
+                    self.connections_index_map.insert(swap_agent_id, index);
+                }
+                self.connections_index_map.remove(&agent_id);
                 true
             } else {
                 *removal = true;
