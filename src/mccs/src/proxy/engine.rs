@@ -149,6 +149,7 @@ impl ProxyResources {
         id: DaemonId,
         chan: DuplexChannel<ProxyCompletion, ProxyCommand>,
     ) {
+        self.user_events.insert(id, HashMap::new());
         self.daemon_tx.insert(id, chan.tx);
         self.daemon_rx.push((id, chan.rx));
     }
@@ -925,7 +926,9 @@ impl ProxyEngine {
                             comm.schedule_all_gather(coll, user_events);
                             comm.launch_scheduled_and_record(
                                 &mut self.resources.transport_engines_tx,
-                            )
+                            );
+                            let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
+                            sender.send(ProxyCompletion::AllGather).unwrap();
                         }
                         ProxyCommand::GroupCall(colls) => {
                             let comm_id = match &colls[0] {
@@ -938,7 +941,9 @@ impl ProxyEngine {
                             comm.schedule_group_call(colls, user_events);
                             comm.launch_scheduled_and_record(
                                 &mut self.resources.transport_engines_tx,
-                            )
+                            );
+                            let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
+                            sender.send(ProxyCompletion::GroupCall).unwrap();
                         }
                         ProxyCommand::DestroyCommunicator(comm_id) => {
                             let mut comm = self.resources.communicators.remove(&comm_id).unwrap();
@@ -959,6 +964,8 @@ impl ProxyEngine {
                                 cuda_warning!(cudaIpcOpenEventHandle(&mut event, event_handle));
                             }
                             user_events.insert(user_stream, event);
+                            let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
+                            sender.send(ProxyCompletion::RegisterStream).unwrap();
                         }
                     }
                 }
@@ -1110,6 +1117,6 @@ impl Communicator {
     ) {
         self.pre_launch_schedule(transport_txs, self.cuda_dev);
         self.launch_plan();
-        self.record_backend_event()
+        self.record_backend_event();
     }
 }
