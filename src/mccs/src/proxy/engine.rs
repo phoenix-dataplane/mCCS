@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::fmt::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::fmt::Write;
 
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use futures::future::BoxFuture;
@@ -290,7 +290,12 @@ impl ProxyResources {
                 let mut transport_connect =
                     TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
                 for pattern in channels.iter() {
-                    let ix_zero = pattern.ring.user_ranks.iter().position(|x| *x == 0).unwrap();
+                    let ix_zero = pattern
+                        .ring
+                        .user_ranks
+                        .iter()
+                        .position(|x| *x == 0)
+                        .unwrap();
                     let mut ring_log = String::new();
                     for i in 0..comm.num_ranks {
                         let ring_rank = pattern.ring.user_ranks[(i + ix_zero) % comm.num_ranks];
