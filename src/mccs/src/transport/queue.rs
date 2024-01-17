@@ -62,10 +62,13 @@ impl TransrportOpQueue {
             }
         }
 
-        for idx in self.removal_indices.drain(..).rev() {
+        for mut idx in self.removal_indices.drain(..).rev() {
             self.queue.swap_remove(idx);
             // TODO: yechen, please test this
             if self.queue.len() > 0 {
+                if idx == self.queue.len() {
+                    idx -= 1;
+                }
                 let agent_id = self.queue[idx].0;
                 self.connections_index_map.insert(agent_id, idx);
             }
@@ -76,13 +79,16 @@ impl TransrportOpQueue {
     // Returns true if there is no oustanding ops for that agent,
     // otherwise returns false and marks the agent for delayed removal
     pub fn remove_agent(&mut self, agent_id: &TransportAgentId) -> bool {
-        if let Some(index) = self.connections_index_map.get(agent_id).copied() {
+        if let Some(mut index) = self.connections_index_map.get(agent_id).copied() {
             let (agent_id, agent_queue, removal) = &mut self.queue[index];
             if agent_queue.is_empty() {
                 let agent_id = *agent_id;
                 self.queue.swap_remove(index);
                 // TODO: yechen, please test this
                 if self.queue.len() > 0 {
+                    if index == self.queue.len() {
+                        index -= 1;
+                    }
                     let swap_agent_id = self.queue[index].0;
                     self.connections_index_map.insert(swap_agent_id, index);
                 }

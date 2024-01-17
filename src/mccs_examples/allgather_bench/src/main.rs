@@ -71,6 +71,7 @@ fn main() -> ExitCode {
         opts.root_addr,
     )
     .unwrap();
+    libmccs::register_stream(opts.cuda_device_idx, 0 as cudaStream_t).unwrap();
     println!("Rank {}: start issuing", rank);
 
     libmccs::all_gather(
