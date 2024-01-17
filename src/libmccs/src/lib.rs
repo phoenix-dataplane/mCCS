@@ -93,6 +93,7 @@ pub(crate) use _checked_cuda as checked_cuda;
 pub(crate) use _rx_recv_impl as rx_recv_impl;
 use ipc::mccs::command::MccsDeviceMemoryHandle;
 
+#[derive(Debug, Clone, Copy)]
 pub struct MccsCommunicatorHandle {
     pub(crate) comm_handle: CommunicatorHandle,
     pub(crate) backend_event: cudaEvent_t,
