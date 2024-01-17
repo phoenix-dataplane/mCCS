@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
+use std::fmt::Write;
 
 use cuda_runtime_sys::{cudaError, cudaEventCreateWithFlags, cudaStreamCreate};
 use cuda_runtime_sys::{cudaEventDisableTiming, cudaEventInterprocess};
@@ -317,6 +318,15 @@ impl CommSuspendState {
                 let mut transport_connect =
                     TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
                 for pattern in channels.iter() {
+                    let ix_zero = pattern.ring.user_ranks.iter().position(|x| *x == 0).unwrap();
+                    let mut ring_log = String::new();
+                    for i in 0..comm.num_ranks {
+                        let ring_rank = pattern.ring.user_ranks[(i + ix_zero) % comm.num_ranks];
+                        write!(ring_log, "{} -> ", ring_rank);
+                    }
+                    ring_log.push('0');
+                    log::info!("Comm {:?}, ring: {}", comm.id, ring_log);
+
                     let ring_next = PeerConnId {
                         peer_rank: pattern.ring.next,
                         channel: pattern.channel,

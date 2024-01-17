@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::fmt::Write;
 
 use crossbeam::channel::{Receiver, Sender, TryRecvError};
 use futures::future::BoxFuture;
@@ -289,6 +290,15 @@ impl ProxyResources {
                 let mut transport_connect =
                     TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
                 for pattern in channels.iter() {
+                    let ix_zero = pattern.ring.user_ranks.iter().position(|x| *x == 0).unwrap();
+                    let mut ring_log = String::new();
+                    for i in 0..comm.num_ranks {
+                        let ring_rank = pattern.ring.user_ranks[(i + ix_zero) % comm.num_ranks];
+                        write!(ring_log, "{} -> ", ring_rank);
+                    }
+                    ring_log.push('0');
+                    log::info!("Comm {:?}, ring: {}", comm.id, ring_log);
+
                     let ring_next = PeerConnId {
                         peer_rank: pattern.ring.next,
                         channel: pattern.channel,
@@ -740,8 +750,8 @@ impl ProxyEngine {
                             user_ranks.push(ring_rank);
                         }
                         let ring = crate::pattern::RingPattern {
-                            prev: user_ranks[1],
-                            next: user_ranks[comm.num_ranks - 1],
+                            prev: user_ranks[comm.num_ranks - 1],
+                            next: user_ranks[1],
                             user_ranks,
                             index: (ix_rank + comm.num_ranks - ix_zero) % comm.num_ranks,
                         };
@@ -764,8 +774,10 @@ impl ProxyEngine {
                             }
                         }
                     } else {
-                        let op = ProxyOp::RebootCommunicator(comm_id);
-                        self.ops.enqueue(op);
+                        if !state.stream_completed {
+                            let op = ProxyOp::PollCommunicatorComplete(comm_id);
+                            self.ops.enqueue(op);
+                        }
                         Self::shutdown_transport_agents(
                             &mut self.resources.transport_engines_tx,
                             &comm,
