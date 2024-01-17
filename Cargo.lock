@@ -27,6 +27,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "allgather_bench"
+version = "0.1.0"
+dependencies = [
+ "cuda-runtime-sys",
+ "libmccs",
+ "structopt",
+]
+
+[[package]]
 name = "allgather_proto"
 version = "0.1.0"
 dependencies = [
