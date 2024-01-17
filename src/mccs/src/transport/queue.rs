@@ -64,6 +64,11 @@ impl TransrportOpQueue {
 
         for idx in self.removal_indices.drain(..).rev() {
             self.queue.swap_remove(idx);
+            // TODO: yechen, please test this
+            if self.queue.len() > 0 {
+                let agent_id = self.queue[idx].0;
+                self.connections_index_map.insert(agent_id, idx);
+            }
         }
         &mut self.removed_agents
     }
