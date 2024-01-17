@@ -203,6 +203,7 @@ impl TransportEngine {
                 .register_agent_shutdown(self.id);
             self.resources.agent_connected.remove(&agent_id);
             let reply = TransportEngineReply::AgentShutdown(agent_id);
+            log::info!("shutdown {:?}", agent_id);
             self.resources.proxy_chan[agent_id.client_cuda_dev as usize]
                 .tx
                 .send(reply)
@@ -246,6 +247,7 @@ impl TransportEngine {
                                     .register_agent_shutdown(self.id);
                                 self.resources.agent_connected.remove(&agent_id);
                                 let reply = TransportEngineReply::AgentShutdown(agent_id);
+                                log::info!("shutdown {:?}", agent_id);
                                 chan.tx.send(reply).unwrap();
                             }
                         }

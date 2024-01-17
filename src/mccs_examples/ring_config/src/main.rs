@@ -23,12 +23,17 @@ fn main() {
     buf[0] = 1;
     LittleEndian::write_u32(&mut buf[1..], encoded.len() as u32);
 
+    let magic: u64 = 0x424ab9f2fc4b9d6e;
+    let mut magic_buf = [0u8; std::mem::size_of::<u64>()];
+    LittleEndian::write_u64(&mut magic_buf, magic);
+
     let mut stream = TcpStream::connect(SocketAddr::new(
         IpAddr::V4(Ipv4Addr::new(192, 168, 211, 130)),
         5000,
     ))
     .unwrap();
     stream.set_nodelay(true).unwrap();
+    stream.write_all(&magic_buf).unwrap();
     stream.write_all(&buf).unwrap();
     stream.write_all(encoded.as_slice()).unwrap();
 
@@ -38,6 +43,7 @@ fn main() {
     ))
     .unwrap();
     stream.set_nodelay(true).unwrap();
+    stream.write_all(&magic_buf).unwrap();
     stream.write_all(&buf).unwrap();
     stream.write_all(encoded.as_slice()).unwrap();
 }

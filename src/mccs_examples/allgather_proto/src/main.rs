@@ -74,6 +74,8 @@ fn main() -> ExitCode {
     libmccs::register_stream(opts.cuda_device_idx, 0 as cudaStream_t).unwrap();
     println!("rank {} - stream registered", rank);
 
+    std::thread::sleep(std::time::Duration::from_secs(15));
+
     libmccs::all_gather(
         comm,
         dev_ptr.add(rank * buffer_size).unwrap(),
