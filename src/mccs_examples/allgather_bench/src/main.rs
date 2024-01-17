@@ -22,7 +22,7 @@ struct Opts {
     communicator: u32,
     #[structopt(short, long, default_value = "128")]
     size: usize,
-    #[structopt(long, default_value = "3")]
+    #[structopt(long, default_value = "20")]
     round: usize,
 }
 
@@ -102,11 +102,7 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     }
-    println!("Rank{}: warmup phase finished", opts.rank);
-    let mut time_vec = vec![];
-    // start testing
-    for _ in 0..opts.round {
-        let start = Instant::now();
+    for _ in 0..5 {
         libmccs::all_gather(
             comm,
             dev_ptr.add(rank * buffer_size).unwrap(),
@@ -115,10 +111,38 @@ fn main() -> ExitCode {
             0 as cudaStream_t,
         )
         .unwrap();
-        time_vec.push(start.elapsed());
     }
-    let (mean, median, min, max) = get_stats(time_vec);
-    println!("Mean: {:?}, Median: {:?}, Min: {:?}, Max: {:?}", mean, median, min, max);
+    unsafe {
+        let err = cuda_runtime_sys::cudaStreamSynchronize(0 as cudaStream_t);
+        if err != cudaError::cudaSuccess {
+            panic!("cudaStreamSynchronize failed");
+        }
+    }
+    println!("Rank{}: warmup phase finished", opts.rank);
+    // start testing
+    let start = Instant::now();
+    for _ in 0..opts.round {
+        libmccs::all_gather(
+            comm,
+            dev_ptr.add(rank * buffer_size).unwrap(),
+            dev_ptr,
+            buffer_size,
+            0 as cudaStream_t,
+        )
+        .unwrap();
+    }
+    unsafe {
+        let err = cuda_runtime_sys::cudaStreamSynchronize(0 as cudaStream_t);
+        if err != cudaError::cudaSuccess {
+            panic!("cudaStreamSynchronize failed");
+        }
+    }
+    let end = Instant::now();
+    let dura = end.duration_since(start);
+    if opts.rank == 0 {
+        let tput = (opts.size * num_ranks * opts.round) as f64 / 1024.0 / (dura.as_micros() as f64 / 1.0e6);
+        println!("Algorithm bandwidth: {:.} GB/s", tput);
+    }
     return ExitCode::SUCCESS;
 }
 

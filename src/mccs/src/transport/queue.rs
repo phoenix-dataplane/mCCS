@@ -36,6 +36,8 @@ impl TransrportOpQueue {
             Entry::Vacant(entry) => {
                 let mut agent_queue = VecDeque::with_capacity(PER_CONN_QUEUE_INIT_CAPACITY);
                 agent_queue.push_back(op);
+                let idx = self.queue.len();
+                entry.insert(idx);
                 self.queue.push((agent, agent_queue, false));
             }
         }
