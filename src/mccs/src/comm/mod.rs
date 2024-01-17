@@ -26,6 +26,7 @@ use crate::utils::tcp;
 use device::CommDevResources;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(transparent)]
 pub struct CommunicatorId(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

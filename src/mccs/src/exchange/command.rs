@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use crate::bootstrap::BootstrapHandle;
 use crate::comm::CommunicatorId;
+use ipc::mccs::reconfig::CommPatternReconfig;
 
 pub enum ExchangeCommand {
     RegisterBootstrapHandle(CommunicatorId, BootstrapHandle),
@@ -13,4 +14,5 @@ pub enum ExchangeCommand {
 pub enum ExchangeNotification {
     RegisterBootstrapHandle,
     RecvBootstrapHandle(CommunicatorId, BootstrapHandle),
+    CommPatternReconfig(CommPatternReconfig),
 }

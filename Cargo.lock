@@ -1749,6 +1749,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ring_config"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "byteorder",
+ "ipc",
+]
+
+[[package]]
 name = "rustc-demangle"
 version = "0.1.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -14,7 +14,7 @@ use cuda_runtime_sys::{
 };
 
 use super::command::{self, ProxyCommand, ProxyCompletion};
-use super::init::{CommInitStage, CommInitState, CommSuspendState};
+use super::init::{CommInitStage, CommInitState, CommReconfigTask, CommSuspendState};
 use super::op::ProxyOp;
 use super::task::{CollTask, TaskDataType, TaskFuncType};
 use super::DeviceInfo;
@@ -723,6 +723,56 @@ impl ProxyEngine {
                 ExchangeNotification::RecvBootstrapHandle(comm_id, handle) => {
                     let comm = self.resources.comms_init.get_mut(&comm_id).unwrap();
                     comm.bootstrap_handle = Some(handle);
+                }
+                ExchangeNotification::CommPatternReconfig(comm_pattern) => {
+                    let comm_id = CommunicatorId(comm_pattern.communicator_id.0);
+                    let comm = self.resources.communicators.remove(&comm_id).unwrap();
+                    let mut channels = Vec::with_capacity(comm_pattern.channels.len());
+                    for chan in comm_pattern.channels.iter() {
+                        assert_eq!(chan.ring.len(), comm.num_ranks);
+                        let ix_rank = chan.ring.iter().position(|x| *x == comm.rank).unwrap();
+                        let ix_zero = chan.ring.iter().position(|x| *x == 0).unwrap();
+                        let mut user_ranks = Vec::with_capacity(comm.num_ranks);
+                        for i in 0..comm.num_ranks {
+                            let ring_rank = chan.ring[(i + ix_rank) % comm.num_ranks];
+                            assert!(ring_rank < comm.num_ranks);
+                            user_ranks.push(ring_rank);
+                        }
+                        let ring = crate::pattern::RingPattern {
+                            prev: user_ranks[1],
+                            next: user_ranks[comm.num_ranks - 1],
+                            user_ranks,
+                            index: (ix_rank + comm.num_ranks - ix_zero) % comm.num_ranks,
+                        };
+                        let chan_pattern = crate::comm::ChannelCommPattern {
+                            channel: ChannelId(chan.channel_id),
+                            ring,
+                        };
+                        channels.push(chan_pattern);
+                    }
+                    let task = CommReconfigTask::CommPattern(channels);
+                    let state = CommSuspendState::init(&comm, task);
+                    if state.check_suspended() {
+                        let output =
+                            state.emit(comm, &self.resources.global_registry.transport_catalog);
+                        match output {
+                            CommReconfigOutout::CommPattern(init) => {
+                                let op = ProxyOp::RebootCommunicator(init.id);
+                                self.resources.comms_init.insert(init.id, init);
+                                self.ops.enqueue(op);
+                            }
+                        }
+                    } else {
+                        let op = ProxyOp::RebootCommunicator(comm_id);
+                        self.ops.enqueue(op);
+                        Self::shutdown_transport_agents(
+                            &mut self.resources.transport_engines_tx,
+                            &comm,
+                        );
+                        self.resources
+                            .comms_suspended
+                            .insert(comm_id, (comm, state));
+                    }
                 }
             },
             Err(TryRecvError::Empty) => (),
