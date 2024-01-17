@@ -24,7 +24,7 @@ fn main() {
     LittleEndian::write_u32(&mut buf[1..], encoded.len() as u32);
 
     let mut stream = TcpStream::connect(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(192, 168, 211, 64)),
+        IpAddr::V4(Ipv4Addr::new(192, 168, 211, 130)),
         5000,
     ))
     .unwrap();
@@ -33,7 +33,7 @@ fn main() {
     stream.write_all(encoded.as_slice()).unwrap();
 
     let mut stream = TcpStream::connect(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(192, 168, 211, 194)),
+        IpAddr::V4(Ipv4Addr::new(192, 168, 211, 195)),
         5000,
     ))
     .unwrap();
