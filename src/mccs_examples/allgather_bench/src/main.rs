@@ -149,6 +149,7 @@ fn main() -> ExitCode {
     return ExitCode::SUCCESS;
 }
 
+#[allow(dead_code)]
 fn get_stats(mut durations: Vec<Duration>) -> (Duration, Duration, Duration, Duration) {
     durations.sort();
 

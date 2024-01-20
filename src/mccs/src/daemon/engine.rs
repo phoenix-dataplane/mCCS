@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::os::raw::c_void;
 
 use cuda_runtime_sys::cudaError;
+use cuda_runtime_sys::cudaFree;
 use cuda_runtime_sys::cudaIpcMemHandle_t;
 use cuda_runtime_sys::{cudaIpcGetMemHandle, cudaMalloc, cudaSetDevice};
 
@@ -13,6 +14,7 @@ use ipc::mccs::handle::{CommunicatorHandle, CudaMemHandle};
 
 use super::{DaemonId, Error};
 use crate::comm::CommunicatorId;
+use crate::cuda_warning;
 use crate::engine::{Engine, EngineStatus};
 use crate::proxy::command::{
     AllGatherRequest, CollRequest, InitCommunicator, ProxyCommand, ProxyCompletion,
@@ -291,6 +293,15 @@ impl Engine for DaemonEngine {
                 }
             }
             Status::Disconnected => EngineStatus::Completed,
+        }
+    }
+}
+
+impl Drop for DaemonEngine {
+    fn drop(&mut self) {
+        for mem in self.device_mem.drain().map(|(_, v)| v) {
+            cuda_warning!(unsafe { cudaSetDevice(mem.device_idx) });
+            cuda_warning!(unsafe { cudaFree(mem.addr as *mut c_void) });
         }
     }
 }
