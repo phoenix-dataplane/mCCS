@@ -9,6 +9,7 @@ path = "control.sock"
 
 [comm_default_config]
 buffer_sizes = [4194304]
+channel_count = 3
 
 [comm_global_config]
 [comm_global_config.net_rdma]

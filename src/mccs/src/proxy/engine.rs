@@ -280,12 +280,12 @@ impl ProxyResources {
                     index: ring_index,
                 };
 
-                let channel = crate::comm::ChannelCommPattern {
-                    channel: ChannelId(0),
-                    ring: ring_pattern,
-                };
-                let mut channels = Vec::new();
-                channels.push(channel);
+                let mut channels = (0..self.global_registry.default_comm_config.channel_count)
+                    .map(|idx| crate::comm::ChannelCommPattern {
+                        channel: ChannelId(idx),
+                        ring: ring_pattern.clone(),
+                    })
+                    .collect::<Vec<_>>();
 
                 let mut transport_connect =
                     TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
