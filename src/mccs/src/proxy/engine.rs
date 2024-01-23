@@ -31,7 +31,9 @@ use crate::daemon::DaemonId;
 use crate::engine::{Engine, EngineStatus};
 use crate::exchange::command::{ExchangeCommand, ExchangeNotification};
 use crate::message::{ControlNotification, ControlRequest};
-use crate::pattern::{ALLGATHER_CHUNK_STEPS, ALLGATHER_SLICE_STEPS};
+use crate::pattern::{
+    ALLGATHER_CHUNK_STEPS, ALLGATHER_SLICE_STEPS, ALLREDUCE_CHUNK_STEPS, ALLREDUCE_SLICE_STEPS,
+};
 use crate::proxy::init::CommReconfigOutout;
 use crate::registry::GlobalRegistry;
 use crate::transport::channel::{ChannelId, ConnType, PeerConnId};
@@ -1134,7 +1136,7 @@ impl Communicator {
         let send_buf = DeviceNonNull::new(coll.send_buf_addr as *mut u8).unwrap();
         let recv_buf = DeviceNonNull::new(coll.recv_buf_addr as *mut u8).unwrap();
         let task = CollTask {
-            func: TaskFuncType::AllGather,
+            func: TaskFuncType::AllReduce,
             send_buf,
             recv_buf,
             count: coll.size,
@@ -1144,8 +1146,8 @@ impl Communicator {
                 op: coll.op_type,
                 arg: 0,
             }),
-            chunk_steps: ALLGATHER_CHUNK_STEPS,
-            slice_steps: ALLGATHER_SLICE_STEPS,
+            chunk_steps: ALLREDUCE_CHUNK_STEPS,
+            slice_steps: ALLREDUCE_SLICE_STEPS,
         };
         self.task_queue.coll_queue.push_back(task);
     }
