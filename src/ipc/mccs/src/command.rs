@@ -22,6 +22,21 @@ pub struct MccsDeviceMemoryHandle {
     pub len: usize,
 }
 
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum AllReduceDataType {
+    Float16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AllReduceOpType {
+    Sum = 0,
+    Prod = 1,
+    Max = 2,
+    Min = 3,
+    PreMulSum = 4,
+    SumPostDiv = 5,
+}
+
 impl MccsDeviceMemoryHandle {
     pub fn add(&self, len: usize) -> Result<Self, ()> {
         if self.offset + len > self.len {
@@ -47,8 +62,21 @@ pub struct AllGather {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AllReduce {
+    pub comm: CommunicatorHandle,
+    pub send_buf: MccsDeviceMemoryHandle,
+    pub recv_buf: MccsDeviceMemoryHandle,
+    pub size: usize,
+    pub data_type: AllReduceDataType,
+    pub op_type: AllReduceOpType,
+    // user stream handle
+    pub user_stream: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CollOperation {
     AllGather(AllGather),
+    AllReduce(AllReduce),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +85,7 @@ pub enum Command {
     CudaMalloc(i32, usize),
     InitCommunicator(CommunicatorInit),
     AllGather(AllGather),
+    AllReduce(AllReduce),
     // different requests can be scheduled on different user stream
     // however, currently, they must belong to the same communicator
     GroupCall(Vec<CollOperation>),
@@ -72,6 +101,7 @@ pub enum CompletionKind {
     // communicator handle and IPC event handle for the backend stream
     InitCommunicator((CommunicatorHandle, CudaEventHandle)),
     AllGather,
+    AllReduce,
     GroupCall,
     RegisterStream,
 }
