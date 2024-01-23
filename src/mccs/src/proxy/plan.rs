@@ -11,10 +11,14 @@ use itertools::Itertools;
 use collectives_sys::{
     mccsDevComm, mccsDevWork, mccsDevWorkElem, mccsDevWorkHeader, mccsDevWorkType,
     mccsDevWork__bindgen_ty_1, mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t,
+    mccsKernel_AllReduce_RING_SIMPLE_Prod_half, mccsKernel_AllReduce_RING_SIMPLE_Sum_half,
 };
 use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpyKind};
 
-use super::task::{CollTask, TaskAlgorithm, TaskProtocol, TaskSchema};
+use super::task::{
+    CollTask, TaskAlgorithm, TaskDataType, TaskFuncType, TaskProtocol, TaskReduceOp,
+    TaskReduceOpType, TaskSchema,
+};
 use crate::comm::{ChannelCommPattern, MCCS_MAX_CHANNELS, MCCS_WORK_FIFO_DEPTH};
 use crate::pattern::MCCS_STEP;
 use crate::transport::channel::{ChannelId, CommChannel, ConnType, PeerConnId};
@@ -134,7 +138,31 @@ impl Communicator {
                 break;
             }
         }
-        let plan = self.finalize_one_plan(max_threads_per_block, transport_tx);
+        let func = match first_task.func {
+            TaskFuncType::AllGather => mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t as *const _,
+            TaskFuncType::AllReduce => match (
+                first_task.data_type,
+                first_task.reduce_op.expect("AllReduce missing op"),
+            ) {
+                (
+                    TaskDataType::Float16,
+                    TaskReduceOp {
+                        op: TaskReduceOpType::Sum,
+                        arg: _,
+                    },
+                ) => mccsKernel_AllReduce_RING_SIMPLE_Sum_half as *const _,
+                (
+                    TaskDataType::Float16,
+                    TaskReduceOp {
+                        op: TaskReduceOpType::Prod,
+                        arg: _,
+                    },
+                ) => mccsKernel_AllReduce_RING_SIMPLE_Prod_half as *const _,
+                _ => unimplemented!(),
+            },
+            _ => unimplemented!(),
+        };
+        let plan = self.finalize_one_plan(func, max_threads_per_block, transport_tx);
         self.unlaunched_plans.push_back(plan);
     }
 
@@ -272,10 +300,10 @@ impl Communicator {
 
     fn finalize_one_plan(
         &mut self,
+        kernel_func: *const c_void,
         thread_per_block: u32,
         transport_tx: &mut HashMap<TransportEngineId, Sender<TransportEngineRequest>>,
     ) -> KernelPlan {
-        let ptr = mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t;
         let mut chan_list = Vec::with_capacity(MCCS_MAX_ELEMENTS_PER_WORK);
         let mut channel_upper_bound = 0;
         let mut channel_mask = 0u64;
@@ -334,7 +362,7 @@ impl Communicator {
             thread_per_block
         );
         KernelPlan {
-            kernel_fn: ptr as _,
+            kernel_fn: kernel_func as _,
             dev_work_head: dev_work,
 
             channel_count: chan_list.len() as u32,
