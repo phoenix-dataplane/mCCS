@@ -108,6 +108,8 @@ pub struct Communicator {
     pub event: cudaEvent_t,
 }
 
+pub(crate) struct EnqueueState {}
+
 // Communicator will only be held by a single proxy engine
 // on a single thread (runtime)
 unsafe impl Send for Communicator {}

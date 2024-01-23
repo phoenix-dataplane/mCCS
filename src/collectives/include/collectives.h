@@ -94,9 +94,17 @@ struct mccsDevRedOpFull {
   DECL2(func, SumPostDiv, /*undefForFloat=*/1)
 
 DECL2(AllGather, Sum, /*undefForFloat=*/0)
+DECL2(AllReduce, Sum, /*undefForFloat=*/0)
+DECL2(AllReduce, Prod, /*undefForFloat=*/0)
+DECL2(AllReduce, Min, /*undefForFloat=*/0)
+DECL2(AllReduce, Max, /*undefForFloat=*/0)
+DECL2(AllReduce, PreMulSum, /*undefForFloat=*/0)
+DECL2(AllReduce, SumPostDiv, /*undefForFloat=*/0)
 
 #define ALLGATHER_SLICESTEPS (MCCS_BUFFER_SLOTS/4)
 #define ALLGATHER_CHUNKSTEPS (MCCS_BUFFER_SLOTS/2)
+#define ALLREDUCE_SLICESTEPS (MCCS_BUFFER_SLOTS/4)
+#define ALLREDUCE_CHUNKSTEPS (MCCS_BUFFER_SLOTS/2)
 #define MCCS_MAX_SLICE_PER_CHUNK 2  
 
 #endif
