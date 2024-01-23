@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use ipc::mccs::command::{AllReduceDataType, AllReduceOpType};
+
 use crate::cuda::ptr::DeviceNonNull;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +40,14 @@ impl TaskDataType {
     }
 }
 
+impl From<AllReduceDataType> for TaskDataType {
+    fn from(value: AllReduceDataType) -> Self {
+        match value {
+            AllReduceDataType::Float16 => Self::Float16,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskReduceOpType {
     Sum = 0,
@@ -46,6 +56,19 @@ pub enum TaskReduceOpType {
     Min = 3,
     PreMulSum = 4,
     SumPostDiv = 5,
+}
+
+impl From<AllReduceOpType> for TaskReduceOpType {
+    fn from(value: AllReduceOpType) -> Self {
+        match value {
+            AllReduceOpType::Sum => TaskReduceOpType::Sum,
+            AllReduceOpType::Prod => TaskReduceOpType::Prod,
+            AllReduceOpType::Max => TaskReduceOpType::Max,
+            AllReduceOpType::Min => TaskReduceOpType::Min,
+            AllReduceOpType::PreMulSum => TaskReduceOpType::PreMulSum,
+            AllReduceOpType::SumPostDiv => TaskReduceOpType::SumPostDiv,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

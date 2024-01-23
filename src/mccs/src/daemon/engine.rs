@@ -16,6 +16,7 @@ use super::{DaemonId, Error};
 use crate::comm::CommunicatorId;
 use crate::cuda_warning;
 use crate::engine::{Engine, EngineStatus};
+use crate::proxy::command::AllReduceRequest;
 use crate::proxy::command::{
     AllGatherRequest, CollRequest, InitCommunicator, ProxyCommand, ProxyCompletion,
 };
@@ -203,10 +204,57 @@ impl DaemonEngine {
                 );
                 Ok(Some(CompletionKind::AllGather))
             }
+            Command::AllReduce(all_reduce) => {
+                // prepare arguments
+                let comm = self.comm_delegation.get(&all_reduce.comm).unwrap();
+                let send_buf_addr = (*self.device_mem.get(&all_reduce.send_buf.id).unwrap()).addr
+                    + all_reduce.send_buf.offset;
+                let recv_buf_addr = (*self.device_mem.get(&all_reduce.recv_buf.id).unwrap()).addr
+                    + all_reduce.recv_buf.offset;
+                let proxy_all_reduce = AllReduceRequest {
+                    communicator_id: CommunicatorId(comm.comm_id),
+                    send_buf_addr,
+                    recv_buf_addr,
+                    size: all_reduce.size,
+                    data_type: all_reduce.data_type.into(),
+                    op_type: all_reduce.op_type.into(),
+                    user_stream: all_reduce.user_stream,
+                };
+                log::debug!(
+                    "[Daemon-{}] try to issue allReduce ({:p},{:p}) on communicator {}@{}",
+                    self.id.0,
+                    send_buf_addr as *const c_void,
+                    recv_buf_addr as *const c_void,
+                    comm.cuda_device_idx,
+                    comm.comm_id,
+                );
+                // send command
+                let proxy_cmd = ProxyCommand::AllReduce(proxy_all_reduce);
+                self.proxy_chan[comm.cuda_device_idx as usize]
+                    .tx
+                    .send(proxy_cmd)
+                    .unwrap();
+                let res = self.proxy_chan[comm.cuda_device_idx as usize]
+                    .rx
+                    .recv()
+                    .unwrap();
+                match res {
+                    ProxyCompletion::AllReduce => {}
+                    _ => panic!("unexpected result"),
+                };
+                log::debug!(
+                    "[Daemon-{}] SUCCESS for issuing allReduce on communicator {}@{}",
+                    self.id.0,
+                    comm.cuda_device_idx,
+                    comm.comm_id,
+                );
+                Ok(Some(CompletionKind::AllReduce))
+            }
             Command::GroupCall(colls) => {
                 let mut requests = Vec::with_capacity(colls.len());
                 let comm_handle = match &colls[0] {
                     command::CollOperation::AllGather(all_gather) => all_gather.comm,
+                    command::CollOperation::AllReduce(all_reduce) => all_reduce.comm,
                 };
                 let comm = self.comm_delegation.get(&comm_handle).unwrap();
                 for coll in colls.iter() {
@@ -227,6 +275,26 @@ impl DaemonEngine {
                                 user_stream: all_gather.user_stream,
                             };
                             let coll_op = CollRequest::AllGather(proxy_all_gather);
+                            requests.push(coll_op);
+                        }
+                        command::CollOperation::AllReduce(all_reduce) => {
+                            // prepare arguments
+                            let send_buf_addr =
+                                (*self.device_mem.get(&all_reduce.send_buf.id).unwrap()).addr
+                                    + all_reduce.send_buf.offset;
+                            let recv_buf_addr =
+                                (*self.device_mem.get(&all_reduce.recv_buf.id).unwrap()).addr
+                                    + all_reduce.recv_buf.offset;
+                            let proxy_all_reduce = AllReduceRequest {
+                                communicator_id: CommunicatorId(comm.comm_id),
+                                send_buf_addr,
+                                recv_buf_addr,
+                                size: all_reduce.size,
+                                data_type: all_reduce.data_type.into(),
+                                op_type: all_reduce.op_type.into(),
+                                user_stream: all_reduce.user_stream,
+                            };
+                            let coll_op = CollRequest::AllReduce(proxy_all_reduce);
                             requests.push(coll_op);
                         }
                     }

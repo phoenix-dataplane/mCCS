@@ -17,7 +17,7 @@ use cuda_runtime_sys::{
 use super::command::{self, ProxyCommand, ProxyCompletion};
 use super::init::{CommInitStage, CommInitState, CommReconfigTask, CommSuspendState};
 use super::op::ProxyOp;
-use super::task::{CollTask, TaskDataType, TaskFuncType};
+use super::task::{CollTask, TaskDataType, TaskFuncType, TaskReduceOp};
 use super::DeviceInfo;
 use crate::bootstrap::BootstrapState;
 use crate::bootstrap::{bootstrap_create_root, bootstrap_root};
@@ -947,10 +947,27 @@ impl ProxyEngine {
                             let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
                             sender.send(ProxyCompletion::AllGather).unwrap();
                         }
+                        ProxyCommand::AllReduce(coll) => {
+                            let comm = self
+                                .resources
+                                .communicators
+                                .get_mut(&coll.communicator_id)
+                                .unwrap();
+                            let user_events = self.resources.user_events.get(daemon_id).unwrap();
+                            comm.schedule_all_reduce(coll, user_events);
+                            comm.launch_scheduled_and_record(
+                                &mut self.resources.transport_engines_tx,
+                            );
+                            let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
+                            sender.send(ProxyCompletion::AllReduce).unwrap();
+                        }
                         ProxyCommand::GroupCall(colls) => {
                             let comm_id = match &colls[0] {
                                 command::CollRequest::AllGather(all_gather) => {
                                     all_gather.communicator_id
+                                }
+                                command::CollRequest::AllReduce(all_reduce) => {
+                                    all_reduce.communicator_id
                                 }
                             };
                             let comm = self.resources.communicators.get_mut(&comm_id).unwrap();
@@ -1106,6 +1123,33 @@ impl Communicator {
         self.task_queue.coll_queue.push_back(task);
     }
 
+    fn schedule_all_reduce(
+        &mut self,
+        coll: command::AllReduceRequest,
+        user_events: &HashMap<usize, cudaEvent_t>,
+    ) {
+        let user_event = *user_events.get(&coll.user_stream).unwrap();
+        self.wait_user_event(user_event);
+
+        let send_buf = DeviceNonNull::new(coll.send_buf_addr as *mut u8).unwrap();
+        let recv_buf = DeviceNonNull::new(coll.recv_buf_addr as *mut u8).unwrap();
+        let task = CollTask {
+            func: TaskFuncType::AllGather,
+            send_buf,
+            recv_buf,
+            count: coll.size,
+            root: 0,
+            data_type: coll.data_type,
+            reduce_op: Some(TaskReduceOp {
+                op: coll.op_type,
+                arg: 0,
+            }),
+            chunk_steps: ALLGATHER_CHUNK_STEPS,
+            slice_steps: ALLGATHER_SLICE_STEPS,
+        };
+        self.task_queue.coll_queue.push_back(task);
+    }
+
     fn schedule_group_call(
         &mut self,
         colls: Vec<command::CollRequest>,
@@ -1115,6 +1159,9 @@ impl Communicator {
             match coll {
                 command::CollRequest::AllGather(all_gather) => {
                     self.schedule_all_gather(all_gather, user_events);
+                }
+                command::CollRequest::AllReduce(all_reduce) => {
+                    self.schedule_all_reduce(all_reduce, user_events);
                 }
             }
         }
