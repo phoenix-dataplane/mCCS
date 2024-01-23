@@ -64,7 +64,11 @@ where
         }
     }
 
-    pub fn register<P: AsRef<Path>>(phoenix_prefix: P, control_path: P) -> Result<Self, Error> {
+    pub fn register<P: AsRef<Path>>(
+        phoenix_prefix: P,
+        control_path: P,
+        device_affinity: Option<i32>,
+    ) -> Result<Self, Error> {
         let uuid = Uuid::new_v4();
         let arg0 = env::args().next().unwrap();
         let appname = Path::new(&arg0).file_name().unwrap().to_string_lossy();
@@ -77,7 +81,7 @@ where
         }
         let mut sock = DomainSocket::bind(sock_path)?;
 
-        let req = control::Request::NewClient;
+        let req = control::Request::NewClient(device_affinity);
         let buf = bincode::serialize(&req)?;
         assert!(buf.len() < MAX_MSG_LEN);
 

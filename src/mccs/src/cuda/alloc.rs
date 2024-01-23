@@ -3,11 +3,11 @@ use std::num::NonZeroUsize;
 
 use crate::cuda_warning;
 use cuda_runtime_sys::{
-    cudaFree, cudaFreeHost, cudaHostAlloc, cudaHostGetDevicePointer, cudaHostRegister,
-    cudaHostUnregister, cudaMalloc, cudaMemset,
+    cudaError, cudaFree, cudaFreeHost, cudaHostAlloc, cudaHostGetDevicePointer, cudaHostRegister,
+    cudaHostRegisterPortable, cudaHostUnregister, cudaMalloc, cudaMemset, cudaSetDeviceFlags,
 };
 use cuda_runtime_sys::{cudaGetDevice, cudaSetDevice};
-use cuda_runtime_sys::{cudaHostAllocMapped, cudaHostRegisterMapped};
+use cuda_runtime_sys::{cudaHostAllocMapped, cudaHostAllocPortable, cudaHostRegisterMapped};
 
 use super::mapped_ptr::DeviceHostPtr;
 use super::ptr::DeviceNonNull;
@@ -33,9 +33,19 @@ impl<T> DeviceHostMapped<T> {
         let mut device = 0;
         unsafe {
             cudaGetDevice(&mut device);
-            cuda_warning!(cudaHostAlloc(&mut ptr_host, size, cudaHostAllocMapped));
+            cuda_warning!(cudaHostAlloc(
+                &mut ptr_host,
+                size,
+                cudaHostAllocMapped | cudaHostAllocPortable
+            ));
             std::ptr::write_bytes(ptr_host, 0, size);
             cuda_warning!(cudaHostGetDevicePointer(&mut ptr_dev, ptr_host, 0));
+            log::debug!(
+                "Allocated host memory {:p} with device pointer {:p} on dev {}",
+                ptr_host,
+                ptr_dev,
+                device
+            );
         }
         let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host as *mut T, ptr_dev as *mut T) };
         DeviceHostMapped {
@@ -52,7 +62,7 @@ impl<T> DeviceHostMapped<T> {
             let mut ptr_dev: *mut c_void = std::ptr::null_mut();
             let mut device = 0;
             unsafe {
-                cudaGetDevice(&mut device);
+                cuda_warning!(cudaGetDevice(&mut device));
                 cuda_warning!(cudaHostRegister(
                     ptr_host as *mut _,
                     size,
@@ -60,7 +70,16 @@ impl<T> DeviceHostMapped<T> {
                 ));
                 cuda_warning!(
                     cudaHostGetDevicePointer(&mut ptr_dev, ptr_host as *mut _, 0),
-                    format!("Random bug {:p}, please re-run", ptr_host)
+                    format!(
+                        "Random bug {:p}, please re-run, ptr_dev={:p}, dev={}",
+                        ptr_host, ptr_dev, device
+                    )
+                );
+                log::debug!(
+                    "Registered host memory {:p} with device pointer {:p} on dev {}",
+                    ptr_host,
+                    ptr_dev,
+                    device
                 );
             }
             let ptr = unsafe { DeviceHostPtr::new_unchecked(ptr_host, ptr_dev as *mut T) };

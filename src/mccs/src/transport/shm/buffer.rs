@@ -18,7 +18,11 @@ impl<T> TransportBuffer<T> {
         let layout = Layout::from_size_align(size, align).unwrap();
         let ptr = unsafe { System.alloc(layout) } as *mut T;
         assert_eq!(ptr.align_offset(std::mem::align_of::<T>()), 0);
-        unsafe { *ptr = meta };
+        let aligned_size = layout.size();
+        unsafe {
+            nix::sys::mman::mlock(ptr as *mut _, aligned_size).unwrap();
+            *ptr = meta;
+        };
         TransportBuffer { ptr, size, align }
     }
 
