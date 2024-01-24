@@ -7,9 +7,14 @@ use spin::Mutex;
 
 use cuda_runtime_sys::cudaSetDevice;
 
+use super::CoreMask;
 use super::EngineContainer;
 use crate::cuda_warning;
 use crate::engine::EngineStatus;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct RuntimeId(pub u64);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -21,6 +26,7 @@ pub enum RuntimeMode {
 pub struct Runtime {
     pub running: RefCell<Vec<EngineContainer>>,
     pub cuda_dev: AtomicI32,
+    pub cores: CoreMask,
 
     pub active_cnt: AtomicUsize,
     pub mode: AtomicU8,
@@ -32,7 +38,7 @@ pub struct Runtime {
 unsafe impl Sync for Runtime {}
 
 impl Runtime {
-    pub fn new(cuda_dev: Option<i32>, mode: RuntimeMode) -> Self {
+    pub fn new(cuda_dev: Option<i32>, cores: CoreMask, mode: RuntimeMode) -> Self {
         let cuda_dev = match cuda_dev {
             Some(dev) => {
                 assert!(dev >= 0, "Invalid cuda device index");
@@ -43,6 +49,7 @@ impl Runtime {
         Runtime {
             running: RefCell::new(Vec::new()),
             cuda_dev: AtomicI32::new(cuda_dev),
+            cores,
             active_cnt: AtomicUsize::new(0),
             mode: AtomicU8::new(mode as u8),
             new_pending: AtomicBool::new(false),
@@ -123,8 +130,12 @@ impl Runtime {
         &self,
         mode: RuntimeMode,
         cuda_dev: Option<i32>,
+        cores: CoreMask,
         quota: Option<usize>,
     ) -> bool {
+        if self.cores != cores {
+            return false;
+        }
         let scheduled_engines = self.active_cnt.load(Ordering::Relaxed) + self.pending.lock().len();
         if self.is_empty() {
             self.mode.store(mode as u8, Ordering::Relaxed);

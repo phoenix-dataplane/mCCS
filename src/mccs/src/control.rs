@@ -21,6 +21,8 @@ use crate::message::{ControlNotification, ControlRequest};
 use crate::proxy::engine::ProxyEngine;
 use crate::proxy::DeviceInfo;
 use crate::registry::GlobalRegistry;
+use crate::runtime::affinity::init_nvml;
+use crate::runtime::CoreMask;
 use crate::runtime::RuntimeManager;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::delegator::TransportDelegator;
@@ -98,6 +100,8 @@ impl Control {
         transport_catalog.register_config(String::from("ShmTransport"), shm_config);
         RDMA_TRANSPORT.init(&transport_catalog).unwrap();
 
+        init_nvml();
+
         let runtime_manager = RuntimeManager::new();
         let listen_addr = std::net::SocketAddr::new(config.addrs[host].clone(), config.listen_port);
         let exchange_chans = Self::create_exchange_engine(&listen_addr, &runtime_manager);
@@ -174,9 +178,13 @@ impl Control {
                         };
                         let engine =
                             TransportEngine::new(engine_id, transport_endpoints, global_registry);
+                        let cores = CoreMask::from_device_affinity(engine_id.cuda_device_idx);
                         let container = Box::new(engine);
-                        self.runtime_manager
-                            .submit_engine(container, Some(engine_id.cuda_device_idx));
+                        self.runtime_manager.submit_engine(
+                            container,
+                            Some(engine_id.cuda_device_idx),
+                            Some(cores),
+                        );
                         for (proxy_tx, proxy_endpoint) in
                             self.proxy_tx.iter_mut().zip(proxy_endpoints.into_iter())
                         {
@@ -226,10 +234,11 @@ impl Control {
                 transport_delegator: Arc::clone(transport_delegator),
                 transport_catalog: Arc::clone(transport_catalog),
             };
+            let cores = CoreMask::from_device_affinity(dev_idx as i32);
             let engine =
                 ProxyEngine::new(device_info, global_registry, proxy_endpoint, exchange_chan);
             let container = Box::new(engine);
-            runtime_manager.submit_engine(container, Some(dev_idx as i32));
+            runtime_manager.submit_engine(container, Some(dev_idx as i32), Some(cores));
         }
         control_endpoints
     }
@@ -254,7 +263,7 @@ impl Control {
         }
         let engine = ExchangeEngine::new(addr.clone(), exchange_txs, exchange_rxs);
         let container = Box::new(engine);
-        runtime_manager.submit_engine(container, None);
+        runtime_manager.submit_engine(container, None, None);
         proxy_endpoints
     }
 
@@ -267,7 +276,7 @@ impl Control {
         use ipc::control;
         let msg: control::Request = bincode::deserialize(buf).unwrap();
         match msg {
-            control::Request::NewClient => {
+            control::Request::NewClient(device_affnity) => {
                 let client_path = sender
                     .as_pathname()
                     .ok_or_else(|| anyhow!("peer is unnamed, something is wrong"))?;
@@ -297,7 +306,9 @@ impl Control {
                 let engine = DaemonEngine::new(daemon_id, customer, daemon_channels);
                 let container = Box::new(engine);
                 // TODO: check cuda dev
-                self.runtime_manager.submit_engine(container, None);
+                let cores =
+                    device_affnity.map(|dev_idx| CoreMask::from_device_affinity(dev_idx as i32));
+                self.runtime_manager.submit_engine(container, None, cores);
                 self.daemon_count += 1;
 
                 Ok(())
