@@ -605,9 +605,6 @@ fn get_task_schema(
     n_rank: usize,
     mut num_channel: usize,
 ) -> TaskSchema {
-    use super::task::TaskDataType;
-
-    debug_assert_eq!(task.data_type, TaskDataType::Uint8);
     let mut num_thread = MCCS_SIMPLE_MAX_N_THREADS;
     let thread_th = MCCS_SIMPLE_THREAD_THRESHOLD;
     while task.total_bytes(n_rank) < num_channel * num_thread * thread_th {
