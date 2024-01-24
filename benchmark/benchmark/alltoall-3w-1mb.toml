@@ -1,0 +1,21 @@
+name = "benchmark/alltoall-3w-1mb"
+description = "Run bandwidth benchmark for all-to-all traffic pattern"
+group = "alltoall"
+
+[[worker]]
+host = "danyang-06"
+bin = "alltoall"
+args = "st --hosts rdma0.danyang-06,rdma0.danyang-05,rdma0.danyang-04 -m 1024000 -p 4000"
+dependencies = []
+
+[[worker]]
+host = "danyang-05"
+bin = "alltoall"
+args = "st --hosts rdma0.danyang-06,rdma0.danyang-05,rdma0.danyang-04 -m 1024000 -p 4000"
+dependencies = [0]
+
+[[worker]]
+host = "danyang-04"
+bin = "alltoall"
+args = "st --hosts rdma0.danyang-06,rdma0.danyang-05,rdma0.danyang-04 -m 1024000 -p 4000"
+dependencies = [0, 1]
