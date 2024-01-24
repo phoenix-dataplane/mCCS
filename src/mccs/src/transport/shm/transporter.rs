@@ -29,6 +29,22 @@ pub struct ShmTransporter;
 
 #[async_trait]
 impl Transporter for ShmTransporter {
+    #[inline]
+    fn need_op(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn can_connect(
+        &self,
+        send_peer: &PeerInfo,
+        recv_peer: &PeerInfo,
+        _profile: &CommProfile,
+        _catalog: &TransportCatalog,
+    ) -> bool {
+        send_peer.host == recv_peer.host
+    }
+
     fn send_setup(
         &self,
         _conn_id: &PeerConnId,

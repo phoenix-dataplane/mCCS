@@ -13,6 +13,7 @@ use crate::transport::NUM_PROTOCOLS;
 pub struct DefaultCommConfig {
     #[serde(rename = "buffer_sizes")]
     pub buf_sizes: [usize; NUM_PROTOCOLS],
+    pub channel_count: u32,
     // TODO: specify number of channels and ring for each channel
 }
 
@@ -21,6 +22,7 @@ impl Default for DefaultCommConfig {
         DefaultCommConfig {
             // 4MB
             buf_sizes: [1 << 22],
+            channel_count: 1,
         }
     }
 }

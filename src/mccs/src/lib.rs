@@ -1,17 +1,15 @@
 #![feature(peer_credentials_unix_socket)]
-#![feature(drain_filter)]
 #![feature(strict_provenance)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
 #![feature(int_roundings)]
 #![feature(variant_count)]
-#![feature(is_some_and)]
 #![feature(atomic_from_mut)]
+#![feature(slice_ptr_get)]
+#![feature(extract_if)]
 // todo: temporary
 #![allow(dead_code)]
 #![allow(unused)]
-#![feature(pointer_byte_offsets)]
-#![feature(slice_ptr_get)]
 
 pub mod bootstrap;
 #[allow(dead_code)]

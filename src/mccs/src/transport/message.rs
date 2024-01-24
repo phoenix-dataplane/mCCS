@@ -13,4 +13,5 @@ pub enum TransportEngineRequest {
 pub enum TransportEngineReply {
     AgentSetup(TransportAgentId, AgentMessage),
     AgentConnect(TransportAgentId, AgentMessage),
+    AgentShutdown(TransportAgentId),
 }

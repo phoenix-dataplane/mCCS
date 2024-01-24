@@ -14,7 +14,8 @@ type IResult<T> = Result<T, Error>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
-    NewClient,
+    // New client with device affinity,
+    NewClient(Option<i32>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

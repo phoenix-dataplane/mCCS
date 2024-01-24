@@ -15,12 +15,14 @@ use crate::config::Config;
 use crate::cuda_warning;
 use crate::daemon::engine::DaemonEngine;
 use crate::daemon::DaemonId;
-use crate::exchange::command::{ExchangeCommand, ExchangeCompletion};
+use crate::exchange::command::{ExchangeCommand, ExchangeNotification};
 use crate::exchange::engine::ExchangeEngine;
 use crate::message::{ControlNotification, ControlRequest};
 use crate::proxy::engine::ProxyEngine;
 use crate::proxy::DeviceInfo;
 use crate::registry::GlobalRegistry;
+use crate::runtime::affinity::init_nvml;
+use crate::runtime::CoreMask;
 use crate::runtime::RuntimeManager;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::delegator::TransportDelegator;
@@ -98,6 +100,8 @@ impl Control {
         transport_catalog.register_config(String::from("ShmTransport"), shm_config);
         RDMA_TRANSPORT.init(&transport_catalog).unwrap();
 
+        init_nvml();
+
         let runtime_manager = RuntimeManager::new();
         let listen_addr = std::net::SocketAddr::new(config.addrs[host].clone(), config.listen_port);
         let exchange_chans = Self::create_exchange_engine(&listen_addr, &runtime_manager);
@@ -174,9 +178,13 @@ impl Control {
                         };
                         let engine =
                             TransportEngine::new(engine_id, transport_endpoints, global_registry);
+                        let cores = CoreMask::from_device_affinity(engine_id.cuda_device_idx);
                         let container = Box::new(engine);
-                        self.runtime_manager
-                            .submit_engine(container, Some(engine_id.cuda_device_idx));
+                        self.runtime_manager.submit_engine(
+                            container,
+                            Some(engine_id.cuda_device_idx),
+                            Some(cores),
+                        );
                         for (proxy_tx, proxy_endpoint) in
                             self.proxy_tx.iter_mut().zip(proxy_endpoints.into_iter())
                         {
@@ -199,7 +207,7 @@ impl Control {
 
     fn create_proxy_engines(
         addr: &std::net::IpAddr,
-        exchange_chans: Vec<DuplexChannel<ExchangeCommand, ExchangeCompletion>>,
+        exchange_chans: Vec<DuplexChannel<ExchangeCommand, ExchangeNotification>>,
         runtime_manager: &RuntimeManager,
         config: &Config,
         transport_delegator: &Arc<TransportDelegator>,
@@ -226,10 +234,11 @@ impl Control {
                 transport_delegator: Arc::clone(transport_delegator),
                 transport_catalog: Arc::clone(transport_catalog),
             };
+            let cores = CoreMask::from_device_affinity(dev_idx as i32);
             let engine =
                 ProxyEngine::new(device_info, global_registry, proxy_endpoint, exchange_chan);
             let container = Box::new(engine);
-            runtime_manager.submit_engine(container, Some(dev_idx as i32));
+            runtime_manager.submit_engine(container, Some(dev_idx as i32), Some(cores));
         }
         control_endpoints
     }
@@ -237,7 +246,7 @@ impl Control {
     fn create_exchange_engine(
         addr: &std::net::SocketAddr,
         runtime_manager: &RuntimeManager,
-    ) -> Vec<DuplexChannel<ExchangeCommand, ExchangeCompletion>> {
+    ) -> Vec<DuplexChannel<ExchangeCommand, ExchangeNotification>> {
         let mut exchange_txs = Vec::new();
         let mut exchange_rxs = Vec::new();
         let mut proxy_endpoints = Vec::new();
@@ -254,7 +263,7 @@ impl Control {
         }
         let engine = ExchangeEngine::new(addr.clone(), exchange_txs, exchange_rxs);
         let container = Box::new(engine);
-        runtime_manager.submit_engine(container, None);
+        runtime_manager.submit_engine(container, None, None);
         proxy_endpoints
     }
 
@@ -267,7 +276,7 @@ impl Control {
         use ipc::control;
         let msg: control::Request = bincode::deserialize(buf).unwrap();
         match msg {
-            control::Request::NewClient => {
+            control::Request::NewClient(device_affnity) => {
                 let client_path = sender
                     .as_pathname()
                     .ok_or_else(|| anyhow!("peer is unnamed, something is wrong"))?;
@@ -297,7 +306,9 @@ impl Control {
                 let engine = DaemonEngine::new(daemon_id, customer, daemon_channels);
                 let container = Box::new(engine);
                 // TODO: check cuda dev
-                self.runtime_manager.submit_engine(container, None);
+                let cores =
+                    device_affnity.map(|dev_idx| CoreMask::from_device_affinity(dev_idx as i32));
+                self.runtime_manager.submit_engine(container, None, cores);
                 self.daemon_count += 1;
 
                 Ok(())
@@ -313,7 +324,7 @@ impl Control {
         listen_port: u16,
         daemon_tx: HashMap<DaemonId, crossbeam::channel::Sender<ProxyCompletion>>,
         daemon_rx: Vec<(DaemonId, crossbeam::channel::Receiver<ProxyCommand>)>,
-        exchange_chan: DuplexChannel<ExchangeCommand, ExchangeCompletion>,
+        exchange_chan: DuplexChannel<ExchangeCommand, ExchangeNotification>,
         transport_engines_tx: HashMap<
             TransportEngineId,
             crossbeam::channel::Sender<TransportEngineRequest>,
@@ -342,6 +353,8 @@ impl Control {
             daemon_rx,
             exchange_chan,
             comms_init: HashMap::new(),
+            comms_suspended: HashMap::new(),
+            user_events: HashMap::new(),
             communicators: HashMap::new(),
             global_registry,
             transport_engines_tx,
@@ -482,7 +495,7 @@ impl Control {
         daemon_cmd_tx.send(cmd).unwrap();
         let comp = daemon_comp_rx.recv().unwrap();
         match comp {
-            ProxyCompletion::InitCommunicator => (),
+            ProxyCompletion::InitCommunicator(_) => (),
             _ => panic!("unexpected"),
         }
         log::info!("Init communicator done");
@@ -515,12 +528,12 @@ impl Control {
                 send_buf_addr: dev_buf_0 as usize + if host == 0 { 0 } else { BUFFER_SIZE / 2 },
                 recv_buf_addr: dev_buf_0 as usize,
                 size: BUFFER_SIZE / 2,
-                app_ipc_event_handle: handle.into(),
+                user_stream: 0,
             }))
             .unwrap();
         log::info!("Sent request");
-        let handle = match daemon_comp_rx.recv().unwrap() {
-            ProxyCompletion::AllGather(comp_handle) => comp_handle,
+        match daemon_comp_rx.recv().unwrap() {
+            ProxyCompletion::AllGather => (),
             _ => panic!("Unexpected"),
         };
         log::info!("Got handle");

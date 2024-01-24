@@ -82,6 +82,12 @@ pub struct TransportAgentId {
 #[async_trait]
 pub trait Transporter: Send + Sync {
     #[inline]
+    // Determine whether this transporter needs TransportOp
+    fn need_op(&self) -> bool {
+        true
+    }
+
+    #[inline]
     // Determine whether two peers can communicate
     fn can_connect(
         &self,
