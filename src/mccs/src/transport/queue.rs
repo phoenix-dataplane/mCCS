@@ -64,7 +64,6 @@ impl TransrportOpQueue {
 
         for mut idx in self.removal_indices.drain(..).rev() {
             self.queue.swap_remove(idx);
-            // TODO: yechen, please test this
             if self.queue.len() > 0 {
                 if idx == self.queue.len() {
                     idx -= 1;
@@ -84,7 +83,6 @@ impl TransrportOpQueue {
             if agent_queue.is_empty() {
                 let agent_id = *agent_id;
                 self.queue.swap_remove(index);
-                // TODO: yechen, please test this
                 if self.queue.len() > 0 {
                     if index == self.queue.len() {
                         index -= 1;

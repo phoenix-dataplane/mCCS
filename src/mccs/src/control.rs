@@ -1,5 +1,7 @@
 use std::fs;
 use std::io;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,12 +72,20 @@ pub struct Control {
     proxy_rx: Vec<Receiver<ControlRequest>>,
 }
 
+fn process_env(path: &Path) -> PathBuf {
+    Path::new(&path.to_string_lossy().to_string().replace(
+        "${USER}",
+        std::env::var("USER").unwrap_or_default().as_str(),
+    ))
+    .to_path_buf()
+}
+
 impl Control {
     pub fn new(config: Config, host: usize) -> Self {
         use crate::transport::net::provider::NetProvierWrap;
 
-        let mccs_prefix = &config.control.prefix;
-        fs::create_dir_all(mccs_prefix)
+        let mccs_prefix = process_env(&config.control.prefix);
+        fs::create_dir_all(&mccs_prefix)
             .unwrap_or_else(|e| panic!("Failed to create directory for {mccs_prefix:?}: {e}"));
 
         let mccs_path = mccs_prefix.join(&config.control.path);
@@ -295,7 +305,7 @@ impl Control {
 
                 let uuid = uuid::Uuid::new_v4();
                 let instance_name = format!("{}-{}.sock", self.config.mccs_daemon_basename, uuid);
-                let engine_path = self.config.mccs_daemon_prefix.join(instance_name);
+                let engine_path = process_env(&self.config.mccs_daemon_prefix).join(instance_name);
 
                 // create customer stub
                 let customer = ShmCustomer::accept(&self.sock, client_path, engine_path)?;
