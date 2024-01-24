@@ -14,7 +14,7 @@ use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 use ipc::mccs::command;
 use ipc::mccs::dp;
 use ipc::service::ShmService;
-use nvml_sys::{nvmlDeviceGetCpuAffinity, nvmlDeviceGetHandleByPciBusId_v2, nvmlInit_v2};
+use nvml_sys::{nvmlDeviceGetCpuAffinity, nvmlDeviceGetHandleByPciBusId_v2};
 
 pub mod collectives;
 pub mod communicator;
