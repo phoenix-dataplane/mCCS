@@ -13,6 +13,7 @@ ipc = { path = "../ipc", features = ["mccs"] }
 collectives-sys = { path = "../collectives-sys" }
 gdrcopy-sys = { path = "../gdrcopy-sys" }
 ibverbs = { path = "../ibverbs" }
+qos-service = { path = "../qos-service" }
 
 smol = { version = "2.0.0" }
 socket2 = { version = "0.5.5", features = ["all"] }
@@ -47,3 +48,4 @@ fastrand = "2.0.1"
 spin = "0.9.8"
 better-panic = "0.3.0"
 libnuma = "0.0.4"
+gcollections = "1.5.0"

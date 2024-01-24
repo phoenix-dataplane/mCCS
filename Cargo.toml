@@ -21,5 +21,7 @@ members = [
     "src/mccs_examples/allgather_bench",
     "src/mccs_examples/allreduce_bench",
     "src/mccs_examples/ring_config",
-    "src/mccs_tests/rdma_transport",
+    "src/mccs_tests/rdma_transport", 
+    "src/qos-service", 
+    "src/mccs_examples/traffic_gen",
 ]

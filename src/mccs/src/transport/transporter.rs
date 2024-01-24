@@ -7,6 +7,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use thiserror::Error;
 
+use qos_service::QosSchedule;
+
 use super::catalog::TransportCatalog;
 use super::channel::{PeerConnId, PeerConnInfo};
 use super::op::TransportOp;
@@ -237,6 +239,7 @@ pub trait Transporter: Send + Sync {
         &self,
         _op: &mut TransportOp,
         _resources: &mut AnyResources,
+        _schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         unimplemented!("Transport agent is not implemented for this transport");
     }
@@ -246,6 +249,7 @@ pub trait Transporter: Send + Sync {
         &self,
         _op: &mut TransportOp,
         _resources: &mut AnyResources,
+        _schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         unimplemented!("Transport agent is not implemented for this transport");
     }

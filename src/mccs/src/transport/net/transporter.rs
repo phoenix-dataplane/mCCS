@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use memoffset::raw_field;
+use qos_service::QosSchedule;
 use strum::IntoEnumIterator;
 
 use cuda_runtime_sys::cudaError;
@@ -486,11 +487,12 @@ impl Transporter for NetTransport {
         &self,
         op: &mut TransportOp,
         resources: &mut AnyResources,
+        schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         let resources = resources
             .downcast_mut::<AgentSendResources>()
             .ok_or_else(|| NetAgentError::DowncastAgentResources)?;
-        agent::net_agent_send_progress(resources, op)?;
+        agent::net_agent_send_progress(resources, op, schedule)?;
         Ok(())
     }
 
@@ -498,6 +500,7 @@ impl Transporter for NetTransport {
         &self,
         op: &mut TransportOp,
         resources: &mut AnyResources,
+        _schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         let resources = resources
             .downcast_mut::<AgentRecvResources>()

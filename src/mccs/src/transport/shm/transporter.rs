@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use memoffset::raw_field;
+use qos_service::QosSchedule;
 
 use crate::comm::{CommProfile, PeerInfo};
 use crate::cuda::alloc::DeviceHostMapped;
@@ -459,6 +460,7 @@ impl Transporter for ShmTransporter {
         &self,
         op: &mut TransportOp,
         resources: &mut AnyResources,
+        _schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         shm_agent_send_progress(resources, op);
         Ok(())
@@ -468,6 +470,7 @@ impl Transporter for ShmTransporter {
         &self,
         op: &mut TransportOp,
         resources: &mut AnyResources,
+        _schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         shm_agent_recv_progress(resources, op);
         Ok(())

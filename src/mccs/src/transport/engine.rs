@@ -6,6 +6,8 @@ use crossbeam::channel::TryRecvError;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
+use qos_service::QosSchedule;
+
 use crate::engine::{Engine, EngineStatus};
 use crate::registry::GlobalRegistry;
 use crate::utils::duplex_chan::DuplexChannel;
@@ -104,6 +106,7 @@ pub struct TransportEngineResources {
     pub agent_connected: HashMap<TransportAgentId, TransportAgent>,
     pub proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
     pub global_registry: GlobalRegistry,
+    pub qos_schedule: QosSchedule,
 }
 
 impl TransportEngineResources {
@@ -112,10 +115,10 @@ impl TransportEngineResources {
         match agent_id.peer_conn.conn_type {
             ConnType::Send => agent
                 .transporter
-                .agent_send_progress_op(op, &mut agent.agent_resources),
+                .agent_send_progress_op(op, &mut agent.agent_resources, &self.qos_schedule),
             ConnType::Recv => agent
                 .transporter
-                .agent_recv_progress_op(op, &mut agent.agent_resources),
+                .agent_recv_progress_op(op, &mut agent.agent_resources, &self.qos_schedule),
         }
         .unwrap();
         op.state == TransportOpState::Completed
@@ -174,12 +177,14 @@ impl TransportEngine {
         id: TransportEngineId,
         proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
         global_registry: GlobalRegistry,
+        qos_schedule: QosSchedule,
     ) -> Self {
         let resources = TransportEngineResources {
             agent_setup: HashMap::new(),
             agent_connected: HashMap::new(),
             proxy_chan,
             global_registry,
+            qos_schedule,
         };
         let engine = TransportEngine {
             id,

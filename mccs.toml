@@ -36,3 +36,14 @@ gdr_copy_flush_enable = false
 locality = "Sender"
 memcpy_send = false
 memcpy_recv = false
+
+[qos_schedule]
+epoch_microsecs = 85000
+
+[qos_schedule.schedule.137]
+intervals = [[0, 35000]]
+mode = "Allow"
+
+[qos_schedule.schedule.138]
+intervals = [[35000, 69000]]
+mode = "Allow"

@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use qos_service::QosScheduleDef;
+
 use crate::transport::net::config::NetTransportConfig;
 use crate::transport::net::provider::RdmaTransportConfig;
 use crate::transport::shm::config::ShmTransportConfig;
@@ -66,6 +68,7 @@ pub struct Config {
     pub listen_port: u16,
     pub mccs_daemon_basename: String,
     pub mccs_daemon_prefix: PathBuf,
+    pub qos_schedule: Option<QosScheduleDef>,
 }
 
 impl Config {
