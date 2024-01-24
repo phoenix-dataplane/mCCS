@@ -245,6 +245,7 @@ impl Communicator {
                 // proxy queue
                 {
                     let tx_op = TransportOp::new(
+                        self.id,
                         num_step,
                         slice_steps,
                         chunk_steps,

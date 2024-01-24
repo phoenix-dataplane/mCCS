@@ -47,6 +47,7 @@ use cuda_runtime_sys::cudaMemcpy;
 use cuda_runtime_sys::cudaMemcpyKind;
 use cuda_runtime_sys::cudaSetDevice;
 use cuda_runtime_sys::cudaStreamSynchronize;
+use qos_service::QosSchedule;
 
 use crate::comm::CommunicatorId;
 use crate::engine::Engine;
@@ -176,8 +177,19 @@ impl Control {
                             transport_delegator: Arc::clone(&self.transport_delegator),
                             transport_catalog: Arc::clone(&self.transport_catalog),
                         };
-                        let engine =
-                            TransportEngine::new(engine_id, transport_endpoints, global_registry);
+                        let qos_schedule = match self.config.qos_schedule {
+                            Some(ref schedule) => schedule.clone().into(),
+                            None => QosSchedule {
+                                schedule: HashMap::new(),
+                                epoch_microsecs: 0,
+                            },
+                        };
+                        let engine = TransportEngine::new(
+                                engine_id, 
+                                transport_endpoints, 
+                                global_registry,
+                                qos_schedule,
+                            );
                         let cores = CoreMask::from_device_affinity(engine_id.cuda_device_idx);
                         let container = Box::new(engine);
                         self.runtime_manager.submit_engine(
@@ -418,6 +430,10 @@ impl Control {
             transport_catalog: Arc::new(transport_catalog),
         };
 
+        let qos_schedule = QosSchedule {
+            schedule: HashMap::new(),
+            epoch_microsecs: 0,
+        };
         let resources = TransportEngineResources {
             agent_setup: HashMap::new(),
             agent_connected: HashMap::new(),
@@ -426,6 +442,7 @@ impl Control {
                 rx: transport_cmd_rx,
             }],
             global_registry: registry.clone(),
+            qos_schedule,
         };
         let mut transport_engine = TransportEngine {
             id: transport_engine_id,
