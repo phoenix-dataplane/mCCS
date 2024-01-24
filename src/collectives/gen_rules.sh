@@ -10,9 +10,12 @@ fi
 
 targets="GENOBJS := \\\\\n"
 
-for base in all_gather; do
+for base in {"all_gather","all_reduce"}; do
   opn=0
-  for op in sum; do
+  for op in {"sum","prod"}; do
+    if [ "$base" = "all_gather" ] && [ "$op" != "sum" ]; then
+      continue
+    fi
     dtn=0
     # Order must match that of the ncclDataType_t enum
     for dt in ${datatypes}; do
