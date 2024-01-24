@@ -179,7 +179,6 @@ __device__ void mccsKernel(
 }
 
 // Only generate kernels for SUM
-#if MCCS_OP == mccsDevSum
 #define IMPL_COLL_KERN(func, algo, proto, devredop, type, fIndex) \
 __global__ void MCCS_KERN_NAME(func, algo, proto, devredop, type)( \
     struct mccsDevComm* comm, uint64_t channelMask, struct mccsDevWork* workHead \
@@ -187,9 +186,6 @@ __global__ void MCCS_KERN_NAME(func, algo, proto, devredop, type)( \
   mccsKernel<mccsFunc##func, type, Func##devredop<type>, MCCS_ALGO_##algo, MCCS_PROTO_##proto, fIndex> \
     (comm, channelMask, workHead); \
 }
-#else
-#define IMPL_COLL_KERN(func, algo, proto, devredop, type, fInded)
-#endif
 
 #define IMPL_COLL_FUNC(func, algo, proto, devredop, type) \
 __device__ void MCCS_FUNC_NAME(func, algo, proto, devredop, type)() { \
