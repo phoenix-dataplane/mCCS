@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use qos_service::QosScheduleDef;
+
 use crate::transport::net::config::NetTransportConfig;
 use crate::transport::net::provider::RdmaTransportConfig;
 use crate::transport::shm::config::ShmTransportConfig;
@@ -13,6 +15,7 @@ use crate::transport::NUM_PROTOCOLS;
 pub struct DefaultCommConfig {
     #[serde(rename = "buffer_sizes")]
     pub buf_sizes: [usize; NUM_PROTOCOLS],
+    pub channel_count: u32,
     // TODO: specify number of channels and ring for each channel
 }
 
@@ -21,6 +24,7 @@ impl Default for DefaultCommConfig {
         DefaultCommConfig {
             // 4MB
             buf_sizes: [1 << 22],
+            channel_count: 1,
         }
     }
 }
@@ -64,6 +68,7 @@ pub struct Config {
     pub listen_port: u16,
     pub mccs_daemon_basename: String,
     pub mccs_daemon_prefix: PathBuf,
+    pub qos_schedule: Option<QosScheduleDef>,
 }
 
 impl Config {

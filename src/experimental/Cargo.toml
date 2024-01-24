@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 cuda-runtime-sys = { path = "../cuda-sys/cuda-runtime-sys" }
+nvml-sys = { path = "../cuda-sys/nvml-sys" }

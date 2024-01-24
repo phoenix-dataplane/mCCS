@@ -42,9 +42,13 @@ pub struct AllGather {
     pub send_buf: MccsDeviceMemoryHandle,
     pub recv_buf: MccsDeviceMemoryHandle,
     pub size: usize,
-    pub ipc_event_handle: CudaEventHandle,
-    // raw value of app's cuda stream; can only be used as an identifier
-    pub app_stream_opaque: usize,
+    // user stream handle
+    pub user_stream: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CollOperation {
+    AllGather(AllGather),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,13 +57,23 @@ pub enum Command {
     CudaMalloc(i32, usize),
     InitCommunicator(CommunicatorInit),
     AllGather(AllGather),
+    // different requests can be scheduled on different user stream
+    // however, currently, they must belong to the same communicator
+    GroupCall(Vec<CollOperation>),
+    // cuda device, user stream handle, IPC event handle for user event
+    // currently, a user CUDA stream (and a communicator)
+    // could only be used by a single thread
+    RegisterStream(i32, usize, CudaEventHandle), // TODO: deregister stream, destroy communicator
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum CompletionKind {
     CudaMalloc((CudaMemHandle, MccsDeviceMemoryHandle)),
-    InitCommunicator(CommunicatorHandle),
-    AllGather(CudaEventHandle),
+    // communicator handle and IPC event handle for the backend stream
+    InitCommunicator((CommunicatorHandle, CudaEventHandle)),
+    AllGather,
+    GroupCall,
+    RegisterStream,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

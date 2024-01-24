@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::os::raw::c_void;
 
 use cuda_runtime_sys::cudaError;
+use cuda_runtime_sys::cudaFree;
 use cuda_runtime_sys::cudaIpcMemHandle_t;
 use cuda_runtime_sys::{cudaIpcGetMemHandle, cudaMalloc, cudaSetDevice};
 
@@ -13,8 +14,11 @@ use ipc::mccs::handle::{CommunicatorHandle, CudaMemHandle};
 
 use super::{DaemonId, Error};
 use crate::comm::CommunicatorId;
+use crate::cuda_warning;
 use crate::engine::{Engine, EngineStatus};
-use crate::proxy::command::{AllGatherRequest, InitCommunicator, ProxyCommand, ProxyCompletion};
+use crate::proxy::command::{
+    AllGatherRequest, CollRequest, InitCommunicator, ProxyCommand, ProxyCompletion,
+};
 use crate::utils::duplex_chan::DuplexChannel;
 
 pub type CustomerType =
@@ -139,8 +143,8 @@ impl DaemonEngine {
                     .rx
                     .recv()
                     .unwrap();
-                match res {
-                    ProxyCompletion::InitCommunicator => {}
+                let event_handle = match res {
+                    ProxyCompletion::InitCommunicator(event_handle) => event_handle,
                     _ => panic!("unexpected result"),
                 };
                 let comm_handle = CommunicatorHandle(((init.id as u64) << 32) + init.rank as u64);
@@ -150,7 +154,10 @@ impl DaemonEngine {
                 };
                 self.comm_delegation.insert(comm_handle, comm);
 
-                Ok(Some(CompletionKind::InitCommunicator(comm_handle)))
+                Ok(Some(CompletionKind::InitCommunicator((
+                    comm_handle,
+                    event_handle,
+                ))))
             }
             Command::AllGather(all_gather) => {
                 // prepare arguments
@@ -164,7 +171,7 @@ impl DaemonEngine {
                     send_buf_addr,
                     recv_buf_addr,
                     size: all_gather.size,
-                    app_ipc_event_handle: all_gather.ipc_event_handle.clone(),
+                    user_stream: all_gather.user_stream,
                 };
                 log::debug!(
                     "[Daemon-{}] try to issue allGather ({:p},{:p}) on communicator {}@{}",
@@ -184,8 +191,8 @@ impl DaemonEngine {
                     .rx
                     .recv()
                     .unwrap();
-                let handle = match res {
-                    ProxyCompletion::AllGather(handle) => handle,
+                match res {
+                    ProxyCompletion::AllGather => {}
                     _ => panic!("unexpected result"),
                 };
                 log::debug!(
@@ -194,7 +201,63 @@ impl DaemonEngine {
                     comm.cuda_device_idx,
                     comm.comm_id,
                 );
-                Ok(Some(CompletionKind::AllGather(handle)))
+                Ok(Some(CompletionKind::AllGather))
+            }
+            Command::GroupCall(colls) => {
+                let mut requests = Vec::with_capacity(colls.len());
+                let comm_handle = match &colls[0] {
+                    command::CollOperation::AllGather(all_gather) => all_gather.comm,
+                };
+                let comm = self.comm_delegation.get(&comm_handle).unwrap();
+                for coll in colls.iter() {
+                    match coll {
+                        command::CollOperation::AllGather(all_gather) => {
+                            // prepare arguments
+                            let send_buf_addr =
+                                (*self.device_mem.get(&all_gather.send_buf.id).unwrap()).addr
+                                    + all_gather.send_buf.offset;
+                            let recv_buf_addr =
+                                (*self.device_mem.get(&all_gather.recv_buf.id).unwrap()).addr
+                                    + all_gather.recv_buf.offset;
+                            let proxy_all_gather = AllGatherRequest {
+                                communicator_id: CommunicatorId(comm.comm_id),
+                                send_buf_addr,
+                                recv_buf_addr,
+                                size: all_gather.size,
+                                user_stream: all_gather.user_stream,
+                            };
+                            let coll_op = CollRequest::AllGather(proxy_all_gather);
+                            requests.push(coll_op);
+                        }
+                    }
+                }
+                let proxy_cmd = ProxyCommand::GroupCall(requests);
+                self.proxy_chan[comm.cuda_device_idx as usize]
+                    .tx
+                    .send(proxy_cmd)
+                    .unwrap();
+                let res = self.proxy_chan[comm.cuda_device_idx as usize]
+                    .rx
+                    .recv()
+                    .unwrap();
+                match res {
+                    ProxyCompletion::GroupCall => {}
+                    _ => panic!("unexpected result"),
+                };
+                Ok(Some(CompletionKind::GroupCall))
+            }
+            Command::RegisterStream(cuda_dev, stream, event_handle) => {
+                let proxy_cmd = ProxyCommand::RegisterStream(*stream, event_handle.clone());
+                self.proxy_chan[*cuda_dev as usize]
+                    .tx
+                    .send(proxy_cmd)
+                    .unwrap();
+                let res = self.proxy_chan[*cuda_dev as usize].rx.recv().unwrap();
+                match res {
+                    ProxyCompletion::RegisterStream => {}
+                    _ => panic!("unexpected result"),
+                };
+                Ok(Some(CompletionKind::RegisterStream))
             }
         }
     }
@@ -230,6 +293,15 @@ impl Engine for DaemonEngine {
                 }
             }
             Status::Disconnected => EngineStatus::Completed,
+        }
+    }
+}
+
+impl Drop for DaemonEngine {
+    fn drop(&mut self) {
+        for mem in self.device_mem.drain().map(|(_, v)| v) {
+            cuda_warning!(unsafe { cudaSetDevice(mem.device_idx) });
+            cuda_warning!(unsafe { cudaFree(mem.addr as *mut c_void) });
         }
     }
 }

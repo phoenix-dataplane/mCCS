@@ -2,13 +2,18 @@ use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::ptr::addr_of_mut;
 use std::ptr::NonNull;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use strum::IntoEnumIterator;
 use volatile::VolatilePtr;
+use gcollections::ops::Contains;
 
 use cuda_driver_sys::cuMemGetHandleForAddressRange;
 use cuda_driver_sys::CUmemRangeHandleType;
 use cuda_runtime_sys::cudaGetDevice;
+use qos_service::{QosSchedule, QosMode};
+
 
 use super::buffer::{BufferMap, BufferType, MemoryBankAlloc, MemoryBankType};
 use super::config::NetTransportConfig;
@@ -420,6 +425,7 @@ pub async fn net_agent_recv_connect(
 pub fn net_agent_send_progress(
     resources: &mut AgentSendResources,
     op: &mut TransportOp,
+    schedule: &QosSchedule,
 ) -> Result<()> {
     if op.state == TransportOpState::Init {
         op.base = resources.step.div_ceil(op.chunk_steps as u64) * (op.chunk_steps as u64);
@@ -449,6 +455,7 @@ pub fn net_agent_send_progress(
     if op.posted < num_steps && op.posted < op.done + max_depth {
         op.posted += op.slice_steps as u64;
         op.idle = false;
+        return Ok(());
     }
 
     if op.transmitted < op.posted && op.transmitted < op.done + NUM_BUFFER_SLOTS as u64 {
@@ -488,19 +495,35 @@ pub fn net_agent_send_progress(
             let buffer_ptr = unsafe { local_buffer.as_ptr().byte_add(offset) };
             let ready = true;
             if ready {
-                let request_id = provider.initiate_send(
-                    resources.send_comm.as_mut(),
-                    buffer_ptr,
-                    size as usize,
-                    resources.rank as u32,
-                    mhandle,
-                )?;
-                if let Some(request_id) = request_id {
-                    op.requests_id[buffer_slot] = Some(request_id.0);
-                    size_ptr.write(-1);
-                    std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
-                    op.transmitted += op.slice_steps as u64;
-                    op.idle = false;
+                let comm_id = qos_service::CommunicatorId(op.communicator_id.0);
+                let interval = schedule.schedule.get(&comm_id);
+                let delay_send = if let Some(interval) = interval { 
+                    let time = SystemTime::now();
+                    let elapsed = time.duration_since(UNIX_EPOCH).unwrap();
+                    let epoch_ts = (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
+                    match interval.mode {
+                        QosMode::Allow => !interval.intervals.contains(&epoch_ts),
+                        QosMode::Deny => interval.intervals.contains(&epoch_ts),
+                    }
+                } else {
+                    false
+                };
+                if !delay_send {
+                    let request_id = provider.initiate_send(
+                        resources.send_comm.as_mut(),
+                        buffer_ptr,
+                        size as usize,
+                        resources.rank as u32,
+                        mhandle,
+                    )?;
+                    if let Some(request_id) = request_id {
+                        op.requests_id[buffer_slot] = Some(request_id.0);
+                        size_ptr.write(-1);
+                        std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+                        op.transmitted += op.slice_steps as u64;
+                        op.idle = false;
+                        return Ok(());
+                    }
                 }
             }
         }

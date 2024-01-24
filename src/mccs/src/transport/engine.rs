@@ -6,6 +6,8 @@ use crossbeam::channel::TryRecvError;
 use futures::future::BoxFuture;
 use futures::FutureExt;
 
+use qos_service::QosSchedule;
+
 use crate::engine::{Engine, EngineStatus};
 use crate::registry::GlobalRegistry;
 use crate::utils::duplex_chan::DuplexChannel;
@@ -104,6 +106,7 @@ pub struct TransportEngineResources {
     pub agent_connected: HashMap<TransportAgentId, TransportAgent>,
     pub proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
     pub global_registry: GlobalRegistry,
+    pub qos_schedule: QosSchedule,
 }
 
 impl TransportEngineResources {
@@ -112,10 +115,10 @@ impl TransportEngineResources {
         match agent_id.peer_conn.conn_type {
             ConnType::Send => agent
                 .transporter
-                .agent_send_progress_op(op, &mut agent.agent_resources),
+                .agent_send_progress_op(op, &mut agent.agent_resources, &self.qos_schedule),
             ConnType::Recv => agent
                 .transporter
-                .agent_recv_progress_op(op, &mut agent.agent_resources),
+                .agent_recv_progress_op(op, &mut agent.agent_resources, &self.qos_schedule),
         }
         .unwrap();
         op.state == TransportOpState::Completed
@@ -174,12 +177,14 @@ impl TransportEngine {
         id: TransportEngineId,
         proxy_chan: Vec<DuplexChannel<TransportEngineReply, TransportEngineRequest>>,
         global_registry: GlobalRegistry,
+        qos_schedule: QosSchedule,
     ) -> Self {
         let resources = TransportEngineResources {
             agent_setup: HashMap::new(),
             agent_connected: HashMap::new(),
             proxy_chan,
             global_registry,
+            qos_schedule,
         };
         let engine = TransportEngine {
             id,
@@ -193,8 +198,22 @@ impl TransportEngine {
 
 impl TransportEngine {
     fn progress_ops(&mut self) {
-        self.op_queue
+        let removed_agents = self
+            .op_queue
             .progress_ops(|agent_id, op| self.resources.progress_op(agent_id, op));
+        for agent_id in removed_agents.drain(..) {
+            self.resources
+                .global_registry
+                .transport_delegator
+                .register_agent_shutdown(self.id);
+            self.resources.agent_connected.remove(&agent_id);
+            let reply = TransportEngineReply::AgentShutdown(agent_id);
+            log::info!("shutdown {:?}", agent_id);
+            self.resources.proxy_chan[agent_id.client_cuda_dev as usize]
+                .tx
+                .send(reply)
+                .unwrap();
+        }
     }
 
     fn progress_async_tasks(&mut self) {
@@ -203,8 +222,8 @@ impl TransportEngine {
     }
 
     fn check_proxy_requests(&mut self) {
-        for rx in self.resources.proxy_chan.iter_mut().map(|c| &mut c.rx) {
-            match rx.try_recv() {
+        for chan in self.resources.proxy_chan.iter_mut() {
+            match chan.rx.try_recv() {
                 Ok(request) => {
                     match request {
                         TransportEngineRequest::AgentSetup(transporter, agent_id, request) => {
@@ -226,13 +245,16 @@ impl TransportEngine {
                             self.op_queue.submit_op(agent_id, tx_op);
                         }
                         TransportEngineRequest::AgentShutdown(agent_id) => {
-                            log::warn!("TODO: shutdown {:?}", agent_id);
-                            self.resources
-                                .global_registry
-                                .transport_delegator
-                                .register_agent_shutdown(self.id);
-                            self.resources.agent_connected.remove(&agent_id);
-                            self.op_queue.remove_agent(&agent_id);
+                            if self.op_queue.remove_agent(&agent_id) {
+                                self.resources
+                                    .global_registry
+                                    .transport_delegator
+                                    .register_agent_shutdown(self.id);
+                                self.resources.agent_connected.remove(&agent_id);
+                                let reply = TransportEngineReply::AgentShutdown(agent_id);
+                                log::info!("shutdown {:?}", agent_id);
+                                chan.tx.send(reply).unwrap();
+                            }
                         }
                     };
                 }

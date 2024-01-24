@@ -65,7 +65,7 @@ pub struct PeerTransportHandleExchangeTask {
     pub conn_index: u32,
     pub connect_recv: Vec<u64>,
     pub connect_send: Vec<u64>,
-    pub handles: Vec<HashMap<PeerConnId, ConnectHandle>>,
+    pub handles: VecDeque<HashMap<PeerConnId, ConnectHandle>>,
 }
 
 pub enum TransportConnectTask {
@@ -99,7 +99,7 @@ pub struct TransportConnectState {
     pub to_connect: VecDeque<(PeerConnId, ConnectHandle)>,
     pub to_connect_agent_cb: VecDeque<(PeerConnId, AgentMessage)>,
 
-    pub handle_to_exchange: Vec<HashMap<PeerConnId, ConnectHandle>>,
+    pub handle_to_exchange: VecDeque<HashMap<PeerConnId, ConnectHandle>>,
 
     pub peer_setup_pre_agent: HashMap<PeerConnId, PeerConnConstructor>,
     pub peer_setup: HashMap<PeerConnId, PeerConnConstructor>,
@@ -126,7 +126,7 @@ impl TransportConnectState {
             to_setup_agent_cb: VecDeque::new(),
             to_connect: VecDeque::new(),
             to_connect_agent_cb: VecDeque::new(),
-            handle_to_exchange: Vec::new(),
+            handle_to_exchange: VecDeque::new(),
             peer_setup_pre_agent: HashMap::new(),
             peer_setup: HashMap::new(),
             peer_connect_pre_agent: HashMap::new(),
@@ -158,11 +158,10 @@ pub async fn exchange_connect_handle(
     let connect_send = task.connect_send;
 
     let mut all_peer_handles = HashMap::new();
-
     for i in 1..num_ranks {
         let bootstrap_tag = (i << 8) as u32 + graph_tag as u32;
 
-        let mut round_handles = all_handles.pop().unwrap();
+        let mut round_handles = all_handles.pop_front().unwrap();
         let mut recv_handles = Vec::new();
         let mut send_handles = Vec::new();
 
@@ -170,6 +169,16 @@ pub async fn exchange_connect_handle(
         let send_peer = (rank + i) % num_ranks;
         let recv_mask = connect_recv[recv_peer];
         let send_mask = connect_send[send_peer];
+
+        log::trace!(
+            "rank={}, send_peer={}, recv_peer={}, send_mask={}, recv_mask={}, round_handle={:?}",
+            rank,
+            send_peer,
+            recv_peer,
+            send_mask,
+            recv_mask,
+            round_handles.keys().collect::<Vec<_>>()
+        );
 
         for c in 0..num_channels as u32 {
             if recv_mask & (1u64 << c) > 0 {

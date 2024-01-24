@@ -1,9 +1,12 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::fmt::Write;
 use std::hash::Hash;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
-use cuda_runtime_sys::{cudaEventCreate, cudaStreamCreate};
+use cuda_runtime_sys::{cudaError, cudaEventCreateWithFlags, cudaStreamCreate};
+use cuda_runtime_sys::{cudaEventDisableTiming, cudaEventInterprocess};
+use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
 
 use crate::bootstrap::{BootstrapHandle, BootstrapState};
 use crate::comm::device::CommDevResources;
@@ -14,11 +17,13 @@ use crate::comm::{
 use crate::cuda::alloc::DeviceHostMapped;
 use crate::cuda_warning;
 use crate::daemon::DaemonId;
+use crate::transport::catalog::TransportCatalog;
 use crate::transport::channel::{
     ChannelId, ChannelPeerConn, CommChannel, ConnType, PeerConnId, PeerConnector,
 };
 use crate::transport::engine::TransportEngineId;
 use crate::transport::setup::TransportConnectState;
+use crate::transport::transporter::TransportAgentId;
 
 use super::plan::ChanWorkSchedule;
 use super::task::TaskQueue;
@@ -33,6 +38,7 @@ pub enum CommInitStage {
 
 pub struct CommInitState {
     pub id: CommunicatorId,
+    pub cuda_dev: i32,
     pub daemon: DaemonId,
 
     pub stage: CommInitStage,
@@ -50,6 +56,9 @@ pub struct CommInitState {
 
     pub transport_connect: Option<TransportConnectState>,
     pub transport_engine_assignment: HashMap<PeerConnId, TransportEngineId>,
+
+    pub stream: Option<cudaStream_t>,
+    pub event: Option<cudaEvent_t>,
 }
 
 // TBD
@@ -58,6 +67,7 @@ unsafe impl Send for CommInitState {}
 impl CommInitState {
     pub fn new(
         id: CommunicatorId,
+        cuda_dev: i32,
         daemon_id: DaemonId,
         rank: usize,
         num_ranks: usize,
@@ -65,6 +75,7 @@ impl CommInitState {
     ) -> Self {
         CommInitState {
             id,
+            cuda_dev,
             daemon: daemon_id,
             stage: CommInitStage::BootstrapInit,
             rank,
@@ -76,6 +87,8 @@ impl CommInitState {
             bootstrap_state: None,
             transport_connect: None,
             transport_engine_assignment: HashMap::new(),
+            stream: None,
+            event: None,
         }
     }
 }
@@ -138,15 +151,26 @@ impl CommInitState {
         let task_queue = TaskQueue {
             coll_queue: VecDeque::new(),
         };
-        let event = unsafe {
-            let mut event = std::ptr::null_mut();
-            cuda_warning!(cudaEventCreate(&mut event));
+        let event = if let Some(event) = self.event {
             event
+        } else {
+            unsafe {
+                let mut event = std::ptr::null_mut();
+                cuda_warning!(cudaEventCreateWithFlags(
+                    &mut event,
+                    cudaEventInterprocess | cudaEventDisableTiming
+                ));
+                event
+            }
         };
-        let stream = unsafe {
-            let mut stream = std::ptr::null_mut();
-            cuda_warning!(cudaStreamCreate(&mut stream));
+        let stream = if let Some(stream) = self.stream {
             stream
+        } else {
+            unsafe {
+                let mut stream = std::ptr::null_mut();
+                cuda_warning!(cudaStreamCreate(&mut stream));
+                stream
+            }
         };
 
         let mut peers_info = Vec::new();
@@ -162,8 +186,10 @@ impl CommInitState {
             .map(|x| unsafe { x.assume_init() })
             .collect();
 
+        let bootstrap_state = self.bootstrap_state.unwrap();
         Communicator {
             id: self.id,
+            cuda_dev: self.cuda_dev,
             daemon: self.daemon,
             rank: self.rank,
             num_ranks: self.num_ranks,
@@ -171,6 +197,7 @@ impl CommInitState {
             channels,
             profile: self.profile,
             dev_resources,
+            bootstrap_state,
             work_queue_acked_min: 0,
             work_queue_next_available: 0,
             task_queue,
@@ -178,6 +205,164 @@ impl CommInitState {
             unlaunched_plans: VecDeque::new(),
             stream,
             event,
+        }
+    }
+}
+
+pub enum CommReconfigTask {
+    CommPattern(Vec<ChannelCommPattern>),
+}
+
+pub enum CommReconfigOutout {
+    CommPattern(CommInitState),
+}
+
+pub struct CommSuspendState {
+    pub stream_completed: bool,
+    pub agents_pending_shutdown: HashSet<TransportAgentId>,
+    pub reconfig_task: CommReconfigTask,
+}
+
+impl CommSuspendState {
+    pub fn init(comm: &Communicator, task: CommReconfigTask) -> Self {
+        let stream_completed = unsafe {
+            match cuda_runtime_sys::cudaStreamQuery(comm.stream) {
+                cudaError::cudaSuccess => true,
+                cudaError::cudaErrorNotReady => false,
+                e => {
+                    log::error!(
+                        "CUDA runtime failed with {:?} at {}:{}.",
+                        e,
+                        file!(),
+                        line!()
+                    );
+                    panic!("CUDA runtime error");
+                }
+            }
+        };
+        let mut agents_pending_shutdown = HashSet::new();
+        for (channel_id, chan) in comm.channels.iter() {
+            for (peer_rank, peers) in chan.peers.iter() {
+                for (conn_index, peer) in peers.send.iter().enumerate() {
+                    if let Some(peer) = peer {
+                        if let Some(transport_engine) = peer.transport_agent_engine {
+                            let peer_conn = PeerConnId {
+                                peer_rank: *peer_rank,
+                                channel: *channel_id,
+                                conn_index: conn_index as u32,
+                                conn_type: ConnType::Send,
+                            };
+                            let agent_id = TransportAgentId {
+                                communicator_id: comm.id,
+                                client_rank: comm.rank,
+                                client_cuda_dev: comm.cuda_dev,
+                                peer_conn,
+                            };
+                            agents_pending_shutdown.insert(agent_id);
+                        }
+                    }
+                }
+                for (conn_index, peer) in peers.recv.iter().enumerate() {
+                    if let Some(peer) = peer {
+                        if let Some(transport_engine) = peer.transport_agent_engine {
+                            let peer_conn = PeerConnId {
+                                peer_rank: *peer_rank,
+                                channel: *channel_id,
+                                conn_index: conn_index as u32,
+                                conn_type: ConnType::Recv,
+                            };
+                            let agent_id = TransportAgentId {
+                                communicator_id: comm.id,
+                                client_rank: comm.rank,
+                                client_cuda_dev: comm.cuda_dev,
+                                peer_conn,
+                            };
+                            agents_pending_shutdown.insert(agent_id);
+                        }
+                    }
+                }
+            }
+        }
+        let state = CommSuspendState {
+            stream_completed,
+            agents_pending_shutdown,
+            reconfig_task: task,
+        };
+        state
+    }
+}
+
+impl CommSuspendState {
+    #[inline]
+    pub fn check_suspended(&self) -> bool {
+        self.stream_completed && self.agents_pending_shutdown.is_empty()
+    }
+
+    pub fn emit(
+        self,
+        mut comm: Communicator,
+        transport_catalog: &TransportCatalog,
+    ) -> CommReconfigOutout {
+        match self.reconfig_task {
+            CommReconfigTask::CommPattern(channels) => {
+                let mut init = CommInitState::new(
+                    comm.id,
+                    comm.cuda_dev,
+                    comm.daemon,
+                    comm.rank,
+                    comm.num_ranks,
+                    comm.profile,
+                );
+                let peers_info = comm.peers_info;
+
+                let mut transport_connect =
+                    TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
+                for pattern in channels.iter() {
+                    let ix_zero = pattern
+                        .ring
+                        .user_ranks
+                        .iter()
+                        .position(|x| *x == 0)
+                        .unwrap();
+                    let mut ring_log = String::new();
+                    for i in 0..comm.num_ranks {
+                        let ring_rank = pattern.ring.user_ranks[(i + ix_zero) % comm.num_ranks];
+                        write!(ring_log, "{} -> ", ring_rank);
+                    }
+                    ring_log.push('0');
+                    log::info!("Comm {:?}, ring: {}", comm.id, ring_log);
+
+                    let ring_next = PeerConnId {
+                        peer_rank: pattern.ring.next,
+                        channel: pattern.channel,
+                        conn_index: 0,
+                        conn_type: ConnType::Send,
+                    };
+                    let ring_prev = PeerConnId {
+                        peer_rank: pattern.ring.prev,
+                        channel: pattern.channel,
+                        conn_index: 0,
+                        conn_type: ConnType::Recv,
+                    };
+                    transport_connect.register_connect(&ring_next).unwrap();
+                    transport_connect.register_connect(&ring_prev).unwrap();
+                    transport_connect
+                        .post_setup_tasks(peers_info.as_slice(), &init.profile, transport_catalog)
+                        .unwrap();
+                }
+                init.comm_patterns = Some(channels);
+                init.peers_info = Some(peers_info);
+                init.transport_connect = Some(transport_connect);
+                init.stage = CommInitStage::ConnectRing;
+                init.bootstrap_state = Some(comm.bootstrap_state);
+                init.stream = Some(comm.stream);
+                init.event = Some(comm.event);
+
+                comm.stream = std::ptr::null_mut();
+                comm.event = std::ptr::null_mut();
+
+                CommReconfigOutout::CommPattern(init)
+            }
         }
     }
 }

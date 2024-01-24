@@ -1,4 +1,5 @@
 use super::{Protocol, NUM_BUFFER_SLOTS};
+use crate::comm::CommunicatorId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransportOpState {
@@ -91,6 +92,7 @@ struct ncclProxyArgs {
 // we can also have TransportSubOp, and put AgentResources in each sub op
 #[derive(Clone, Debug)]
 pub struct TransportOp {
+    pub communicator_id: CommunicatorId,
     pub num_steps: u32,
 
     pub slice_steps: u32,
@@ -112,8 +114,15 @@ pub struct TransportOp {
 }
 
 impl TransportOp {
-    pub fn new(num_steps: u32, slice_steps: u32, chunk_steps: u32, protocol: Protocol) -> Self {
+    pub fn new(
+        communicator_id: CommunicatorId, 
+        num_steps: u32, 
+        slice_steps: u32, 
+        chunk_steps: u32, 
+        protocol: Protocol
+    ) -> Self {
         Self {
+            communicator_id,
             num_steps,
             slice_steps,
             chunk_steps,

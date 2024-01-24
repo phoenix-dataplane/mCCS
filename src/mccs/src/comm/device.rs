@@ -117,18 +117,18 @@ impl CommDevResources {
                 .map(|x| *x as i32)
                 .collect::<Vec<_>>();
             unsafe {
-                cudaMemcpy(
+                cuda_warning!(cudaMemcpy(
                     storage.ring_user_ranks.as_ptr() as _,
                     user_ranks.as_ptr() as _,
                     num_ranks * std::mem::size_of::<i32>(),
                     cudaMemcpyHostToDevice,
-                );
-                cudaMemcpy(
+                ));
+                cuda_warning!(cudaMemcpy(
                     storage.peers.as_ptr() as _,
                     dev_chan_peers.as_ptr() as _,
                     num_ranks * std::mem::size_of::<mccsDevChannelPeer>(),
                     cudaMemcpyHostToDevice,
-                );
+                ));
             }
             let dev_ring = mccsDevRing {
                 prev: chan.ring.prev as _,
@@ -168,12 +168,12 @@ impl CommDevResources {
 
         let dev_comm_storage = DeviceAlloc::new(1);
         unsafe {
-            cudaMemcpy(
+            cuda_warning!(cudaMemcpy(
                 dev_comm_storage.as_ptr() as _,
                 &mut dev_comm_chans as *mut mccsDevCommAndChannels as _,
                 std::mem::size_of::<mccsDevCommAndChannels>(),
                 cudaMemcpyHostToDevice,
-            );
+            ));
         }
         CommDevResources {
             comm_dev: dev_comm_storage,

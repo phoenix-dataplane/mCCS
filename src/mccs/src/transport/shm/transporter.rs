@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use memoffset::raw_field;
+use qos_service::QosSchedule;
 
 use crate::comm::{CommProfile, PeerInfo};
 use crate::cuda::alloc::DeviceHostMapped;
@@ -29,6 +30,22 @@ pub struct ShmTransporter;
 
 #[async_trait]
 impl Transporter for ShmTransporter {
+    #[inline]
+    fn need_op(&self) -> bool {
+        false
+    }
+
+    #[inline]
+    fn can_connect(
+        &self,
+        send_peer: &PeerInfo,
+        recv_peer: &PeerInfo,
+        _profile: &CommProfile,
+        _catalog: &TransportCatalog,
+    ) -> bool {
+        send_peer.host == recv_peer.host
+    }
+
     fn send_setup(
         &self,
         _conn_id: &PeerConnId,
@@ -443,6 +460,7 @@ impl Transporter for ShmTransporter {
         &self,
         op: &mut TransportOp,
         resources: &mut AnyResources,
+        _schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         shm_agent_send_progress(resources, op);
         Ok(())
@@ -452,6 +470,7 @@ impl Transporter for ShmTransporter {
         &self,
         op: &mut TransportOp,
         resources: &mut AnyResources,
+        _schedule: &QosSchedule,
     ) -> Result<(), TransporterError> {
         shm_agent_recv_progress(resources, op);
         Ok(())

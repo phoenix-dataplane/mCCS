@@ -1,14 +1,15 @@
 mccs_daemon_basename = "mccs-deamon"
-mccs_daemon_prefix = "/tmp/mccs"
-addrs = ["192.168.211.66", "192.168.211.194"]
+mccs_daemon_prefix = "/tmp/mccs-yongji"
+addrs = ["0.0.0.0", "0.0.0.1", "0.0.0.2", "192.168.211.66", "192.168.211.130", "192.168.211.162", "192.168.211.195"]
 listen_port = 5000
 
 [control]
-prefix = "/tmp/mccs"
+prefix = "/tmp/mccs-yongji"
 path = "control.sock"
 
 [comm_default_config]
 buffer_sizes = [4194304]
+channel_count = 3
 
 [comm_global_config]
 [comm_global_config.net_rdma]
@@ -24,7 +25,7 @@ adaptive_routing = false
 ar_threshold = 8192
 pci_relaxed_ordering = false
 gdr_flush_disable = true
-socket_if_prefix = "rdma0"
+socket_if_prefix = "rdma"
 
 [comm_global_config.net]
 gdr_enable = false
@@ -35,3 +36,14 @@ gdr_copy_flush_enable = false
 locality = "Sender"
 memcpy_send = false
 memcpy_recv = false
+
+[qos_schedule]
+epoch_microsecs = 85000
+
+[qos_schedule.schedule.137]
+intervals = [[0, 35000]]
+mode = "Allow"
+
+[qos_schedule.schedule.138]
+intervals = [[35000, 69000]]
+mode = "Allow"
