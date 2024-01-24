@@ -44,6 +44,7 @@ impl From<AllReduceDataType> for TaskDataType {
     fn from(value: AllReduceDataType) -> Self {
         match value {
             AllReduceDataType::Float16 => Self::Float16,
+            AllReduceDataType::Int32 => Self::Int32,
         }
     }
 }

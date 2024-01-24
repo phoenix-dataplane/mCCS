@@ -20,9 +20,11 @@ pub mod collectives;
 pub mod communicator;
 pub mod memory;
 
-pub use collectives::all_gather;
+pub use collectives::{all_gather, all_reduce};
 pub use communicator::{init_communicator_rank, register_stream};
 pub use memory::cuda_malloc;
+
+pub use ipc::mccs::command::{AllReduceDataType, AllReduceOpType};
 
 const DEFAULT_MCCS_PREFIX: &str = "/tmp/mccs";
 const DEFAULT_MCCS_CONTROL: &str = "control.sock";

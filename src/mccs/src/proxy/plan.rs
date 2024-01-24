@@ -11,7 +11,8 @@ use itertools::Itertools;
 use collectives_sys::{
     mccsDevComm, mccsDevWork, mccsDevWorkElem, mccsDevWorkHeader, mccsDevWorkType,
     mccsDevWork__bindgen_ty_1, mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t,
-    mccsKernel_AllReduce_RING_SIMPLE_Prod_half, mccsKernel_AllReduce_RING_SIMPLE_Sum_half,
+    mccsKernel_AllReduce_RING_SIMPLE_Prod_half, mccsKernel_AllReduce_RING_SIMPLE_Prod_int32_t,
+    mccsKernel_AllReduce_RING_SIMPLE_Sum_half, mccsKernel_AllReduce_RING_SIMPLE_Sum_int32_t,
 };
 use cuda_runtime_sys::{cudaEventRecord, cudaLaunchKernel, cudaMemcpy, cudaMemcpyKind};
 
@@ -142,22 +143,23 @@ impl Communicator {
             TaskFuncType::AllGather => mccsKernel_AllGather_RING_SIMPLE_Sum_int8_t as *const _,
             TaskFuncType::AllReduce => match (
                 first_task.data_type,
-                first_task.reduce_op.expect("AllReduce missing op"),
+                first_task.reduce_op.expect("AllReduce missing op").op,
             ) {
-                (
-                    TaskDataType::Float16,
-                    TaskReduceOp {
-                        op: TaskReduceOpType::Sum,
-                        arg: _,
-                    },
-                ) => mccsKernel_AllReduce_RING_SIMPLE_Sum_half as *const _,
-                (
-                    TaskDataType::Float16,
-                    TaskReduceOp {
-                        op: TaskReduceOpType::Prod,
-                        arg: _,
-                    },
-                ) => mccsKernel_AllReduce_RING_SIMPLE_Prod_half as *const _,
+                (TaskDataType::Float16, TaskReduceOpType::Sum) => {
+                    mccsKernel_AllReduce_RING_SIMPLE_Sum_half as *const _
+                }
+
+                (TaskDataType::Float16, TaskReduceOpType::Prod) => {
+                    mccsKernel_AllReduce_RING_SIMPLE_Prod_half as *const _
+                }
+                (TaskDataType::Int32, TaskReduceOpType::Sum) => {
+                    mccsKernel_AllReduce_RING_SIMPLE_Sum_int32_t as *const _
+                }
+
+                (TaskDataType::Int32, TaskReduceOpType::Prod) => {
+                    mccsKernel_AllReduce_RING_SIMPLE_Prod_int32_t as *const _
+                }
+
                 _ => unimplemented!(),
             },
             _ => unimplemented!(),

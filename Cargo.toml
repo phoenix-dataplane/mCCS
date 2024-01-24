@@ -17,6 +17,7 @@ members = [
     "src/mccs",
     "src/mccs_examples/cuda_hello",
     "src/mccs_examples/allgather_proto",
+    "src/mccs_examples/allreduce_proto",
     "src/mccs_examples/allgather_bench",
     "src/mccs_examples/ring_config",
     "src/mccs_tests/rdma_transport",
