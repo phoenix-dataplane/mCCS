@@ -149,4 +149,3 @@ fn main() -> ExitCode {
     wtr.serialize(round_times).unwrap();
     return ExitCode::SUCCESS;
 }
-

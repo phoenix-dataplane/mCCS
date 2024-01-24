@@ -185,11 +185,11 @@ impl Control {
                             },
                         };
                         let engine = TransportEngine::new(
-                                engine_id, 
-                                transport_endpoints, 
-                                global_registry,
-                                qos_schedule,
-                            );
+                            engine_id,
+                            transport_endpoints,
+                            global_registry,
+                            qos_schedule,
+                        );
                         let cores = CoreMask::from_device_affinity(engine_id.cuda_device_idx);
                         let container = Box::new(engine);
                         self.runtime_manager.submit_engine(

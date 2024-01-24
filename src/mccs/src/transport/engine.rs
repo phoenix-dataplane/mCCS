@@ -113,12 +113,16 @@ impl TransportEngineResources {
     fn progress_op(&mut self, agent_id: &TransportAgentId, op: &mut TransportOp) -> bool {
         let agent = self.agent_connected.get_mut(agent_id).unwrap();
         match agent_id.peer_conn.conn_type {
-            ConnType::Send => agent
-                .transporter
-                .agent_send_progress_op(op, &mut agent.agent_resources, &self.qos_schedule),
-            ConnType::Recv => agent
-                .transporter
-                .agent_recv_progress_op(op, &mut agent.agent_resources, &self.qos_schedule),
+            ConnType::Send => agent.transporter.agent_send_progress_op(
+                op,
+                &mut agent.agent_resources,
+                &self.qos_schedule,
+            ),
+            ConnType::Recv => agent.transporter.agent_recv_progress_op(
+                op,
+                &mut agent.agent_resources,
+                &self.qos_schedule,
+            ),
         }
         .unwrap();
         op.state == TransportOpState::Completed

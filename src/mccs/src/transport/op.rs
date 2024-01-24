@@ -115,11 +115,11 @@ pub struct TransportOp {
 
 impl TransportOp {
     pub fn new(
-        communicator_id: CommunicatorId, 
-        num_steps: u32, 
-        slice_steps: u32, 
-        chunk_steps: u32, 
-        protocol: Protocol
+        communicator_id: CommunicatorId,
+        num_steps: u32,
+        slice_steps: u32,
+        chunk_steps: u32,
+        protocol: Protocol,
     ) -> Self {
         Self {
             communicator_id,
