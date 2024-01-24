@@ -13,9 +13,9 @@ bench rank num_ranks round='10' size='128' comm='42' cuda_dev='0':
   ./target/debug/allgather_bench --root-addr {{root_addr}} --rank {{rank}} \
   --num-ranks {{num_ranks}} --cuda-device-idx {{cuda_dev}} --size {{size}} --communicator {{comm}} --round {{round}}
 
-base rank num_ranks size='128' comm='42' cuda_dev='0':
-  ./target/debug/allgather_bench --root-addr {{root_addr}} --rank {{rank}} \
-  --num-ranks {{num_ranks}} --cuda-device-idx {{cuda_dev}} --size {{size}} --communicator {{comm}}
+allreduce_bench rank num_ranks round='10' size='128' comm='42' cuda_dev='0':
+  ./target/debug/allreduce_bench --root-addr {{root_addr}} --rank {{rank}} \
+  --num-ranks {{num_ranks}} --cuda-device-idx {{cuda_dev}} --size {{size}} --communicator {{comm}} --round {{round}}
 
 
 allreduce_base rank num_ranks size='128' comm='42' cuda_dev='0':
@@ -23,7 +23,7 @@ allreduce_base rank num_ranks size='128' comm='42' cuda_dev='0':
   --num-ranks {{num_ranks}} --cuda-device-idx {{cuda_dev}} --size {{size}} --communicator {{comm}}
 
 auto-3reduce size='128' round='10' comm='42':
-  just allreduce_base $RK 3 {{size}} {{comm}} $DEV
+  just allreduce_bench $RK 3 {{round}} {{size}} {{comm}} $DEV
 
 auto-triple size='128' round='10' comm='42':
   just bench $RK 3 {{round}} {{size}} {{comm}} $DEV
