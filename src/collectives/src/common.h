@@ -199,45 +199,47 @@ __device__ void MCCS_FUNC_NAME(func, algo, proto, devredop, type)() { \
 // Only generate inline kernels for SIMPLE
 #define IMPL_COLL4(func, algo, devredop, type, mccsType) \
   IMPL_COLL_FUNC(func, algo, SIMPLE, devredop, type) \
-  IMPL_COLL_KERN(func, algo, SIMPLE, devredop, type, FUNC_INDEX(mccsFunc##func, mccsDev##devredop, mccsType, MCCS_ALGO_##algo, MCCS_PROTO_SIMPLE)) \
+  IMPL_COLL_KERN(func, algo, SIMPLE, devredop, type, FUNC_INDEX(mccsFunc##func, mccsDev##devredop, mccsType, MCCS_ALGO_##algo, MCCS_PROTO_SIMPLE)) 
 
 #define IMPL_COLL3(func, devredop, type, mccsType) \
-  IMPL_COLL4(func, RING,    devredop, type, mccsType) \
+  IMPL_COLL4(func, RING,    devredop, type, mccsType) 
 
-#if MCCS_TYPE == mccsInt8
+#if MCCS_TYPE == 0
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int8_t,   mccsInt8)
-#elif MCCS_TYPE == mccsUint8
+#elif MCCS_TYPE == 1
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint8_t,  mccsUint8)
-#elif MCCS_TYPE == mccsInt32
+#elif MCCS_TYPE == 2
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int32_t,  mccsInt32)
-#elif MCCS_TYPE == mccsUint32
+#elif MCCS_TYPE == 3
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint32_t, mccsUint32)
-#elif MCCS_TYPE == mccsInt64
+#elif MCCS_TYPE == 4
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int64_t,  mccsInt64)
-#elif MCCS_TYPE == mccsUint64
+#elif MCCS_TYPE == 5
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint64_t, mccsUint64)
-#elif MCCS_TYPE == mccsFloat16
+#elif MCCS_TYPE == 6
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, half,     mccsFloat16)
-#elif MCCS_TYPE == mccsFloat32
+#elif MCCS_TYPE == 7
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, float,    mccsFloat32)
-#elif MCCS_TYPE == mccsFloat64
+#elif MCCS_TYPE == 8
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, double,   mccsFloat64)
-#elif MCCS_TYPE == mccsBfloat16 && defined(__CUDA_BF16_TYPES_EXIST__)
+#elif MCCS_TYPE == 9 && defined(__CUDA_BF16_TYPES_EXIST__)
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __nv_bfloat16, mccsBfloat16)
+#else
+#pragma message("WTF"#MCCS_TYPE)
 #endif
 
 // Reduction define all functions
-#if MCCS_OP == mccsDevSum
-#define IMPL_COLL_RP(func) IMPL_COLL2(func, Sum);
-#elif MCCS_OP == mccsDevProd
+#if MCCS_OP == 0
+#define IMPL_COLL_R(func) IMPL_COLL2(func, Sum);
+#elif MCCS_OP == 1
 #define IMPL_COLL_R(func) IMPL_COLL2(func, Prod);
-#elif MCCS_OP == mccsDevMin
+#elif MCCS_OP == 2
 #define IMPL_COLL_R(func) IMPL_COLL2(func, Min);
-#elif MCCS_OP == mccsDevMax
+#elif MCCS_OP == 3
 #define IMPL_COLL_R(func) IMPL_COLL2(func, Max);
-#elif MCCS_OP == mccsPreMulSum
+#elif MCCS_OP == 4
 #define IMPL_COLL_R(func) IMPL_COLL2(func, PreMulSum);
-#elif MCCS_OP == mccsSumPostDiv
+#elif MCCS_OP == 5
   #if MCCS_TYPE < 6
     #define IMPL_COLL_R(func) IMPL_COLL2(func, SumPostDiv);
   #else
@@ -245,7 +247,7 @@ __device__ void MCCS_FUNC_NAME(func, algo, proto, devredop, type)() { \
   #endif
 #endif
 
-#if MCCS_OP == mccsDevSum && MCCS_TYPE == mccsInt8
+#if MCCS_OP == 0 && MCCS_TYPE == 0
 // Copy primitives only define one function for copy
 #define IMPL_COLL_C(func) IMPL_COLL3(func, Sum, int8_t, mccsInt8);
 #else

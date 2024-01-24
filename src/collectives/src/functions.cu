@@ -75,6 +75,10 @@ __shared__ mccsShmemData mccsShmem;
   MCCS_FUNCS3B(func, Sum), \
   MCCS_FUNCS3B(func, Sum)
 
+#define MCCS_FUNCS2C(func) \
+  MCCS_FUNCS3A(func, Sum,        /*nullForFloat=*/0), \
+  MCCS_FUNCS3A(func, Prod,       /*nullForFloat=*/0)
+
 // Must be consistent with the mccsFuncSet enum
 __device__ mccsDevKern_t mccsDevFuncs[1+mccsNumTypes+MCCS_NUM_FUNCTIONS*mccsNumDevRedOps*mccsNumTypes*MCCS_NUM_ALGORITHMS*MCCS_NUM_PROTOCOLS] = {
 // Don't try to initialize the host shadow copy of this device-side global
@@ -82,6 +86,7 @@ __device__ mccsDevKern_t mccsDevFuncs[1+mccsNumTypes+MCCS_NUM_FUNCTIONS*mccsNumD
 // confuses clang. This will be fixed in the next clang release.
 #if __CUDA_ARCH__
   MCCS_FUNCS2B(AllGather),
+  MCCS_FUNCS2C(AllReduce),
 #endif
 };
 

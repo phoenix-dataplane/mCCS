@@ -9,9 +9,11 @@ include makefiles/common.mk
 BUILDDIR ?= $(abspath build)
 OBJDIR := $(BUILDDIR)/device
 
-LIBSRCFILES := src/all_gather.cu 
+LIBSRCFILES := src/functions.cu
 
-LIBSRCFILES += src/functions.cu
+LIBSRCFILES += src/all_gather.cu 
+LIBSRCFILES += src/all_reduce.cu 
+
 
 DEPFILES   := $(patsubst src/%.cu, $(OBJDIR)/%.d, $(LIBSRCFILES))
 DEPENDFILES:= $(DEPFILES:%.d=%.dep)
