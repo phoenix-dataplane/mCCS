@@ -40,13 +40,13 @@ fn main() -> ExitCode {
         }
     }
     let dev_ptr = libmccs::cuda_malloc(opts.cuda_device_idx, buffer_size * num_ranks).unwrap();
-    let buf = vec![base_val + rank as i32; buffer_size * num_ranks / std::mem::size_of::<i32>()];
+    let buf = vec![base_val + rank as i32; buffer_size / std::mem::size_of::<i32>()];
 
     let err = unsafe {
         cudaMemcpy(
             dev_ptr.ptr,
             buf.as_ptr() as *const _,
-            buffer_size * num_ranks,
+            buffer_size,
             cudaMemcpyKind::cudaMemcpyHostToDevice,
         )
     };
@@ -57,8 +57,8 @@ fn main() -> ExitCode {
     for r in 0..num_ranks {
         println!(
             "buf[{}]={}",
-            r * buffer_size / std::mem::size_of::<i32>(),
-            buf[r * buffer_size / std::mem::size_of::<i32>()]
+            r * buffer_size / num_ranks / std::mem::size_of::<i32>(),
+            buf[r * buffer_size / num_ranks / std::mem::size_of::<i32>()]
         );
     }
     let comm = libmccs::init_communicator_rank(
@@ -76,19 +76,19 @@ fn main() -> ExitCode {
         comm,
         dev_ptr,
         dev_ptr,
-        buffer_size * num_ranks / 4,
+        buffer_size / std::mem::size_of::<i32>(),
         libmccs::AllReduceDataType::Int32,
         libmccs::AllReduceOpType::Sum,
         0 as cudaStream_t,
     )
     .unwrap();
     println!("Rank {}: warmup call returned", rank);
-    let mut buf2 = vec![0; buffer_size * num_ranks / std::mem::size_of::<i32>()];
+    let mut buf2 = vec![0; buffer_size / std::mem::size_of::<i32>()];
     unsafe {
         let err = cudaMemcpy(
             buf2.as_mut_ptr() as *mut _,
             dev_ptr.ptr,
-            buffer_size * num_ranks,
+            buffer_size,
             cudaMemcpyKind::cudaMemcpyDeviceToHost,
         );
         if err != cudaError::cudaSuccess {
@@ -96,7 +96,7 @@ fn main() -> ExitCode {
         }
     };
     for r in 0..num_ranks {
-        let data = buf2[r * buffer_size / std::mem::size_of::<i32>()];
+        let data = buf2[r * buffer_size / num_ranks / std::mem::size_of::<i32>()];
         let expected = (base_val as usize * num_ranks + (0 + num_ranks - 1) * num_ranks / 2) as i32;
         if data != expected {
             eprintln!("Rank{}: expected {}, got {}", r, expected, data);
@@ -108,7 +108,7 @@ fn main() -> ExitCode {
             comm,
             dev_ptr,
             dev_ptr,
-            buffer_size * num_ranks / 4,
+            buffer_size / 4,
             libmccs::AllReduceDataType::Int32,
             libmccs::AllReduceOpType::Sum,
             0 as cudaStream_t,
@@ -129,7 +129,7 @@ fn main() -> ExitCode {
             comm,
             dev_ptr,
             dev_ptr,
-            buffer_size * num_ranks / 4,
+            buffer_size / 4,
             libmccs::AllReduceDataType::Int32,
             libmccs::AllReduceOpType::Sum,
             0 as cudaStream_t,
@@ -145,9 +145,7 @@ fn main() -> ExitCode {
     let end = Instant::now();
     let dura = end.duration_since(start);
     if opts.rank == 0 {
-        let tput = (opts.size * num_ranks * opts.round) as f64
-            / 1024.0
-            / (dura.as_micros() as f64 / 1.0e6);
+        let tput = (opts.size * opts.round) as f64 / 1024.0 / (dura.as_micros() as f64 / 1.0e6);
         println!("Algorithm bandwidth: {:.} GB/s", tput);
     }
     return ExitCode::SUCCESS;
