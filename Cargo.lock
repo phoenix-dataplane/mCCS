@@ -45,6 +45,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "allreduce_bench"
+version = "0.1.0"
+dependencies = [
+ "cuda-runtime-sys",
+ "libmccs",
+ "structopt",
+]
+
+[[package]]
 name = "allreduce_proto"
 version = "0.1.0"
 dependencies = [
