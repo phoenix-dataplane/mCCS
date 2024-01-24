@@ -72,14 +72,12 @@ fn main() -> ExitCode {
     libmccs::register_stream(opts.cuda_device_idx, 0 as cudaStream_t).unwrap();
     println!("rank {} - stream registered", rank);
 
-    std::thread::sleep(std::time::Duration::from_secs(15));
-
     libmccs::all_reduce(
         comm,
-        dev_ptr.add(rank * buffer_size).unwrap(),
         dev_ptr,
-        buffer_size,
-        libmccs::AllReduceDataType::Float16,
+        dev_ptr,
+        buffer_size * num_ranks / 4,
+        libmccs::AllReduceDataType::Int32,
         libmccs::AllReduceOpType::Sum,
         0 as cudaStream_t,
     )
