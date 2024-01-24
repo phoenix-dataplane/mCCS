@@ -5,15 +5,14 @@ use std::ptr::NonNull;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use gcollections::ops::Contains;
 use strum::IntoEnumIterator;
 use volatile::VolatilePtr;
-use gcollections::ops::Contains;
 
 use cuda_driver_sys::cuMemGetHandleForAddressRange;
 use cuda_driver_sys::CUmemRangeHandleType;
 use cuda_runtime_sys::cudaGetDevice;
-use qos_service::{QosSchedule, QosMode};
-
+use qos_service::{QosMode, QosSchedule};
 
 use super::buffer::{BufferMap, BufferType, MemoryBankAlloc, MemoryBankType};
 use super::config::NetTransportConfig;
@@ -497,7 +496,7 @@ pub fn net_agent_send_progress(
             if ready {
                 let comm_id = qos_service::CommunicatorId(op.communicator_id.0);
                 let interval = schedule.schedule.get(&comm_id);
-                let delay_send = if let Some(interval) = interval { 
+                let delay_send = if let Some(interval) = interval {
                     let time = SystemTime::now();
                     let elapsed = time.duration_since(UNIX_EPOCH).unwrap();
                     let epoch_ts = (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
