@@ -25,6 +25,7 @@ pub struct MccsDeviceMemoryHandle {
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum AllReduceDataType {
     Float16,
+    Int32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
