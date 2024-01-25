@@ -191,6 +191,16 @@ pub async fn exchange_connect_handle(
                 let handle = round_handles
                     .remove(&conn_id)
                     .ok_or_else(|| TransportConnectError::ConnectionNotFound(conn_id))?;
+                // TODO: remove
+                let handle_c = handle
+                    .deserialize_to::<crate::transport::net::provider::rdma::IbConnectHandle>()
+                    .unwrap();
+                log::debug!(
+                    "my_rank = {}, conn_id = {:?}, recv_setup handle = {:?}",
+                    rank,
+                    conn_id,
+                    handle_c
+                );
                 recv_handles.push(handle);
             }
             if send_mask & (1u64 << c) > 0 {
@@ -320,7 +330,7 @@ pub async fn exchange_connect_handle(
                     channel: ChannelId(c as u32),
                     conn_index,
                 };
-                let handle = peer_recv_handles.pop().unwrap();
+                let handle = peer_recv_handles.remove(0);
                 all_peer_handles.insert(conn_id, handle);
             }
             if send_mask & (1u64 << c) > 0 {
@@ -330,7 +340,17 @@ pub async fn exchange_connect_handle(
                     channel: ChannelId(c as u32),
                     conn_index,
                 };
-                let handle = peer_send_handles.pop().unwrap();
+                // TODO: remove
+                let handle = peer_send_handles.remove(0);
+                let handle_c = handle
+                    .deserialize_to::<crate::transport::net::provider::rdma::IbConnectHandle>()
+                    .unwrap();
+                log::debug!(
+                    "my_rank = {}, conn_id = {:?}, send_connect recved handle = {:?}",
+                    rank,
+                    conn_id,
+                    handle_c
+                );
                 all_peer_handles.insert(conn_id, handle);
             }
         }
