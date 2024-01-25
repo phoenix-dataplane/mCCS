@@ -45,6 +45,7 @@ struct WorkerSpec {
     host: String,
     bin: String,
     args: String,
+    name: Option<String>,
     #[serde(default)]
     dependencies: Vec<usize>,
     #[serde(default = "default_term_signal", rename = "term")]
@@ -54,7 +55,7 @@ struct WorkerSpec {
 #[derive(Debug, Clone, Deserialize)]
 struct Benchmark {
     name: String,
-    description: String,
+    description: Option<String>,
     group: String,
     timeout_secs: Option<u64>,
     #[serde(default = "default_start_delay")]
@@ -276,10 +277,18 @@ fn start_ssh(
         let mut stderr_writer = None;
         if let Some(output_dir) = output_dir {
             let stdout_file = output_dir
-                .join(format!("{}_{}.log", worker.bin, ip))
+                .join(format!(
+                    "{}_{}.log",
+                    worker.name.clone().unwrap_or(worker.bin.clone()),
+                    ip
+                ))
                 .with_extension("stdout");
             let stderr_file = output_dir
-                .join(format!("{}_{}.log", worker.bin, ip))
+                .join(format!(
+                    "{}_{}.log",
+                    worker.name.clone().unwrap_or(worker.bin.clone()),
+                    ip
+                ))
                 .with_extension("stderr");
 
             let stdout = open_with_create_append(stdout_file);
@@ -492,7 +501,7 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
         "{}: {}, description: {}",
         Green.bold().paint("Running benchmark"),
         spec.name,
-        spec.description
+        spec.description.clone().unwrap_or_default()
     );
 
     // calculate a start time for each worker according to their topological order
