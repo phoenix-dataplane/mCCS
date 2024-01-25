@@ -1245,6 +1245,7 @@ dependencies = [
  "ipc-core",
  "serde",
  "serde-big-array",
+ "static_assertions",
 ]
 
 [[package]]

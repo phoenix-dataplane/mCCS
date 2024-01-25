@@ -42,6 +42,7 @@ pub struct DaemonEngine {
     pub(crate) device_mem: HashMap<u64, DeviceMemory>,
     pub(crate) comm_delegation: HashMap<CommunicatorHandle, CommunicatorDelegation>,
     pub(crate) mem_counter: u64,
+    pub(crate) wr_read_buffer: Vec<dp::WorkRequest>,
 }
 
 impl DaemonEngine {
@@ -50,6 +51,8 @@ impl DaemonEngine {
         customer: CustomerType,
         proxy_chan: Vec<DuplexChannel<ProxyCommand, ProxyCompletion>>,
     ) -> Self {
+        const BUF_LEN: usize = 32;
+
         DaemonEngine {
             id,
             customer,
@@ -57,6 +60,7 @@ impl DaemonEngine {
             device_mem: HashMap::new(),
             comm_delegation: HashMap::new(),
             mem_counter: 0,
+            wr_read_buffer: Vec::with_capacity(BUF_LEN),
         }
     }
 }
@@ -160,96 +164,6 @@ impl DaemonEngine {
                     event_handle,
                 ))))
             }
-            Command::AllGather(all_gather) => {
-                // prepare arguments
-                let comm = self.comm_delegation.get(&all_gather.comm).unwrap();
-                let send_buf_addr = (*self.device_mem.get(&all_gather.send_buf.id).unwrap()).addr
-                    + all_gather.send_buf.offset;
-                let recv_buf_addr = (*self.device_mem.get(&all_gather.recv_buf.id).unwrap()).addr
-                    + all_gather.recv_buf.offset;
-                let proxy_all_gather = AllGatherRequest {
-                    communicator_id: CommunicatorId(comm.comm_id),
-                    send_buf_addr,
-                    recv_buf_addr,
-                    size: all_gather.size,
-                    user_stream: all_gather.user_stream,
-                };
-                log::debug!(
-                    "[Daemon-{}] try to issue allGather ({:p},{:p}) on communicator {}@{}",
-                    self.id.0,
-                    send_buf_addr as *const c_void,
-                    recv_buf_addr as *const c_void,
-                    comm.cuda_device_idx,
-                    comm.comm_id,
-                );
-                // send command
-                let proxy_cmd = ProxyCommand::AllGather(proxy_all_gather);
-                self.proxy_chan[comm.cuda_device_idx as usize]
-                    .tx
-                    .send(proxy_cmd)
-                    .unwrap();
-                let res = self.proxy_chan[comm.cuda_device_idx as usize]
-                    .rx
-                    .recv()
-                    .unwrap();
-                match res {
-                    ProxyCompletion::AllGather => {}
-                    _ => panic!("unexpected result"),
-                };
-                log::debug!(
-                    "[Daemon-{}] SUCCESS for issuing allGather on communicator {}@{}",
-                    self.id.0,
-                    comm.cuda_device_idx,
-                    comm.comm_id,
-                );
-                Ok(Some(CompletionKind::AllGather))
-            }
-            Command::AllReduce(all_reduce) => {
-                // prepare arguments
-                let comm = self.comm_delegation.get(&all_reduce.comm).unwrap();
-                let send_buf_addr = (*self.device_mem.get(&all_reduce.send_buf.id).unwrap()).addr
-                    + all_reduce.send_buf.offset;
-                let recv_buf_addr = (*self.device_mem.get(&all_reduce.recv_buf.id).unwrap()).addr
-                    + all_reduce.recv_buf.offset;
-                let proxy_all_reduce = AllReduceRequest {
-                    communicator_id: CommunicatorId(comm.comm_id),
-                    send_buf_addr,
-                    recv_buf_addr,
-                    size: all_reduce.size,
-                    data_type: all_reduce.data_type.into(),
-                    op_type: all_reduce.op_type.into(),
-                    user_stream: all_reduce.user_stream,
-                };
-                log::debug!(
-                    "[Daemon-{}] try to issue allReduce ({:p},{:p}) on communicator {}@{}",
-                    self.id.0,
-                    send_buf_addr as *const c_void,
-                    recv_buf_addr as *const c_void,
-                    comm.cuda_device_idx,
-                    comm.comm_id,
-                );
-                // send command
-                let proxy_cmd = ProxyCommand::AllReduce(proxy_all_reduce);
-                self.proxy_chan[comm.cuda_device_idx as usize]
-                    .tx
-                    .send(proxy_cmd)
-                    .unwrap();
-                let res = self.proxy_chan[comm.cuda_device_idx as usize]
-                    .rx
-                    .recv()
-                    .unwrap();
-                match res {
-                    ProxyCompletion::AllReduce => {}
-                    _ => panic!("unexpected result"),
-                };
-                log::debug!(
-                    "[Daemon-{}] SUCCESS for issuing allReduce on communicator {}@{}",
-                    self.id.0,
-                    comm.cuda_device_idx,
-                    comm.comm_id,
-                );
-                Ok(Some(CompletionKind::AllReduce))
-            }
             Command::GroupCall(colls) => {
                 let mut requests = Vec::with_capacity(colls.len());
                 let comm_handle = match &colls[0] {
@@ -347,21 +261,188 @@ impl DaemonEngine {
             Err(ipc::TryRecvError::Other(_e)) => Err(Error::IpcTryRecv),
         }
     }
+
+    fn check_customer(&mut self) -> Result<Status, Error> {
+        use dp::WorkCompletion;
+        use dp::WorkRequest;
+
+        let buffer_cap = self.wr_read_buffer.capacity();
+        let max_count = buffer_cap.min(self.customer.get_avail_wc_slots()?);
+        if max_count == 0 {
+            return Ok(Progress(0));
+        }
+
+        // 300-10us, mostly 300ns (Vec::with_capacity())
+        let mut count = 0;
+        // self.wr_read_buffer.clear();
+        // SAFETY: dp::WorkRequest is Copy and zerocopy
+        unsafe {
+            self.wr_read_buffer.set_len(0);
+        }
+
+        // 60-150ns
+        self.customer
+            .dequeue_wr_with(|ptr, read_count| unsafe {
+                // TODO(cjr): max_count <= read_count always holds
+                count = max_count.min(read_count);
+                for i in 0..count {
+                    self.wr_read_buffer
+                        .push(ptr.add(i).cast::<WorkRequest>().read());
+                }
+                count
+            })
+            .unwrap_or_else(|e| panic!("check_customer: {}", e));
+
+        // Process the work requests.
+        // timer.tick();
+
+        // no work: 10ns
+        // has work: 100-400ns
+        let buffer = std::mem::take(&mut self.wr_read_buffer);
+
+        for wr in &buffer {
+            let ret = match wr {
+                WorkRequest::AllGather(all_gather) => {
+                    // prepare arguments
+                    let comm = self.comm_delegation.get(&all_gather.comm).unwrap();
+                    let send_buf_addr = (*self.device_mem.get(&all_gather.send_buf.id).unwrap())
+                        .addr
+                        + all_gather.send_buf.offset;
+                    let recv_buf_addr = (*self.device_mem.get(&all_gather.recv_buf.id).unwrap())
+                        .addr
+                        + all_gather.recv_buf.offset;
+                    let proxy_all_gather = AllGatherRequest {
+                        communicator_id: CommunicatorId(comm.comm_id),
+                        send_buf_addr,
+                        recv_buf_addr,
+                        size: all_gather.size,
+                        user_stream: all_gather.user_stream,
+                    };
+                    log::debug!(
+                        "[Daemon-{}] try to issue allGather ({:p},{:p}) on communicator {}@{}",
+                        self.id.0,
+                        send_buf_addr as *const c_void,
+                        recv_buf_addr as *const c_void,
+                        comm.cuda_device_idx,
+                        comm.comm_id,
+                    );
+                    // send command
+                    let proxy_cmd = ProxyCommand::AllGather(proxy_all_gather);
+                    self.proxy_chan[comm.cuda_device_idx as usize]
+                        .tx
+                        .send(proxy_cmd)
+                        .unwrap();
+                    let res = self.proxy_chan[comm.cuda_device_idx as usize]
+                        .rx
+                        .recv()
+                        .unwrap();
+                    match res {
+                        ProxyCompletion::AllGather => {}
+                        _ => panic!("unexpected result"),
+                    };
+                    log::debug!(
+                        "[Daemon-{}] SUCCESS for issuing allGather on communicator {}@{}",
+                        self.id.0,
+                        comm.cuda_device_idx,
+                        comm.comm_id,
+                    );
+                    Ok(WorkCompletion::AllGather)
+                }
+                WorkRequest::AllReduce(all_reduce) => {
+                    // prepare arguments
+                    let comm = self.comm_delegation.get(&all_reduce.comm).unwrap();
+                    let send_buf_addr = (*self.device_mem.get(&all_reduce.send_buf.id).unwrap())
+                        .addr
+                        + all_reduce.send_buf.offset;
+                    let recv_buf_addr = (*self.device_mem.get(&all_reduce.recv_buf.id).unwrap())
+                        .addr
+                        + all_reduce.recv_buf.offset;
+                    let proxy_all_reduce = AllReduceRequest {
+                        communicator_id: CommunicatorId(comm.comm_id),
+                        send_buf_addr,
+                        recv_buf_addr,
+                        size: all_reduce.size,
+                        data_type: all_reduce.data_type.into(),
+                        op_type: all_reduce.op_type.into(),
+                        user_stream: all_reduce.user_stream,
+                    };
+                    log::debug!(
+                        "[Daemon-{}] try to issue allReduce ({:p},{:p}) on communicator {}@{}",
+                        self.id.0,
+                        send_buf_addr as *const c_void,
+                        recv_buf_addr as *const c_void,
+                        comm.cuda_device_idx,
+                        comm.comm_id,
+                    );
+                    // send command
+                    let proxy_cmd = ProxyCommand::AllReduce(proxy_all_reduce);
+                    self.proxy_chan[comm.cuda_device_idx as usize]
+                        .tx
+                        .send(proxy_cmd)
+                        .unwrap();
+                    let res = self.proxy_chan[comm.cuda_device_idx as usize]
+                        .rx
+                        .recv()
+                        .unwrap();
+                    match res {
+                        ProxyCompletion::AllReduce => {}
+                        _ => panic!("unexpected result"),
+                    };
+                    log::debug!(
+                        "[Daemon-{}] SUCCESS for issuing allReduce on communicator {}@{}",
+                        self.id.0,
+                        comm.cuda_device_idx,
+                        comm.comm_id,
+                    );
+                    Ok(WorkCompletion::AllGather)
+                }
+            };
+            match ret {
+                Ok(wc) => {
+                    let mut sent = false;
+                    while !sent {
+                        self.customer.enqueue_wc_with(|ptr, _count| unsafe {
+                            // self.customer.notify_wc_with(|ptr, _count| unsafe {
+                            sent = true;
+                            ptr.cast::<WorkCompletion>().write(wc);
+                            1
+                        })?;
+                    }
+                }
+                Err(e) => {
+                    self.wr_read_buffer = buffer;
+                    // TODO(cjr): error handling
+                    return Err(e);
+                }
+            }
+        }
+
+        self.wr_read_buffer = buffer;
+
+        // timer.tick();
+        // log::info!("check_customer: {} {}", count, timer);
+
+        Ok(Progress(count))
+    }
 }
 
 impl Engine for DaemonEngine {
     fn progress(&mut self) -> EngineStatus {
-        let status = self.check_cmd().unwrap();
-        match status {
-            Progress(x) => {
-                if x != 0 {
-                    EngineStatus::Progressed
-                } else {
-                    EngineStatus::Idle
+        loop {
+            if let Progress(n) = self.check_customer().unwrap() {
+                if n == 0 {
+                    break;
                 }
             }
-            Status::Disconnected => EngineStatus::Completed,
         }
+
+        if fastrand::usize(..50) < 1 {
+            if Status::Disconnected == self.check_cmd().unwrap() {
+                return EngineStatus::Completed;
+            }
+        }
+
+        return EngineStatus::Progressed;
     }
 }
 

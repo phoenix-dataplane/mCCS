@@ -1,15 +1,16 @@
 use crate::checked_cuda;
+use crate::DevicePtr;
 use crate::Error;
 use crate::MccsCommunicatorHandle;
 use crate::MCCS_CTX;
 use crate::MCCS_STREAM_SYNC;
-use crate::{rx_recv_impl, DevicePtr};
 use cuda_runtime_sys::cudaStreamWaitEvent;
 use cuda_runtime_sys::{cudaEventRecord, cudaStream_t};
+use ipc::mccs::command::AllGather;
 use ipc::mccs::command::AllReduce;
 use ipc::mccs::command::AllReduceDataType;
 use ipc::mccs::command::AllReduceOpType;
-use ipc::mccs::command::{AllGather, Command, CompletionKind};
+use ipc::mccs::dp;
 
 pub fn all_gather(
     comm: MccsCommunicatorHandle,
@@ -30,9 +31,38 @@ pub fn all_gather(
         user_stream: stream as usize,
     };
     MCCS_CTX.with(move |ctx| {
-        let req = Command::AllGather(op);
-        ctx.service.send_cmd(req)?;
-        rx_recv_impl!(ctx.service, CompletionKind::AllGather)
+        let mut sent = false;
+        while !sent {
+            ctx.service
+                .enqueue_wr_with(|ptr, _count| unsafe {
+                    ptr.cast::<dp::WorkRequest>()
+                        .write(dp::WorkRequest::AllGather(op));
+                    sent = true;
+                    1
+                })
+                .expect("channel to backend corrupted");
+        }
+
+        let mut recv = false;
+        while !recv {
+            ctx.service
+                .dequeue_wc_with(|ptr, count| unsafe {
+                    for i in 0..count {
+                        let c = ptr.add(i).cast::<dp::WorkCompletion>().read();
+                        match c {
+                            dp::WorkCompletion::AllGather => {
+                                recv = true;
+                            }
+                            _ => {
+                                panic!("unexpected work completion: {:?}", c);
+                            }
+                        }
+                    }
+                    count
+                })
+                .map_err(Error::Service)?;
+        }
+        Ok(()) as Result<(), Error>
     })?;
 
     unsafe {
@@ -64,10 +94,40 @@ pub fn all_reduce(
         op_type,
         user_stream: stream as usize,
     };
+
     MCCS_CTX.with(move |ctx| {
-        let req = Command::AllReduce(op);
-        ctx.service.send_cmd(req)?;
-        rx_recv_impl!(ctx.service, CompletionKind::AllReduce)
+        let mut sent = false;
+        while !sent {
+            ctx.service
+                .enqueue_wr_with(|ptr, _count| unsafe {
+                    ptr.cast::<dp::WorkRequest>()
+                        .write(dp::WorkRequest::AllReduce(op));
+                    sent = true;
+                    1
+                })
+                .expect("channel to backend corrupted");
+        }
+
+        let mut recv = false;
+        while !recv {
+            ctx.service
+                .dequeue_wc_with(|ptr, count| unsafe {
+                    for i in 0..count {
+                        let c = ptr.add(i).cast::<dp::WorkCompletion>().read();
+                        match c {
+                            dp::WorkCompletion::AllReduce => {
+                                recv = true;
+                            }
+                            _ => {
+                                panic!("unexpected work completion: {:?}", c);
+                            }
+                        }
+                    }
+                    count
+                })
+                .map_err(Error::Service)?;
+        }
+        Ok(()) as Result<(), Error>
     })?;
 
     unsafe {

@@ -18,6 +18,7 @@ use thiserror::Error;
 use volatile::{map_field, VolatilePtr};
 
 use ibverbs::ffi::ibv_async_event;
+use ibverbs::ffi::mlx5dv_modify_qp_udp_sport;
 use ibverbs::ffi::{ibv_access_flags, ibv_qp_state, ibv_qp_type, ibv_send_flags, ibv_wr_opcode};
 use ibverbs::ffi::{
     ibv_ack_async_event, ibv_event_type_str, ibv_get_async_event, IBV_EVENT_COMM_EST,

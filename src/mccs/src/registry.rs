@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::config::DefaultCommConfig;
-use crate::config::CommPatternConfig;
 use crate::comm::CommunicatorId;
+use crate::config::CommPatternConfig;
+use crate::config::DefaultCommConfig;
 use crate::transport::catalog::TransportCatalog;
 use crate::transport::delegator::TransportDelegator;
 

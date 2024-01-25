@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -5,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use std::collections::HashMap;
 
 use anyhow::anyhow;
 
@@ -15,9 +15,9 @@ use ipc::customer::ShmCustomer;
 use ipc::unix::DomainSocket;
 use qos_service::QosSchedule;
 
-use crate::config::Config;
-use crate::config::CommPatternConfig;
 use crate::comm::CommunicatorId;
+use crate::config::CommPatternConfig;
+use crate::config::Config;
 use crate::cuda_warning;
 use crate::daemon::engine::DaemonEngine;
 use crate::daemon::DaemonId;
@@ -38,7 +38,6 @@ use crate::transport::net::RDMA_TRANSPORT;
 use crate::utils::duplex_chan::DuplexChannel;
 
 // Imports for tests
-
 
 // use cuda_runtime_sys::cudaError;
 // use cuda_runtime_sys::cudaEventCreateWithFlags;
@@ -117,11 +116,12 @@ impl Control {
         init_nvml();
 
         let mut comm_patterns = HashMap::new();
-        for pattern_config in config.comm_patterns_override.iter() {
-            let comm_id = CommunicatorId(pattern_config.communicator_id);
-            let pattern_config = pattern_config.clone();
-            comm_patterns
-                .insert(comm_id, pattern_config);
+        if let Some(comm_patterns_override) = &config.comm_patterns_override {
+            for pattern_config in comm_patterns_override.iter() {
+                let comm_id = CommunicatorId(pattern_config.communicator_id);
+                let pattern_config = pattern_config.clone();
+                comm_patterns.insert(comm_id, pattern_config);
+            }
         }
 
         let runtime_manager = RuntimeManager::new();
