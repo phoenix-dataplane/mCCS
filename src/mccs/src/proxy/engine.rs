@@ -264,33 +264,62 @@ impl ProxyResources {
             }
         } else if comm.stage == CommInitStage::AllGatherPeerInfo {
             if comm.peers_info.is_some() {
-                // 0 -> 1 -> ... -> numRanks-1 -> 0
-                let ring_next = (comm.rank + 1) % comm.num_ranks;
-                let ring_prev = (comm.rank + comm.num_ranks - 1) % comm.num_ranks;
-                // in current implentation, ring follows the same ordering of ranks
-                let ring_index = comm.rank;
+                let pattern_override = self.global_registry.comm_pattern_override.get(&comm_id);
+                let channels = if let Some(pattern) = pattern_override {
+                    let mut channels = Vec::with_capacity(pattern.channels.len());
+                    for chan in pattern.channels.iter() {
+                        assert_eq!(chan.ring.len(), comm.num_ranks);
+                        let ix_rank = chan.ring.iter().position(|x| *x == comm.rank).unwrap();
+                        let ix_zero = chan.ring.iter().position(|x| *x == 0).unwrap();
+                        let mut user_ranks = Vec::with_capacity(comm.num_ranks);
+                        for i in 0..comm.num_ranks {
+                            let ring_rank = chan.ring[(i + ix_rank) % comm.num_ranks];
+                            assert!(ring_rank < comm.num_ranks);
+                            user_ranks.push(ring_rank);
+                        }
+                        let ring = crate::pattern::RingPattern {
+                            prev: user_ranks[comm.num_ranks - 1],
+                            next: user_ranks[1],
+                            user_ranks,
+                            index: (ix_rank + comm.num_ranks - ix_zero) % comm.num_ranks,
+                        };
+                        let chan_pattern = crate::comm::ChannelCommPattern {
+                            channel: ChannelId(chan.channel_id),
+                            ring,
+                        };
+                        channels.push(chan_pattern);
+                    }
+                    channels
+                } else {
+                    // 0 -> 1 -> ... -> numRanks-1 -> 0
+                    let ring_next = (comm.rank + 1) % comm.num_ranks;
+                    let ring_prev = (comm.rank + comm.num_ranks - 1) % comm.num_ranks;
+                    // in current implentation, ring follows the same ordering of ranks
+                    let ring_index = comm.rank;
 
-                let mut user_ranks = Vec::with_capacity(comm.num_ranks);
-                for idx in 0..comm.num_ranks {
-                    let ring_rank = (comm.rank + idx) % comm.num_ranks;
-                    user_ranks.push(ring_rank);
-                }
-                let ring_pattern = crate::pattern::RingPattern {
-                    prev: ring_prev,
-                    next: ring_next,
-                    user_ranks,
-                    index: ring_index,
+                    let mut user_ranks = Vec::with_capacity(comm.num_ranks);
+                    for idx in 0..comm.num_ranks {
+                        let ring_rank = (comm.rank + idx) % comm.num_ranks;
+                        user_ranks.push(ring_rank);
+                    }
+                    let ring_pattern = crate::pattern::RingPattern {
+                        prev: ring_prev,
+                        next: ring_next,
+                        user_ranks,
+                        index: ring_index,
+                    };
+
+                    let channels = (0..self.global_registry.default_comm_config.channel_count)
+                        .map(|idx| crate::comm::ChannelCommPattern {
+                            channel: ChannelId(idx),
+                            ring: ring_pattern.clone(),
+                        })
+                        .collect::<Vec<_>>();
+                    channels
                 };
 
-                let mut channels = (0..self.global_registry.default_comm_config.channel_count)
-                    .map(|idx| crate::comm::ChannelCommPattern {
-                        channel: ChannelId(idx),
-                        ring: ring_pattern.clone(),
-                    })
-                    .collect::<Vec<_>>();
-
                 let mut transport_connect =
-                    TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
+                TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
                 for pattern in channels.iter() {
                     let ix_zero = pattern
                         .ring
