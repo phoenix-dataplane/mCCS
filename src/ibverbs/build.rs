@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rustc-link-lib=ibverbs");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=vendor/rdma-core/libibverbs/verbs.h");
+    println!("cargo:rerun-if-changed=wrapper.h");
 
     // initialize and update submodules
     if Path::new(".git").is_dir() {
@@ -32,9 +33,11 @@ fn main() {
     // generate the bindings
     let bindings = bindgen::Builder::default()
         .header("vendor/rdma-core/libibverbs/verbs.h")
+        .header("wrapper.h")
         .clang_arg("-Ivendor/rdma-core/build/include/")
         .allowlist_function("ibv_.*")
         .allowlist_type("ibv_.*")
+        .allowlist_function("mlx5dv._*")
         .allowlist_var("IBV_LINK_LAYER_.*")
         .bitfield_enum("ibv_access_flags")
         .bitfield_enum("ibv_qp_attr_mask")

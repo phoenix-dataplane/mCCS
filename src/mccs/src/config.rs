@@ -30,6 +30,19 @@ impl Default for DefaultCommConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChannelPattern {
+    pub channel_id: u32,
+    pub ring: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommPatternConfig {
+    pub communicator_id: u32,
+    pub channels: Vec<ChannelPattern>,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommGlobalConfig {
     #[serde(rename = "net_rdma", default)]
     pub rdma_config: RdmaTransportConfig,
@@ -69,6 +82,7 @@ pub struct Config {
     pub mccs_daemon_basename: String,
     pub mccs_daemon_prefix: PathBuf,
     pub qos_schedule: Option<QosScheduleDef>,
+    pub comm_patterns_override: Vec<CommPatternConfig>, 
 }
 
 impl Config {
