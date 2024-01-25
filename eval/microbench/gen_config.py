@@ -113,15 +113,16 @@ command = ["allreduce", "allgather"]
 node_configurations = [{1: 2, 2: 2, 3: 2, 5: 2}, {1: 1, 2: 1, 3: 1, 5: 1}]
 
 for comm in command:
-    for node_config in node_configurations:
+    for node_idx, node_config in enumerate(node_configurations):
+        node_str = "8GPU" if node_idx == 0 else "4GPU"
         for size in size_list:
             config = generate_config(
-                name=f"{comm}_{size}",
+                name=f"{comm}/{node_str}/{size}",
                 group="microbench",
                 binary=comm + "_bench",
                 root_addr=addrs[1],
                 machine_map=node_config,
                 size=convert_size(size),
             )
-            with open(f"output/{comm}_{size}.toml", "w") as f:
+            with open(f"output/{comm}_{node_str}_{size}.toml", "w") as f:
                 toml.dump(config, f)
