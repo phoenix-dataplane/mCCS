@@ -319,7 +319,7 @@ impl ProxyResources {
                 };
 
                 let mut transport_connect =
-                TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
+                    TransportConnectState::new(comm.rank, comm.num_ranks, channels.len());
                 for pattern in channels.iter() {
                     let ix_zero = pattern
                         .ring

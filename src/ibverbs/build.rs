@@ -37,7 +37,7 @@ fn main() {
         .clang_arg("-Ivendor/rdma-core/build/include/")
         .allowlist_function("ibv_.*")
         .allowlist_type("ibv_.*")
-        .allowlist_function("mlx5dv._*")
+        .allowlist_function("mlx5dv_.*")
         .allowlist_var("IBV_LINK_LAYER_.*")
         .bitfield_enum("ibv_access_flags")
         .bitfield_enum("ibv_qp_attr_mask")

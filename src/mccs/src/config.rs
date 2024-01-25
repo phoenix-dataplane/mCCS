@@ -41,7 +41,6 @@ pub struct CommPatternConfig {
     pub channels: Vec<ChannelPattern>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommGlobalConfig {
     #[serde(rename = "net_rdma", default)]
@@ -82,7 +81,7 @@ pub struct Config {
     pub mccs_daemon_basename: String,
     pub mccs_daemon_prefix: PathBuf,
     pub qos_schedule: Option<QosScheduleDef>,
-    pub comm_patterns_override: Vec<CommPatternConfig>, 
+    pub comm_patterns_override: Option<Vec<CommPatternConfig>>,
 }
 
 impl Config {
