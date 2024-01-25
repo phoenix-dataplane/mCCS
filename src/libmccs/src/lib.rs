@@ -26,7 +26,7 @@ pub use memory::cuda_malloc;
 
 pub use ipc::mccs::command::{AllReduceDataType, AllReduceOpType};
 
-const DEFAULT_MCCS_PREFIX: &str = "/tmp/mccs-";
+const DEFAULT_MCCS_PREFIX: &str = "/tmp/mccs-${USER}";
 const DEFAULT_MCCS_CONTROL: &str = "control.sock";
 
 macro_rules! nvml_warning {
@@ -40,7 +40,10 @@ macro_rules! nvml_warning {
 
 lazy_static::lazy_static! {
     pub static ref MCCS_PREFIX: PathBuf = {
-        env::var("MCCS_PREFIX").map_or_else(|_| PathBuf::from((String::from(DEFAULT_MCCS_PREFIX)+std::env::var("USER").unwrap_or_default().as_str()).as_str()), |p| {
+        env::var("MCCS_PREFIX").map_or_else(|_| match std::env::var("USER") {
+            Ok(user) => PathBuf::from(DEFAULT_MCCS_PREFIX.replace("${USER}", &user)),
+            Err(_) => PathBuf::from(DEFAULT_MCCS_PREFIX),
+        }, |p| {
             let path = PathBuf::from(p);
             assert!(path.is_dir(), "{path:?} is not a directly");
             path
@@ -164,6 +167,10 @@ impl Context {
             -1 => None,
             idx => Some(idx),
         };
+        println!(
+            "register ctx: prefix={:?}, control={:?}, affinity={:?}",
+            *MCCS_PREFIX, *MCCS_CONTROL_SOCK, device_affnity
+        );
         let service = ShmService::register(&*MCCS_PREFIX, &*MCCS_CONTROL_SOCK, device_affnity)?;
         Ok(Self { service })
     }
