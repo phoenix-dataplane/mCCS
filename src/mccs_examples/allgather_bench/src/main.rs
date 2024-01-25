@@ -22,6 +22,8 @@ struct Opts {
     communicator: u32,
     #[structopt(short, long, default_value = "128")]
     size: usize,
+    #[structopt(long)]
+    size_in_byte: bool,
     #[structopt(long, default_value = "20")]
     round: usize,
 }
@@ -29,7 +31,11 @@ struct Opts {
 fn main() -> ExitCode {
     let base_val = 2042;
     let opts = Opts::from_args();
-    let buffer_size = opts.size * 1024 * 1024;
+    let buffer_size = if opts.size_in_byte {
+        opts.size
+    } else {
+        opts.size * 1024 * 1024
+    };
     let rank = opts.rank;
     let num_ranks = opts.num_ranks;
 
@@ -140,8 +146,9 @@ fn main() -> ExitCode {
     }
     let end = Instant::now();
     let dura = end.duration_since(start);
-    let tput =
-        (opts.size * num_ranks * opts.round) as f64 / 1024.0 / (dura.as_micros() as f64 / 1.0e6);
+    let tput = (buffer_size * num_ranks * opts.round) as f64
+        / (1024.0 * 1024.0 * 1024.0)
+        / (dura.as_micros() as f64 / 1.0e6);
     println!("Algorithm bandwidth: {:.} GB/s", tput);
     return ExitCode::SUCCESS;
 }
