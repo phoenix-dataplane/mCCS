@@ -19,7 +19,7 @@ pub use rdma::RDMA_TRANSPORT;
 pub type AnyNetComm = dyn Any + Send;
 pub type AnyMrHandle = dyn Any + Send;
 
-pub const NET_MAX_REQUESTS: usize = 32;
+pub const NET_MAX_REQUESTS: usize = 8;
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -28,6 +28,9 @@ auto-3reduce size='128' round='10' comm='42':
 auto-triple size='128' round='10' comm='42':
   just bench $RK 3 {{round}} {{size}} {{comm}} $DEV
 
+auto-double size='128' round='10' comm='42':
+  just bench $RK 2 {{round}} {{size}} {{comm}} $DEV
+
 auto-back LEVEL='info':
   just back $MACHINE {{LEVEL}}
 

@@ -473,16 +473,19 @@ pub fn net_agent_send_progress(
             VolatilePtr::new(non_null)
         };
         log::trace!(
-            "net_agent_send_progress(): *size_ptr={}, *recv_tail={}, base={}, transmitted={}, done={}",
+            "#{} net_agent_send_progress()[1/2]: *size_ptr={}, *recv_tail={}, base={}, transmitted={}, done={}, num_steps={}",
+            op.debug_id,
             size_ptr.read(),
             recv_tail.read(),
             op.base,
             op.transmitted,
-            op.done
+            op.done,
+            op.num_steps
         );
         if size_ptr.read() != -1 && recv_tail.read() > op.base + op.transmitted {
             log::trace!(
-                "net_agent_send_progress(): *size_ptr={}, *recv_tail={}, base={}, transmitted={}, done={}",
+                "#{} net_agent_send_progress()[2/2]: *size_ptr={}, *recv_tail={}, base={}, transmitted={}, done={}",
+                op.debug_id,
                 size_ptr.read(),
                 recv_tail.read(),
                 op.base,
@@ -507,6 +510,11 @@ pub fn net_agent_send_progress(
                 } else {
                     false
                 };
+                log::trace!(
+                    "net_agent_send_progress()[delay]: interval={:?} delay_send={}",
+                    interval,
+                    delay_send
+                );
                 if !delay_send {
                     let request_id = provider.initiate_send(
                         resources.send_comm.as_mut(),
@@ -522,6 +530,10 @@ pub fn net_agent_send_progress(
                         op.transmitted += op.slice_steps as u64;
                         op.idle = false;
                         return Ok(());
+                    }
+                    // }
+                    else {
+                        log::trace!("net_agent_send_progress: WTF it's None")
                     }
                 }
             }
@@ -592,6 +604,15 @@ pub fn net_agent_recv_progress(
         return Ok(());
     }
     // log::trace!("Recv op: {:?}", op);
+    log::trace!(
+        "#{} net_agent_recv_progress():  base={}, posted={}, transmitted={}, done={} num_step={}",
+        op.debug_id,
+        op.base,
+        op.posted,
+        op.transmitted,
+        op.done,
+        op.num_steps
+    );
 
     let provider = resources.provider;
     let recv_comm = resources.recv_comm.as_mut();

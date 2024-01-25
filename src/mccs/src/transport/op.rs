@@ -111,7 +111,10 @@ pub struct TransportOp {
     pub flushed: u64,
     pub transmitted: u64,
     pub done: u64,
+    pub debug_id: u64,
 }
+
+static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl TransportOp {
     pub fn new(
@@ -136,6 +139,7 @@ impl TransportOp {
             flushed: 0,
             transmitted: 0,
             done: 0,
+            debug_id: COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
