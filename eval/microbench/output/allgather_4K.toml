@@ -1,0 +1,50 @@
+name = "allgather_4K"
+group = "microbench"
+[[workers]]
+host = "danyang-01"
+bin = "mccs"
+args = "--host 1"
+dependencies = []
+
+[[workers]]
+host = "danyang-02"
+bin = "mccs"
+args = "--host 2"
+dependencies = []
+
+[[workers]]
+host = "danyang-03"
+bin = "mccs"
+args = "--host 3"
+dependencies = []
+
+[[workers]]
+host = "danyang-05"
+bin = "mccs"
+args = "--host 5"
+dependencies = []
+
+[[workers]]
+host = "danyang-01"
+bin = "allgather_bench"
+args = "--root-addr 192.168.211.2 --rank 0 --num-ranks 4 --cuda-device-idx 0 --size 4096 --communicator 42 --round 10 --size_in_byte true"
+dependencies = [ 0, 1, 2, 3,]
+
+[[workers]]
+host = "danyang-02"
+bin = "allgather_bench"
+args = "--root-addr 192.168.211.2 --rank 1 --num-ranks 4 --cuda-device-idx 0 --size 4096 --communicator 42 --round 10 --size_in_byte true"
+dependencies = [ 0, 1, 2, 3,]
+
+[[workers]]
+host = "danyang-03"
+bin = "allgather_bench"
+args = "--root-addr 192.168.211.2 --rank 2 --num-ranks 4 --cuda-device-idx 0 --size 4096 --communicator 42 --round 10 --size_in_byte true"
+dependencies = [ 0, 1, 2, 3,]
+
+[[workers]]
+host = "danyang-05"
+bin = "allgather_bench"
+args = "--root-addr 192.168.211.2 --rank 3 --num-ranks 4 --cuda-device-idx 0 --size 4096 --communicator 42 --round 10 --size_in_byte true"
+dependencies = [ 0, 1, 2, 3,]
+
