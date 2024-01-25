@@ -12,6 +12,7 @@ pub struct InitCommunicator {
     pub num_ranks: usize,
 }
 
+#[derive(Clone, Debug)]
 pub struct AllGatherRequest {
     pub communicator_id: CommunicatorId,
     pub send_buf_addr: usize,
@@ -21,6 +22,7 @@ pub struct AllGatherRequest {
     pub user_stream: usize,
 }
 
+#[derive(Clone, Debug)]
 pub struct AllReduceRequest {
     pub communicator_id: CommunicatorId,
     pub send_buf_addr: usize,

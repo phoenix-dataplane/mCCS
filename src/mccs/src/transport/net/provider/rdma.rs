@@ -788,7 +788,6 @@ pub async fn ib_listen(device: usize) -> Result<(IbConnectHandle, IbListenComm),
     let listen_addr = SocketAddr::new(transport_ctx.listen_addr, 0);
     let listener = tcp::async_listen(&listen_addr)?;
     let listen_addr = listener.local_addr()?;
-    log::debug!("RDMA transport provider listens on {:?}", listen_addr);
     let magic = rand::random::<u64>();
     let handle = IbConnectHandle {
         connect_addr: listen_addr,
@@ -1002,7 +1001,7 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
         flags: send_flags,
         sge: fifo_sge,
     };
-
+    log::debug!("ib_accept received remote qp fifo addr={:0x}, rkey={}", remote_fifo.addr, remote_fifo.rkey);
     // Allocate Flush dummy buffer for GPU Direct RDMA
     // TODO: check GDR support
     let gpu_flush_enable = transport_ctx.gdr_support && !transport_ctx.config.gdr_flush_disable;
@@ -1301,6 +1300,7 @@ pub fn ib_initiate_send(
 
     let idx_expected = comm.fifo_head + 1;
     let idx_slot = map_field!(slot_ptr.idx).read();
+
     if idx_expected != idx_slot {
         // Wait for the receiver to post corresponding receive
         return Ok(None);
