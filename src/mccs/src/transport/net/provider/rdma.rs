@@ -1001,7 +1001,11 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
         flags: send_flags,
         sge: fifo_sge,
     };
-    log::debug!("ib_accept received remote qp fifo addr={:0x}, rkey={}", remote_fifo.addr, remote_fifo.rkey);
+    log::debug!(
+        "ib_accept received remote qp fifo addr={:0x}, rkey={}",
+        remote_fifo.addr,
+        remote_fifo.rkey
+    );
     // Allocate Flush dummy buffer for GPU Direct RDMA
     // TODO: check GDR support
     let gpu_flush_enable = transport_ctx.gdr_support && !transport_ctx.config.gdr_flush_disable;

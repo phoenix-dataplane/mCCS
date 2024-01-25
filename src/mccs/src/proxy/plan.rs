@@ -233,7 +233,7 @@ impl Communicator {
                     bid: block_id as u8,
                     num_channels: schema.num_channels as _,
                 };
-                log::debug!("WorkElem={:?}", elem);
+                log::debug!("Chan[{}]: WorkElem={:?}", chan_id.0, elem);
                 let schedule = self.plan_schedule.get_mut(&chan_id).unwrap();
                 // work queue
                 schedule.enqueue_work_elem_coll(
