@@ -26,6 +26,8 @@ struct Opts {
     size_in_byte: bool,
     #[structopt(long, default_value = "20")]
     round: usize,
+    #[structopt(long, default_value = "1")]
+    epoch: usize,
 }
 
 fn main() -> ExitCode {
@@ -125,33 +127,42 @@ fn main() -> ExitCode {
             panic!("cudaStreamSynchronize failed");
         }
     }
-    println!("Rank{}: warmup phase finished", opts.rank);
+    println!("Rank {}: warmup phase finished", opts.rank);
     // start testing
-    let start = Instant::now();
-    for _ in 0..opts.round {
-        libmccs::all_gather(
-            comm,
-            dev_ptr.add(rank * buffer_size).unwrap(),
-            dev_ptr,
-            buffer_size,
-            0 as cudaStream_t,
-        )
-        .unwrap();
-    }
-    unsafe {
-        let err = cuda_runtime_sys::cudaStreamSynchronize(0 as cudaStream_t);
-        if err != cudaError::cudaSuccess {
-            panic!("cudaStreamSynchronize failed");
+    for e in 0..opts.epoch {
+        let start = Instant::now();
+        for _ in 0..opts.round {
+            libmccs::all_gather(
+                comm,
+                dev_ptr.add(rank * buffer_size).unwrap(),
+                dev_ptr,
+                buffer_size,
+                0 as cudaStream_t,
+            )
+            .unwrap();
+        }
+        unsafe {
+            let err = cuda_runtime_sys::cudaStreamSynchronize(0 as cudaStream_t);
+            if err != cudaError::cudaSuccess {
+                panic!("cudaStreamSynchronize failed");
+            }
+        }
+        let end = Instant::now();
+        let dura = end.duration_since(start);
+        let tput =
+            (buffer_size * num_ranks * opts.round) as f64 / 1e9 / (dura.as_micros() as f64 / 1.0e6);
+        if opts.epoch > 1 {
+            println!(
+                "[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
+                e, rank, num_ranks, tput
+            );
+        } else {
+            println!(
+                "[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
+                rank, num_ranks, tput
+            );
         }
     }
-    let end = Instant::now();
-    let dura = end.duration_since(start);
-    let tput =
-        (buffer_size * num_ranks * opts.round) as f64 / 1e9 / (dura.as_micros() as f64 / 1.0e6);
-    println!(
-        "[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
-        rank, num_ranks, tput
-    );
     return ExitCode::SUCCESS;
 }
 

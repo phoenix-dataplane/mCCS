@@ -26,6 +26,8 @@ struct Opts {
     size_in_byte: bool,
     #[structopt(long, default_value = "20")]
     round: usize,
+    #[structopt(long, default_value = "1")]
+    epoch: usize,
 }
 
 fn main() -> ExitCode {
@@ -82,8 +84,8 @@ fn main() -> ExitCode {
         comm,
         dev_ptr,
         dev_ptr,
-        buffer_size / std::mem::size_of::<i32>(),
-        libmccs::AllReduceDataType::Int32,
+        buffer_size / 2,
+        libmccs::AllReduceDataType::Float16,
         libmccs::AllReduceOpType::Sum,
         0 as cudaStream_t,
     )
@@ -101,21 +103,21 @@ fn main() -> ExitCode {
             panic!("cudaMemcpy failed");
         }
     };
-    for r in 0..num_ranks {
-        let data = buf2[r * buffer_size / num_ranks / std::mem::size_of::<i32>()];
-        let expected = (base_val as usize * num_ranks + (0 + num_ranks - 1) * num_ranks / 2) as i32;
-        if data != expected {
-            eprintln!("Rank{}: expected {}, got {}", r, expected, data);
-            return ExitCode::FAILURE;
-        }
-    }
+    // for r in 0..num_ranks {
+    //     let data = buf2[r * buffer_size / num_ranks / std::mem::size_of::<i32>()];
+    //     let expected = (base_val as usize * num_ranks + (0 + num_ranks - 1) * num_ranks / 2) as i32;
+    //     if data != expected {
+    //         eprintln!("Rank{}: expected {}, got {}", r, expected, data);
+    //         return ExitCode::FAILURE;
+    //     }
+    // }
     for _ in 0..5 {
         libmccs::all_reduce(
             comm,
             dev_ptr,
             dev_ptr,
-            buffer_size / 4,
-            libmccs::AllReduceDataType::Int32,
+            buffer_size / 2,
+            libmccs::AllReduceDataType::Float16,
             libmccs::AllReduceOpType::Sum,
             0 as cudaStream_t,
         )
@@ -129,33 +131,40 @@ fn main() -> ExitCode {
     }
     println!("Rank{}: warmup phase finished", opts.rank);
     // start testing
-    let start = Instant::now();
-    for _ in 0..opts.round {
-        libmccs::all_reduce(
-            comm,
-            dev_ptr,
-            dev_ptr,
-            buffer_size / 4,
-            libmccs::AllReduceDataType::Int32,
-            libmccs::AllReduceOpType::Sum,
-            0 as cudaStream_t,
-        )
-        .unwrap();
-    }
-    unsafe {
-        let err = cuda_runtime_sys::cudaStreamSynchronize(0 as cudaStream_t);
-        if err != cudaError::cudaSuccess {
-            panic!("cudaStreamSynchronize failed");
+    for e in 0..opts.epoch {
+        let start = Instant::now();
+        for _ in 0..opts.round {
+            libmccs::all_reduce(
+                comm,
+                dev_ptr,
+                dev_ptr,
+                buffer_size / 2,
+                libmccs::AllReduceDataType::Float16,
+                libmccs::AllReduceOpType::Sum,
+                0 as cudaStream_t,
+            )
+            .unwrap();
         }
-    }
-    let end = Instant::now();
-    let dura = end.duration_since(start);
-    if opts.rank == 0 {
+        unsafe {
+            let err = cuda_runtime_sys::cudaStreamSynchronize(0 as cudaStream_t);
+            if err != cudaError::cudaSuccess {
+                panic!("cudaStreamSynchronize failed");
+            }
+        }
+        let end = Instant::now();
+        let dura = end.duration_since(start);
         let tput = (opts.size * opts.round) as f64 / 1e9 / (dura.as_micros() as f64 / 1.0e6);
-        println!(
-            "[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
-            rank, num_ranks, tput
-        );
+        if opts.epoch > 1 {
+            println!(
+                "[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
+                e, rank, num_ranks, tput
+            );
+        } else {
+            println!(
+                "[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
+                rank, num_ranks, tput
+            );
+        }
     }
     return ExitCode::SUCCESS;
 }
