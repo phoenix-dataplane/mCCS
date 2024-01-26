@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::transport::channel::{ChannelId, PeerConnId};
 use crate::transport::net::provider::RDMA_TRANSPORT;
 use crate::transport::net::provider::{NetProperties, NetProvierWrap};
 use crate::transport::NUM_PROTOCOLS;
@@ -5,6 +8,8 @@ use crate::transport::NUM_PROTOCOLS;
 // comm profile, setting and
 pub struct CommProfile {
     pub buff_sizes: [usize; NUM_PROTOCOLS],
+    pub udp_sport_map: HashMap<PeerConnId, u16>,
+    pub channel_net_device_map: HashMap<ChannelId, String>,
 }
 
 impl CommProfile {
@@ -12,8 +17,28 @@ impl CommProfile {
     // TODO: choose net dev that is closest to the specified GPU
     // and allow admins to specify the set of allowed net devs
     #[inline]
-    pub fn get_network_device(&self, rank: usize, _peer_rank: usize) -> (usize, usize) {
-        (0, rank)
+    pub fn get_network_device(
+        &self,
+        channel_id: ChannelId,
+        my_rank: usize,
+        _peer_rank: usize,
+    ) -> (usize, usize) {
+        let prefix = self.channel_net_device_map.get(&channel_id);
+        let num_devices = RDMA_TRANSPORT.get_num_devices().unwrap();
+        if let Some(prefix) = prefix {
+            for dev in 0..num_devices {
+                let props = RDMA_TRANSPORT.get_properties(dev).unwrap();
+                if props.name.starts_with(prefix) {
+                    return (dev, my_rank);
+                }
+            }
+        }
+        (0, my_rank)
+    }
+
+    #[inline]
+    pub fn get_udp_sport(&self, peer_conn_id: &PeerConnId) -> Option<u16> {
+        self.udp_sport_map.get(peer_conn_id).copied()
     }
 
     #[inline]

@@ -103,6 +103,7 @@ pub trait NetProvider: Send + Sync {
         &self,
         device: usize,
         handle: Self::NetHandle,
+        udp_sport: Option<u16>,
     ) -> Result<Box<AnyNetComm>, Self::NetError>;
     // Finalize connection establishment after remote peer has called connect.
     async fn accept(&self, listen_comm: Box<AnyNetComm>)
@@ -199,6 +200,7 @@ pub trait NetProvierWrap: private::Sealed + Send + Sync {
         &self,
         device: usize,
         handle: &ConnectHandle,
+        udp_sport: Option<u16>,
     ) -> Result<Box<AnyNetComm>, NetProviderError>;
     async fn accept(
         &self,
@@ -294,9 +296,10 @@ impl<T: NetProvider> NetProvierWrap for T {
         &self,
         device: usize,
         handle: &ConnectHandle,
+        udp_sport: Option<u16>,
     ) -> Result<Box<AnyNetComm>, NetProviderError> {
         let handle = handle.deserialize_to::<<Self as NetProvider>::NetHandle>()?;
-        let send_comm = <Self as NetProvider>::connect(self, device, handle)
+        let send_comm = <Self as NetProvider>::connect(self, device, handle, udp_sport)
             .await
             .map_err(anyhow::Error::new)?;
         Ok(send_comm)

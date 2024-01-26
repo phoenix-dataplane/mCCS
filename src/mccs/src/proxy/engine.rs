@@ -772,6 +772,7 @@ impl ProxyEngine {
                     comm.bootstrap_handle = Some(handle);
                 }
                 ExchangeNotification::CommPatternReconfig(comm_pattern) => {
+                    log::error!("CommPatternReconfig: business is closed");
                     let comm_id = CommunicatorId(comm_pattern.communicator_id.0);
                     let comm = self.resources.communicators.remove(&comm_id).unwrap();
                     let mut channels = Vec::with_capacity(comm_pattern.channels.len());
@@ -909,12 +910,48 @@ impl ProxyEngine {
                 Ok(msg) => {
                     match msg {
                         ProxyCommand::InitCommunicator(init) => {
+                            let mut udp_sport_map = HashMap::new();
+                            let mut channel_net_dev_map = HashMap::new();
+                            let comm_pattern = self
+                                .resources
+                                .global_registry
+                                .comm_pattern_override
+                                .get(&init.communicator_id);
+                            if let Some(comm_pattern) = comm_pattern {
+                                for channel in comm_pattern.channels.iter() {
+                                    if let Some(sport_map) = channel.udp_sport.as_ref() {
+                                        for spec in sport_map.iter() {
+                                            let conn_type = match spec.1 {
+                                                crate::config::ConnectionType::Send => {
+                                                    ConnType::Recv
+                                                }
+                                                crate::config::ConnectionType::Recv => {
+                                                    ConnType::Send
+                                                }
+                                            };
+                                            let conn_id = PeerConnId {
+                                                peer_rank: spec.0,
+                                                channel: ChannelId(channel.channel_id),
+                                                conn_index: 0,
+                                                conn_type,
+                                            };
+                                            udp_sport_map.insert(conn_id, spec.2);
+                                        }
+                                    }
+                                    if let Some(net_dev) = channel.net_dev.as_ref() {
+                                        channel_net_dev_map
+                                            .insert(ChannelId(channel.channel_id), net_dev.clone());
+                                    }
+                                }
+                            }
                             let profile = CommProfile {
                                 buff_sizes: self
                                     .resources
                                     .global_registry
                                     .default_comm_config
                                     .buf_sizes,
+                                udp_sport_map,
+                                channel_net_device_map: channel_net_dev_map,
                             };
                             let mut comm_init = CommInitState::new(
                                 init.communicator_id,
