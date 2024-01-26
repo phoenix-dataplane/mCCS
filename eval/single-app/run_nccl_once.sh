@@ -58,9 +58,11 @@ esac
 case $app_type in
 	allgather)
 		app=all_gather_perf
+		dtype=" "
 		;;
 	allreduce)
 		app=all_reduce_perf
+		dtype="--datatype=half"
 		;;
 	*)
 		echo "Error: app must be either 'allgather' or 'allreduce', got $app_type"
@@ -75,4 +77,4 @@ mpirun --hostfile hostfile.$ring_type -mca pml ob1 -mca btl tcp,self -mca btl_tc
 	-x NCCL_IB_GID_INDEX=3 -x NCCL_SOCKET_IFNAME=rdma0 \
 	-x NCCL_MAX_NCHANNELS=2 -x NCCL_MIN_NCHANNELS=2 -x NCCL_IB_QPS_PER_CONNECTION=1 \
 	-x NCCL_IB_TC=$tclass \
-		$WORKDIR/../build/$app -b 32K -e 512M -f 4
+		$WORKDIR/../build/$app $dtype -b 32K -e 512M -f 4
