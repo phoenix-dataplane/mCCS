@@ -80,7 +80,7 @@ def generate_config(
 
     workers = [gen_daemon(machine) for machine in machine_map.keys()]
     dep = [i for i in range(len(machine_map))]
-    for machine, arg in get_args_group(root_addr, machine_map, size):
+    for machine, arg in get_args_group(root_addr, machine_map, size, round=10, comm=137):
         workers.append(
             {
                 "host": f"danyang-0{machine}",
@@ -111,18 +111,19 @@ def convert_size(size: str):
 
 size_list = ["1K", "4K", "16K", "64K", "256K", "1M", "4M", "16M", "64M", "256M", "1G"]
 command = ["allreduce", "allgather"]
-# node_configurations = [{1: 2, 2: 2, 3: 2, 5: 2}, {1: 1, 2: 1, 3: 1, 5: 1}]
-node_configurations = [{1: 2, 5: 2}]
+# node_configurations = [("8GPU", {1: 2, 2: 2, 3: 2, 5: 2}), ("4GPU", {1: 1, 2: 1, 3: 1, 5: 1})]
+node_configurations = [("2node", {2: 2, 3: 2})]
 
 for comm in command:
-    for node_idx, node_config in enumerate(node_configurations):
-        node_str = "8GPU" if node_idx == 0 else "4GPU"
+    for node_idx, node_configs in enumerate(node_configurations):
+        node_str, node_config = node_configs
+        v=iter(node_config).__next__()
         for size in size_list:
             config = generate_config(
                 name=f"{comm}/{node_str}/{size}",
                 group="microbench",
                 binary=comm + "_bench",
-                root_addr=addrs[1],
+                root_addr=addrs[v],
                 machine_map=node_config,
                 size=convert_size(size),
             )
