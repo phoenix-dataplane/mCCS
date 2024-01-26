@@ -437,7 +437,7 @@ fn run_benchmark_group(opt: &Opt, group: &str) -> anyhow::Result<()> {
     let mut suites = Vec::new();
     for entry in WalkDir::new(dir).follow_links(true) {
         let entry = entry.unwrap();
-        log::info!("traversing {}", entry.path().display());
+        log::debug!("traversing {}", entry.path().display());
         let path = path::PathBuf::from(entry.path());
         if path.is_dir() {
             continue;
@@ -457,6 +457,7 @@ fn run_benchmark_group(opt: &Opt, group: &str) -> anyhow::Result<()> {
             ),
         }
 
+        log::debug!("collecting {}", entry.path().display());
         suites.push(path);
     }
 
@@ -470,7 +471,7 @@ fn run_benchmark_group(opt: &Opt, group: &str) -> anyhow::Result<()> {
             }
         }
 
-        thread::sleep(Duration::from_millis(1000));
+        thread::sleep(Duration::from_millis(2000));
 
         let terminate_ts = (*TERMINATE.lock().unwrap()).unwrap_or(start);
         if terminate_ts > start {
@@ -570,6 +571,9 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
         h.join()
             .unwrap_or_else(|e| panic!("Failed to join thread: {:?}", e));
     }
+    if TERMINATE.lock().unwrap().is_some() {
+        anyhow::bail!("terminated by user");
+    }
     *TERMINATE.lock().unwrap() = Some(Instant::now());
 
     let now = Instant::now();
@@ -578,6 +582,11 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
             log::warn!("Some workers not finished yet, but force quitting");
             break;
         }
+    }
+    if *(TERMINATE.lock().unwrap()) == Some(now) {
+        anyhow::bail!("terminated by user");
+    } else {
+        *TERMINATE.lock().unwrap() = None;
     }
     Ok(())
 }
