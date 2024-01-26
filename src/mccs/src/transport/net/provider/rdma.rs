@@ -780,8 +780,9 @@ fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp, udp_sport: Option<u16>) -> Result<()
             | ibv_qp_attr_mask::IBV_QP_MAX_QP_RD_ATOMIC;
         ibv_check!(ibv_modify_qp(qp, &mut qp_attr, attr_mask.0 as i32));
         if let Some(udp_sport) = udp_sport {
-            if mlx5dv_modify_qp_udp_sport(qp, udp_sport) != 0 {
-                log::warn!("Failed to set UDP source port {}", udp_sport);
+            let ret = mlx5dv_modify_qp_udp_sport(qp, udp_sport);
+            if ret != 0 {
+                log::warn!("Failed to set UDP source port {}: {}", udp_sport, ret);
             }
         }
     }
