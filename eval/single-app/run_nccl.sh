@@ -58,6 +58,6 @@ mpirun --hostfile hostfile.$ring_type -mca pml ob1 -mca btl tcp,self -mca btl_tc
         -x CUDA_VISIBLE_DEVICES=0,1 \
         -x NCCL_DEBUG=INFO -x NCCL_ALGO=Ring -x NCCL_PROTO=Simple \
         -x NCCL_IB_GID_INDEX=3 -x NCCL_SOCKET_IFNAME=rdma0 \
-        -x NCCL_MAX_NCHANNELS=2 -x NCCL_MIN_NCHANNELS=2 \
+        -x NCCL_MAX_NCHANNELS=2 -x NCCL_MIN_NCHANNELS=2 -x NCCL_IB_QPS_PER_CONNECTION=1 \
         -x NCCL_IB_TC=$tclass \
                 $WORKDIR/../build/all_gather_perf -b 32K -e 512M -f 4
