@@ -30,6 +30,7 @@ pub struct AgentSetupRequest {
     pub(crate) need_flush: bool,
     pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
     pub(crate) provider: &'static dyn NetProvierWrap,
+    pub(crate) udp_sport: Option<u16>,
 }
 
 pub struct AgentSendSetup {
@@ -43,6 +44,7 @@ pub struct AgentSendSetup {
     pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
     pub(crate) provider: &'static dyn NetProvierWrap,
     pub(crate) gdr_copy_sync_enable: bool,
+    pub(crate) udp_sport: Option<u16>,
 }
 
 pub struct AgentSendConnectRequest {

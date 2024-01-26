@@ -760,7 +760,7 @@ fn ib_rtr_qp(
     Ok(())
 }
 
-fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp) -> Result<(), IbError> {
+fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp, udp_sport: Option<u16>) -> Result<(), IbError> {
     let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
 
     let mut qp_attr = ibv_qp_attr::default();
@@ -779,6 +779,11 @@ fn ib_rts_qp(qp: *mut ibverbs::ffi::ibv_qp) -> Result<(), IbError> {
             | ibv_qp_attr_mask::IBV_QP_SQ_PSN
             | ibv_qp_attr_mask::IBV_QP_MAX_QP_RD_ATOMIC;
         ibv_check!(ibv_modify_qp(qp, &mut qp_attr, attr_mask.0 as i32));
+        if let Some(udp_sport) = udp_sport {
+            if mlx5dv_modify_qp_udp_sport(qp, udp_sport) != 0 {
+                log::warn!("Failed to set UDP source port {}", udp_sport);
+            }
+        }
     }
     Ok(())
 }
@@ -805,6 +810,7 @@ pub async fn ib_listen(device: usize) -> Result<(IbConnectHandle, IbListenComm),
 pub async fn ib_connect(
     device: usize,
     handle: &IbConnectHandle,
+    udp_sport: Option<u16>,
 ) -> Result<IbSendComm<'static>, IbError> {
     // Stage 1: connect to peer and set up QPs
     let connect_addr = handle.connect_addr;
@@ -903,7 +909,7 @@ pub async fn ib_connect(
         let qp = qp.get_qp();
         let remote_qpn = remote_qp_info.qpn[q];
         ib_rtr_qp(qp, remote_qpn, &remote_qp_info)?;
-        ib_rts_qp(qp)?;
+        ib_rts_qp(qp, udp_sport)?;
     }
 
     // Stage 4: signal ready to peer
@@ -978,7 +984,7 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
         let qp = qp.get_qp();
         let remote_qpn = remote_qp_info.qpn[q];
         ib_rtr_qp(qp, remote_qpn, &remote_qp_info)?;
-        ib_rts_qp(qp)?;
+        ib_rts_qp(qp, None)?;
     }
 
     let access_flags = ibv_access_flags::IBV_ACCESS_REMOTE_WRITE
@@ -1036,7 +1042,7 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
         let qp_ptr = flush_qp.get_qp();
         let qpn = unsafe { &*qp_ptr }.qp_num;
         ib_rtr_qp(qp_ptr, qpn, &local_qp_info)?;
-        ib_rts_qp(qp_ptr)?;
+        ib_rts_qp(qp_ptr, None)?;
         let flush = IbGpuFlush {
             enabled: true,
             host_mr: Some(flush_mr),
@@ -1662,8 +1668,9 @@ impl NetProvider for RdmaTransportProvider {
         &self,
         device: usize,
         handle: Self::NetHandle,
+        udp_sport: Option<u16>,
     ) -> Result<Box<AnyNetComm>, Self::NetError> {
-        let send_comm = ib_connect(device, &handle).await?;
+        let send_comm = ib_connect(device, &handle, udp_sport).await?;
         Ok(Box::new(send_comm))
     }
     // Finalize connection establishment after remote peer has called connect.

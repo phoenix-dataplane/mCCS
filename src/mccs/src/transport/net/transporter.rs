@@ -41,7 +41,9 @@ fn net_send_setup(
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
     // NVLink forward is not supported yet
-    let (net_dev, _) = profile.get_network_device(my_info.rank, conn_id.peer_rank);
+    let (net_dev, _) = profile.get_network_device(conn_id.channel, my_info.rank, conn_id.peer_rank);
+    let udp_sport = profile.get_udp_sport(&conn_id);
+
     let agent_cuda_dev = my_info.cuda_device_idx;
     let use_gdr = profile.check_gdr(my_info.rank, net_dev, true) && config.gdr_enable;
     let provider = profile.get_net_provider();
@@ -58,6 +60,7 @@ fn net_send_setup(
         need_flush: false,
         buffer_sizes: profile.buff_sizes,
         provider,
+        udp_sport,
     };
     let setup = TransportSetup::PreAgentCb {
         agent_cuda_dev,
@@ -103,7 +106,9 @@ fn net_recv_setup(
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
     // Use myInfo->rank as the receiver uses its own NIC
-    let (net_dev, _) = profile.get_network_device(my_info.rank, my_info.rank);
+    let (net_dev, _) = profile.get_network_device(conn_id.channel, my_info.rank, my_info.rank);
+    let udp_sport = profile.get_udp_sport(&conn_id);
+
     let proxy_cuda_dev = my_info.cuda_device_idx;
     let use_gdr = profile.check_gdr(my_info.rank, net_dev, false) && config.gdr_enable;
     let need_flush = profile.check_gdr_need_flush(my_info.rank);
@@ -118,6 +123,7 @@ fn net_recv_setup(
         need_flush,
         buffer_sizes: profile.buff_sizes,
         provider,
+        udp_sport,
     };
     let setup = TransportSetup::PreAgentCb {
         agent_cuda_dev: proxy_cuda_dev,
@@ -127,13 +133,14 @@ fn net_recv_setup(
 
     let net_name = provider.get_properties(net_dev)?.name;
     log::info!(
-        "Channel {:0>2}/{}: {} -> {} [recv] via NET/{}/{}, GDRDMA={}",
+        "Channel {:0>2}/{}: {} -> {} [recv] via NET/{}/{}, udp_sport={:?}, GDRDMA={}",
         conn_id.channel,
         conn_id.conn_index,
         conn_id.peer_rank,
         my_info.rank,
         net_name,
         net_dev,
+        udp_sport,
         use_gdr,
     );
     Ok(setup)

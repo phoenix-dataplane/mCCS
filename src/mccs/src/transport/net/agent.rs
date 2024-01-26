@@ -67,6 +67,7 @@ pub async fn net_agent_send_setup(
         buffer_sizes: request.buffer_sizes,
         provider: request.provider,
         gdr_copy_sync_enable: config.gdr_copy_sync_enable,
+        udp_sport: request.udp_sport,
     };
     Ok(resources)
 }
@@ -123,7 +124,11 @@ pub async fn net_agent_send_connect(
 ) -> Result<(AgentSendConnectReply, AgentSendResources)> {
     let provider = setup_resources.provider;
     let send_comm = provider
-        .connect(setup_resources.net_device, &request.handle)
+        .connect(
+            setup_resources.net_device,
+            &request.handle,
+            setup_resources.udp_sport,
+        )
         .await?;
     let mut send_comm = Box::into_pin(send_comm);
     let mut map = BufferMap::new();
