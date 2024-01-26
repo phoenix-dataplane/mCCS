@@ -1,3 +1,5 @@
+# MPI hostfile
+hostfile*
 
 # Prerequisites
 *.d
