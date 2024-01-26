@@ -394,7 +394,7 @@ impl DaemonEngine {
                         comm.cuda_device_idx,
                         comm.comm_id,
                     );
-                    Ok(WorkCompletion::AllGather)
+                    Ok(WorkCompletion::AllReduce)
                 }
             };
             match ret {
