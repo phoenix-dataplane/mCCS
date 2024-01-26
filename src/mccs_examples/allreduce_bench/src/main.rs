@@ -151,9 +151,7 @@ fn main() -> ExitCode {
     let end = Instant::now();
     let dura = end.duration_since(start);
     if opts.rank == 0 {
-        let tput = (opts.size * opts.round) as f64
-            / (1024.0 * 1024.0 * 1024.0)
-            / (dura.as_micros() as f64 / 1.0e6);
+        let tput = (opts.size * opts.round) as f64 / 1e9 / (dura.as_micros() as f64 / 1.0e6);
         println!(
             "[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
             rank, num_ranks, tput
