@@ -149,7 +149,10 @@ fn main() -> ExitCode {
     let tput = (buffer_size * num_ranks * opts.round) as f64
         / (1024.0 * 1024.0 * 1024.0)
         / (dura.as_micros() as f64 / 1.0e6);
-    println!("Algorithm bandwidth: {:.} GB/s", tput);
+    println!(
+        "[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
+        rank, num_ranks, tput
+    );
     return ExitCode::SUCCESS;
 }
 

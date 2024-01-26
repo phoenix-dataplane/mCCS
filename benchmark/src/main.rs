@@ -571,13 +571,13 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
             .unwrap_or_else(|e| panic!("Failed to join thread: {:?}", e));
     }
     *TERMINATE.lock().unwrap() = Some(Instant::now());
-    
+
     let now = Instant::now();
     while weak_handles.iter().any(|h| !h.is_finished()) {
         if now.elapsed() > Duration::from_secs(1) {
             log::warn!("Some workers not finished yet, but force quitting");
             break;
-        }   
+        }
     }
     Ok(())
 }
@@ -645,7 +645,9 @@ fn main() {
     } else {
         // opt.benchmark should points to a file
         let path = opt.benchmark.clone();
-        run_benchmark(&opt, path).unwrap_or_else(|e| panic!("run_benchmark failed: {e}"));
+        let path2 = opt.benchmark.clone();
+        run_benchmark(&opt, path)
+            .unwrap_or_else(|e| panic!("run_benchmark failed on path {path2:?}: {e}"));
     }
 }
 

@@ -34,7 +34,7 @@ class BenchArgs:
     def get_args(self):
         return f"--root-addr {self.root_addr} --rank {self.rank} \
 --num-ranks {self.num_ranks} --cuda-device-idx {self.cuda_dev} --size {self.size} \
---communicator {self.comm} --round {self.round} --size_in_byte true"
+--communicator {self.comm} --round {self.round} --size-in-byte"
 
 
 def get_args_group(
@@ -74,6 +74,7 @@ def generate_config(
             "host": f"danyang-0{machine_id}",
             "bin": "mccs",
             "args": f"--host {machine_id}",
+            "weak": True,
             "dependencies": [],
         }
 
@@ -92,7 +93,7 @@ def generate_config(
     config = {
         "name": name,
         "group": group,
-        "workers": workers,
+        "worker": workers,
     }
     return config
 
@@ -110,7 +111,8 @@ def convert_size(size: str):
 
 size_list = ["1K", "4K", "16K", "64K", "256K", "1M", "4M", "16M", "64M", "256M", "1G"]
 command = ["allreduce", "allgather"]
-node_configurations = [{1: 2, 2: 2, 3: 2, 5: 2}, {1: 1, 2: 1, 3: 1, 5: 1}]
+# node_configurations = [{1: 2, 2: 2, 3: 2, 5: 2}, {1: 1, 2: 1, 3: 1, 5: 1}]
+node_configurations = [{1: 2, 5: 2}]
 
 for comm in command:
     for node_idx, node_config in enumerate(node_configurations):
