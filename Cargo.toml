@@ -24,5 +24,5 @@ members = [
     "src/mccs_tests/rdma_transport", 
     "src/qos-service", 
     "src/mccs_examples/traffic_gen",
-    "benchmark",
+    "launcher",
 ]
