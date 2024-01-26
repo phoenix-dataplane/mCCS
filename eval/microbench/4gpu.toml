@@ -28,7 +28,7 @@ retry_count = 7
 pkey = 0
 use_inline = false
 service_level = 0
-traffic_class = 0
+traffic_class = 106
 adaptive_routing = false
 ar_threshold = 8192
 pci_relaxed_ordering = false
@@ -45,16 +45,6 @@ locality = "Sender"
 memcpy_send = false
 memcpy_recv = false
 
-[qos_schedule]
-epoch_microsecs = 85000
-
-[qos_schedule.schedule.99]
-intervals = [[0, 35000]]
-mode = "Allow"
-
-[qos_schedule.schedule.100]
-intervals = [[35000, 69000]]
-mode = "Allow"
 
 # magic number: 49200 & 49202
 
@@ -69,15 +59,8 @@ channels = [
 [[comm_patterns_override]]
 communicator_id = 137
 channels = [
-    { channel_id = 0, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49153], [3, 0, 49155]], net_dev = "mlx5_0" },
-    { channel_id = 1, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49152], [3, 0, 49154]], net_dev = "mlx5_0" },
+    { channel_id = 0, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49200], [3, 0, 49200]], net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49202], [3, 0, 49202]], net_dev = "mlx5_0" },
 ]
 
-
-[[comm_patterns_override]]
-communicator_id = 138
-channels = [
-    { channel_id = 0, ring = [0, 1, 2, 3, 4, 5, 6, 7], udp_sport = [[3, 4, 49200], [7, 0, 49200]], net_dev = "mlx5_0" },
-    { channel_id = 1, ring = [0, 1, 2, 3, 4, 5, 6, 7], udp_sport = [[3, 4, 49202], [7, 0, 49202]], net_dev = "mlx5_0" },
-]
 

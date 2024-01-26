@@ -38,15 +38,15 @@ class BenchArgs:
 
 
 def get_args_group(
-    root_addr: str, machine_map: map, size: int, round: int = 10, comm: int = 42
+    root_addr: str, machine_map: list, size: int, round: int = 10, comm: int = 42
 ):
     """
-    machine_map: a list of machine number to how many ranks this machine uses
+    machine_map: list of (machine_id, local_gpu_cnt)
     """
     args_group = []
     global_rank_cnt = 0
-    num_ranks = sum(machine_map.values())
-    for machine, local_gpu_cnt in machine_map.items():
+    num_ranks = sum([local_gpu_cnt for _, local_gpu_cnt in machine_map])
+    for machine, local_gpu_cnt in machine_map:
         for local_rank in range(local_gpu_cnt):
             args_group.append(
                 (
@@ -67,20 +67,29 @@ def get_args_group(
 
 
 def generate_config(
-    name: str, group: str, binary: str, root_addr: str, machine_map: map, size: int
+    name: str,
+    group: str,
+    binary: str,
+    root_addr: str,
+    machine_map: list,
+    size: int,
+    comm: int = 42,
+    daemon_args: str = "",
 ) -> dict:
     def gen_daemon(machine_id: int):
         return {
             "host": f"danyang-0{machine_id}",
             "bin": "mccs",
-            "args": f"--host {machine_id}",
+            "args": f"--host {machine_id} {daemon_args}",
             "weak": True,
             "dependencies": [],
         }
 
-    workers = [gen_daemon(machine) for machine in machine_map.keys()]
+    workers = [gen_daemon(machine[0]) for machine in machine_map]
     dep = [i for i in range(len(machine_map))]
-    for machine, arg in get_args_group(root_addr, machine_map, size, round=10, comm=137):
+    for machine, arg in get_args_group(
+        root_addr, machine_map, size, round=20, comm=comm
+    ):
         workers.append(
             {
                 "host": f"danyang-0{machine}",
@@ -109,23 +118,59 @@ def convert_size(size: str):
         return int(size)
 
 
-size_list = ["1K", "4K", "16K", "64K", "256K", "1M", "4M", "16M", "64M", "256M", "1G"]
-command = ["allreduce", "allgather"]
-# node_configurations = [("8GPU", {1: 2, 2: 2, 3: 2, 5: 2}), ("4GPU", {1: 1, 2: 1, 3: 1, 5: 1})]
-node_configurations = [("2node", {2: 2, 3: 2})]
+def generate(size_list, command, node_configurations, communicator, mccs_cfg_path):
+    for comm in command:
+        for node_configs in node_configurations:
+            node_str, node_config = node_configs
+            root = node_config[0][0]
+            for size in size_list:
+                config = generate_config(
+                    name=f"{node_str}/{comm}/{size}",
+                    group=node_str,
+                    binary=comm + "_bench",
+                    root_addr=addrs[root],
+                    machine_map=node_config,
+                    size=convert_size(size),
+                    comm=communicator,
+                    daemon_args=f"--config {mccs_cfg_path}",
+                )
+                with open(f"output/{node_str}_{comm}_{size}.toml", "w") as f:
+                    toml.dump(config, f)
 
-for comm in command:
-    for node_idx, node_configs in enumerate(node_configurations):
-        node_str, node_config = node_configs
-        v=iter(node_config).__next__()
-        for size in size_list:
-            config = generate_config(
-                name=f"{comm}/{node_str}/{size}",
-                group="microbench",
-                binary=comm + "_bench",
-                root_addr=addrs[v],
-                machine_map=node_config,
-                size=convert_size(size),
-            )
-            with open(f"output/{comm}_{node_str}_{size}.toml", "w") as f:
-                toml.dump(config, f)
+
+def four_gpu_ecmp():
+    size_list = ["32K", "128K", "512K", "2M", "8M", "32M", "128M", "512M"]
+    command = ["allreduce", "allgather"]
+    node_configurations = [
+        ("4GPU_ECMP", [(2, 1), (3, 1), (1, 1), (5, 1)]),
+    ]
+    generate(size_list, command, node_configurations, 42, "eval/microbench/4gpu.toml")
+
+def four_gpu_flow_scheduling():
+    size_list = ["32K", "128K", "512K", "2M", "8M", "32M", "128M", "512M"]
+    command = ["allreduce", "allgather"]
+    node_configurations = [
+        ("4GPU_FLOW", [(2, 1), (3, 1), (1, 1), (5, 1)]),
+    ]
+    generate(size_list, command, node_configurations, 137, "eval/microbench/4gpu.toml")
+
+def eight_gpu_ecmp():
+    size_list = ["32K", "128K", "512K", "2M", "8M", "32M", "128M", "512M"]
+    command = ["allreduce", "allgather"]
+    node_configurations = [
+        ("8GPU_ECMP", [(2, 2), (3, 2), (1, 2), (5, 2)]),
+    ]
+    generate(size_list, command, node_configurations, 42, "eval/microbench/8gpu.toml")
+
+def eight_gpu_flow_scheduling():
+    size_list = ["32K", "128K", "512K", "2M", "8M", "32M", "128M", "512M"]
+    command = ["allreduce", "allgather"]
+    node_configurations = [
+        ("8GPU_FLOW", [(2, 2), (3, 2), (1, 2), (5, 2)]),
+    ]
+    generate(size_list, command, node_configurations, 137, "eval/microbench/8gpu.toml")
+
+four_gpu_ecmp()
+four_gpu_flow_scheduling()
+eight_gpu_ecmp()
+eight_gpu_flow_scheduling()

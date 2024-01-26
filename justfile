@@ -38,5 +38,4 @@ kill host:
   ssh danyang-0{{host}} -t "pkill mccs"
 
 killall:
-  just kill 3
-  just kill 5
+  just kill 1; just kill 2; just kill 3; just kill 5
