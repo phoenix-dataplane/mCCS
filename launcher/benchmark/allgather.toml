@@ -1,0 +1,28 @@
+name = "benchmark/allgather"
+group = "allgather"
+
+[[worker]]
+host = "danyang-03"
+bin = "mccs"
+args = "--host 3"
+dependencies = []
+weak = true
+
+[[worker]]
+host = "danyang-01"
+bin = "mccs"
+args = "--host 1"
+dependencies = []
+weak = true
+
+[[worker]]
+host = "danyang-03"
+bin = "allgather_bench"
+args = "--root-addr 192.168.211.66 --rank 0 --num-ranks 2 --cuda-device-idx 0 --size 128 --communicator 114 --round 20"
+dependencies = [0, 1]
+
+[[worker]]
+host = "danyang-01"
+bin = "allgather_bench"
+args = "--root-addr 192.168.211.66 --rank 1 --num-ranks 2 --cuda-device-idx 0 --size 128 --communicator 114 --round 20"
+dependencies = [0, 1]

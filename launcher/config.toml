@@ -1,0 +1,7 @@
+workdir = "~/nfs/mCCS"
+
+[env]
+RUST_BACKTRACE = "1"
+RUST_LOG_STYLE = "never"
+CARGO_TERM_COLOR = "never"
+USER = "TEST"

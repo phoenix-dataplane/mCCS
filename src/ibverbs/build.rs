@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
-    println!("cargo:include=vendor/rdma-core/build/include");
-    println!("cargo:rustc-link-search=native=vendor/rdma-core/build/lib");
+    // println!("cargo:include=vendor/rdma-core/build/include");
+    // println!("cargo:rustc-link-search=native=vendor/rdma-core/build/lib");
     println!("cargo:rustc-link-lib=ibverbs");
+    println!("cargo:rustc-link-lib=mlx5");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=vendor/rdma-core/libibverbs/verbs.h");
+    // println!("cargo:rerun-if-changed=vendor/rdma-core/libibverbs/verbs.h");
     println!("cargo:rerun-if-changed=wrapper.h");
 
     // initialize and update submodules
@@ -32,7 +33,7 @@ fn main() {
 
     // generate the bindings
     let bindings = bindgen::Builder::default()
-        .header("vendor/rdma-core/libibverbs/verbs.h")
+        .header("/usr/include/infiniband/verbs.h")
         .header("wrapper.h")
         .clang_arg("-Ivendor/rdma-core/build/include/")
         .allowlist_function("ibv_.*")

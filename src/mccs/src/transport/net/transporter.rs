@@ -70,13 +70,14 @@ fn net_send_setup(
 
     let net_name = provider.get_properties(net_dev)?.name;
     log::info!(
-        "Channel {:0>2}/{}: {} -> {} [send] via NET/{}/{}, GDRDMA={}",
+        "Channel {:0>2}/{}: {} -> {} [send] via NET/{}/{}, udp_sport={:?}, GDRDMA={}",
         conn_id.channel,
         conn_id.conn_index,
         my_info.rank,
         conn_id.peer_rank,
         net_name,
         net_dev,
+        udp_sport,
         use_gdr,
     );
     Ok(setup)
@@ -133,14 +134,13 @@ fn net_recv_setup(
 
     let net_name = provider.get_properties(net_dev)?.name;
     log::info!(
-        "Channel {:0>2}/{}: {} -> {} [recv] via NET/{}/{}, udp_sport={:?}, GDRDMA={}",
+        "Channel {:0>2}/{}: {} -> {} [recv] via NET/{}/{}, GDRDMA={}",
         conn_id.channel,
         conn_id.conn_index,
         conn_id.peer_rank,
         my_info.rank,
         net_name,
         net_dev,
-        udp_sport,
         use_gdr,
     );
     Ok(setup)

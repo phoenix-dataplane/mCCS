@@ -14,10 +14,10 @@ pub fn async_listen(addr: &SocketAddr) -> std::io::Result<TcpListener> {
         Socket::new(socket2::Domain::IPV6, socket2::Type::STREAM, None)?
     };
     let sock_addr = addr.to_owned().into();
-    socket.bind(&sock_addr)?;
     socket.set_reuse_address(true)?;
     socket.set_reuse_port(true)?;
     socket.set_nonblocking(true)?;
+    socket.bind(&sock_addr)?;
     socket.listen(16834)?;
     let listener: std::net::TcpListener = socket.into();
 

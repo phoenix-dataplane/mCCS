@@ -45,16 +45,20 @@ struct WorkerSpec {
     host: String,
     bin: String,
     args: String,
+    name: Option<String>,
     #[serde(default)]
     dependencies: Vec<usize>,
     #[serde(default = "default_term_signal", rename = "term")]
     term_signal: usize,
+    /// OK to kill after all non-weak finished
+    #[serde(default)]
+    weak: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct Benchmark {
     name: String,
-    description: String,
+    description: Option<String>,
     group: String,
     timeout_secs: Option<u64>,
     #[serde(default = "default_start_delay")]
@@ -135,6 +139,7 @@ fn wait_command(
     mut kill_cmd: Option<Command>,
     timeout: Duration,
     host: &str,
+    name: Option<&str>,
     stdout_writer: Option<fs::File>,
     stderr_writer: Option<fs::File>,
     logical_and: bool,
@@ -159,12 +164,22 @@ fn wait_command(
     loop {
         if let Some(reader) = stdout_reader.as_mut() {
             while let Some(line) = reader.next_line()? {
-                println!("[{}] {}", host, std::str::from_utf8(&line).unwrap());
+                println!(
+                    "[{}{}] {}",
+                    host,
+                    name.map_or("".to_string(), |s| "|".to_string() + s),
+                    std::str::from_utf8(&line).unwrap()
+                );
             }
         }
         if let Some(reader) = stderr_reader.as_mut() {
             while let Some(line) = reader.next_line()? {
-                println!("[{}] {}", host, std::str::from_utf8(&line).unwrap());
+                println!(
+                    "[{}{}] {}",
+                    host,
+                    name.map_or("".to_string(), |s| "|".to_string() + s),
+                    std::str::from_utf8(&line).unwrap()
+                );
             }
         }
 
@@ -224,6 +239,7 @@ fn wait_command(
                     "",
                     None,
                     None,
+                    None,
                     false,
                 )?;
             }
@@ -263,6 +279,7 @@ fn start_ssh(
     let dry_run = opt.dry_run;
     let silent = opt.silent;
     let logical_and = opt.logical_and;
+    let display_name = worker.name.clone().unwrap_or(worker.bin.clone());
 
     move || {
         // using stupid timers to enforce launch order.
@@ -276,10 +293,10 @@ fn start_ssh(
         let mut stderr_writer = None;
         if let Some(output_dir) = output_dir {
             let stdout_file = output_dir
-                .join(format!("{}_{}.log", worker.bin, ip))
+                .join(format!("{}_{}.log", display_name, ip))
                 .with_extension("stdout");
             let stderr_file = output_dir
-                .join(format!("{}_{}.log", worker.bin, ip))
+                .join(format!("{}_{}.log", display_name, ip))
                 .with_extension("stderr");
 
             let stdout = open_with_create_append(stdout_file);
@@ -353,6 +370,7 @@ fn start_ssh(
                 Some(kill_cmd),
                 timeout,
                 &host,
+                Some(&display_name),
                 stdout_writer,
                 stderr_writer,
                 logical_and,
@@ -393,7 +411,16 @@ fn build_all<A: AsRef<str>, P: AsRef<path::Path>>(
     log::debug!("building command: {}", cmd_str);
 
     let timeout_60s = Duration::from_secs(60);
-    wait_command(cargo_build_cmd, None, timeout_60s, "", None, None, false)?;
+    wait_command(
+        cargo_build_cmd,
+        None,
+        timeout_60s,
+        "",
+        None,
+        None,
+        None,
+        false,
+    )?;
     Ok(())
 }
 
@@ -492,7 +519,7 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
         "{}: {}, description: {}",
         Green.bold().paint("Running benchmark"),
         spec.name,
-        spec.description
+        spec.description.clone().unwrap_or_default()
     );
 
     // calculate a start time for each worker according to their topological order
@@ -526,19 +553,32 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
     log::debug!("start_ts: {:?}", start_ts);
 
     // start workers based on their start_ts
-    let mut handles = vec![];
+    let mut strong_handles = vec![];
+    let mut weak_handles = vec![];
     for (i, w) in spec.worker.iter().enumerate() {
         let delay = Duration::from_millis(start_ts[i] * spec.start_delay * 1000);
         let h = thread::spawn(start_ssh(opt, &spec, w.clone(), &config, &envs, delay));
-        handles.push(h);
+        if w.weak {
+            weak_handles.push(h);
+        } else {
+            strong_handles.push(h);
+        }
     }
 
     // join
-    for h in handles {
+    for h in strong_handles {
         h.join()
             .unwrap_or_else(|e| panic!("Failed to join thread: {:?}", e));
     }
+    *TERMINATE.lock().unwrap() = Some(Instant::now());
 
+    let now = Instant::now();
+    while weak_handles.iter().any(|h| !h.is_finished()) {
+        if now.elapsed() > Duration::from_secs(1) {
+            log::warn!("Some workers not finished yet, but force quitting");
+            break;
+        }
+    }
     Ok(())
 }
 
@@ -605,7 +645,9 @@ fn main() {
     } else {
         // opt.benchmark should points to a file
         let path = opt.benchmark.clone();
-        run_benchmark(&opt, path).unwrap_or_else(|e| panic!("run_benchmark failed: {e}"));
+        let path2 = opt.benchmark.clone();
+        run_benchmark(&opt, path)
+            .unwrap_or_else(|e| panic!("run_benchmark failed on path {path2:?}: {e}"));
     }
 }
 

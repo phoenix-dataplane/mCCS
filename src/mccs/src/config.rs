@@ -29,19 +29,12 @@ impl Default for DefaultCommConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ConnectionType {
-    #[serde(alias = "send")]
-    Send,
-    #[serde(alias = "recv")]
-    Recv,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelPattern {
     pub channel_id: u32,
     pub ring: Vec<usize>,
-    pub udp_sport: Option<Vec<(usize, ConnectionType, u16)>>,
+    // (send_rank, recv_rank) -> port
+    pub udp_sport: Option<Vec<(usize, usize, u16)>>,
     pub net_dev: Option<String>,
 }
 

@@ -75,6 +75,9 @@ impl<T> DeviceHostMapped<T> {
                         ptr_host, ptr_dev, device
                     )
                 );
+                if ptr_dev.is_null() {
+                    ptr_dev = ptr_host as *mut _;
+                }
                 log::debug!(
                     "Registered host memory {:p} with device pointer {:p} on dev {}",
                     ptr_host,

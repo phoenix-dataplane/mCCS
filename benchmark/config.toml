@@ -1,9 +1,0 @@
-# workdir = "~/nfs/Developing/phoenix"
-workdir = "~/nfs/Developing/phoenix/experimental/mrpc"
-
-[env]
-RUST_BACKTRACE = "1"
-RUST_LOG_STYLE = "never"
-CARGO_TERM_COLOR = "never"
-PROTOC = "/usr/bin/protoc"
-PHOENIX_PREFIX = "/tmp/phoenix"

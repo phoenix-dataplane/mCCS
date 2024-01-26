@@ -7,7 +7,7 @@ sync:
 back host LEVEL='info':
   RUST_LOG={{LEVEL}} ./target/debug/mccs --host {{host}}
 
-root_addr := '192.168.211.66'
+root_addr := '192.168.211.34'
 
 bench rank num_ranks round='10' size='128' comm='42' cuda_dev='0':
   ./target/debug/allgather_bench --root-addr {{root_addr}} --rank {{rank}} \
@@ -38,5 +38,4 @@ kill host:
   ssh danyang-0{{host}} -t "pkill mccs"
 
 killall:
-  just kill 3
-  just kill 5
+  just kill 1; just kill 2; just kill 3; just kill 5
