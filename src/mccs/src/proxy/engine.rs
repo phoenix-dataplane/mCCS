@@ -921,19 +921,16 @@ impl ProxyEngine {
                                 for channel in comm_pattern.channels.iter() {
                                     if let Some(sport_map) = channel.udp_sport.as_ref() {
                                         for spec in sport_map.iter() {
-                                            let conn_type = match spec.1 {
-                                                crate::config::ConnectionType::Send => {
-                                                    ConnType::Recv
-                                                }
-                                                crate::config::ConnectionType::Recv => {
-                                                    ConnType::Send
-                                                }
-                                            };
+                                            let send_rank = spec.0;
+                                            let recv_rank = spec.1;
+                                            if send_rank != init.rank {
+                                                continue;
+                                            }
                                             let conn_id = PeerConnId {
-                                                peer_rank: spec.0,
+                                                peer_rank: recv_rank,
                                                 channel: ChannelId(channel.channel_id),
                                                 conn_index: 0,
-                                                conn_type,
+                                                conn_type: ConnType::Send,
                                             };
                                             udp_sport_map.insert(conn_id, spec.2);
                                         }
