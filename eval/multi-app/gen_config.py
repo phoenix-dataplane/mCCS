@@ -216,7 +216,7 @@ def allreduce_setup2():
 
 def allreduce_setup3():
     job1_rank_map = [(2, [0]), (3, [0]), (1, [0]), (5, [0])]
-    job2_rank_map = [(2, [1]), (1, [1]), (3, [1]), (5, [1])]
+    job2_rank_map = [(2, [1]), (3, [1]), (1, [1]), (5, [1])]
     config = generate_config(
         "multi-allreduce-setup3",
         "multi-allreduce",

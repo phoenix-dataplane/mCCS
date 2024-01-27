@@ -109,5 +109,5 @@ eight_gpu_flow:
 
 
 [private]
-allreduce-setup2:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/multi-allreduce-setup2.toml --silent --output-dir /tmp/multi-allreduce
+allreduce-setup setup:
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/multi-allreduce-setup{{setup}}.toml --silent --output-dir /tmp/multi-allreduce
