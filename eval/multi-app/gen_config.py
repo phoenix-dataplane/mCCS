@@ -1,0 +1,242 @@
+# %%
+import toml
+
+addrs = [
+    "0.0.0.0",
+    "192.168.211.2",
+    "192.168.211.34",
+    "192.168.211.66",
+    "192.168.211.130",
+    "192.168.211.162",
+    "192.168.211.195",
+]
+
+
+def convert_size(size: str):
+    if size[-1] == "K":
+        return int(size[:-1]) * 1024
+    elif size[-1] == "M":
+        return int(size[:-1]) * 1024 * 1024
+    elif size[-1] == "G":
+        return int(size[:-1]) * 1024 * 1024 * 1024
+    else:
+        return int(size)
+
+
+class BenchArgs:
+    def __init__(
+        self,
+        name: str,
+        root_addr: str,
+        rank: int,
+        num_ranks: int,
+        cuda_dev: int,
+        size: int,
+        comm: str,
+        round: int,
+    ) -> None:
+        self.name = name
+        self.root_addr = root_addr
+        self.rank = rank
+        self.num_ranks = num_ranks
+        self.cuda_dev = cuda_dev
+        self.size = size
+        self.comm = comm
+        self.round = round
+
+    def get_args(self):
+        return f"--root-addr {self.root_addr} --rank {self.rank} \
+--num-ranks {self.num_ranks} --cuda-device-idx {self.cuda_dev} --size {self.size} \
+--communicator {self.comm} --round {self.round} --size-in-byte --name {self.name}"
+
+
+def get_args_group(
+    name: str,
+    root_addr: str,
+    rank_map: list,
+    size: int,
+    round: int = 10,
+    comm: int = 42,
+):
+    """
+    rank_map: list of (machine_id, local_gpu_cnt)
+    """
+    args_group = []
+    global_rank_cnt = 0
+    num_ranks = sum([local_gpu_cnt for _, local_gpu_cnt in rank_map])
+    for machine, local_gpu_cnt in rank_map:
+        for local_rank in range(local_gpu_cnt):
+            args_group.append(
+                (
+                    machine,
+                    BenchArgs(
+                        name=name,
+                        root_addr=root_addr,
+                        rank=global_rank_cnt + local_rank,
+                        num_ranks=num_ranks,
+                        cuda_dev=local_rank,
+                        size=size,
+                        comm=comm,
+                        round=round,
+                    ),
+                )
+            )
+        global_rank_cnt += local_gpu_cnt
+    return args_group
+
+
+def gen_daemon(
+    machine_id: int,
+    daemon_args: str = "",
+):
+    return {
+        "host": f"danyang-0{machine_id}",
+        "bin": "mccs",
+        "args": f"--host {machine_id} {daemon_args}",
+        "weak": True,
+        "dependencies": [],
+    }
+
+
+class AppProperties:
+    def __init__(
+        self, name: str, binary: str, size: str, rank_map: list, comm: int
+    ) -> None:
+        self.name = name
+        self.binary = binary
+        self.size = size
+        self.rank_map = rank_map
+        self.comm = comm
+
+
+def generate_config(
+    name: str,
+    group: str,
+    app_list: list[AppProperties],
+) -> dict:
+    # get unique set of machines from app_list.machine_map
+    machines = set()
+    for app in app_list:
+        machines.update([machine for machine, _ in app.rank_map])
+    machines = list(machines)
+    # generate daemons
+    daemons = [gen_daemon(mid) for mid in machines]
+    # generate apps
+    apps = []
+    for app in app_list:
+        for machine, arg in get_args_group(
+            app.name,
+            addrs[app.rank_map[0][0]],
+            app.rank_map,
+            convert_size(app.size),
+            comm=app.comm,
+        ):
+            apps.append(
+                {
+                    "host": f"danyang-0{machine}",
+                    "bin": app.binary + "_bench",
+                    "args": arg.get_args(),
+                    "dependencies": list(range(len(daemons))),
+                }
+            )
+    # generate config
+    config = {
+        "name": name,
+        "group": group,
+        "worker": daemons + apps,
+    }
+    return config
+
+
+def allreduce_setup1():
+    job1_rank_map = [(2, 2), (1, 2)]
+    job2_rank_map = [(3, 2), (5, 2)]
+    config = generate_config(
+        "multi-allreduce-setup1",
+        "multi-allreduce",
+        [
+            AppProperties(
+                name="app1",
+                binary="allreduce",
+                size="128M",
+                rank_map=job1_rank_map,
+                comm=81,
+            ),
+            AppProperties(
+                name="app2",
+                binary="allreduce",
+                size="128M",
+                rank_map=job2_rank_map,
+                comm=82,
+            ),
+        ],
+    )
+    with open("output/multi-allreduce-setup1.toml", "w") as f:
+        toml.dump(config, f)
+
+
+def allreduce_setup2():
+    job1_rank_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
+    job2_rank_map = [(2, 1), (1, 1)]
+    job3_rank_map = [(3, 1), (5, 1)]
+    config = generate_config(
+        "multi-allreduce-setup2",
+        "multi-allreduce",
+        [
+            AppProperties(
+                name="app1",
+                binary="allreduce",
+                size="128M",
+                rank_map=job1_rank_map,
+                comm=81,
+            ),
+            AppProperties(
+                name="app2",
+                binary="allreduce",
+                size="128M",
+                rank_map=job2_rank_map,
+                comm=82,
+            ),
+            AppProperties(
+                name="app3",
+                binary="allreduce",
+                size="128M",
+                rank_map=job3_rank_map,
+                comm=83,
+            ),
+        ],
+    )
+    with open("output/multi-allreduce-setup2.toml", "w") as f:
+        toml.dump(config, f)
+
+
+def allreduce_setup3():
+    job1_rank_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
+    job2_rank_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
+    config = generate_config(
+        "multi-allreduce-setup3",
+        "multi-allreduce",
+        [
+            AppProperties(
+                name="app1",
+                binary="allreduce",
+                size="128M",
+                rank_map=job1_rank_map,
+                comm=81,
+            ),
+            AppProperties(
+                name="app2",
+                binary="allreduce",
+                size="128M",
+                rank_map=job2_rank_map,
+                comm=82,
+            ),
+        ],
+    )
+    with open("output/multi-allreduce-setup3.toml", "w") as f:
+        toml.dump(config, f)
+
+
+allreduce_setup1()
+allreduce_setup2()
+allreduce_setup3()

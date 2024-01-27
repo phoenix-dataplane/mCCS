@@ -52,6 +52,10 @@ launch group folder:
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/single-app/output/ --group {{group}} --silent --output-dir /tmp/{{folder}}
 
 [private]
+launch-multi group folder:
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/ --group {{group}} --silent --output-dir /tmp/{{folder}}
+
+[private]
 one_4gpu_ecmp cnt="0":
   just launch 4GPU_ECMP single-app{{cnt}}
 
