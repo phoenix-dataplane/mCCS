@@ -87,7 +87,7 @@ def get_args_group(
 
 def gen_daemon(
     machine_id: int,
-    daemon_args: str = "",
+    daemon_args: str,
 ):
     return {
         "host": f"danyang-0{machine_id}",
@@ -113,6 +113,7 @@ def generate_config(
     name: str,
     group: str,
     app_list: list[AppProperties],
+    daemon_args: str,
 ) -> dict:
     # get unique set of machines from app_list.machine_map
     machines = set()
@@ -120,7 +121,7 @@ def generate_config(
         machines.update([machine for machine, _ in app.rank_map])
     machines = list(machines)
     # generate daemons
-    daemons = [gen_daemon(mid) for mid in machines]
+    daemons = [gen_daemon(mid, daemon_args) for mid in machines]
     # generate apps
     apps = []
     for app in app_list:
@@ -171,6 +172,7 @@ def allreduce_setup1():
                 comm=82,
             ),
         ],
+        "--config eval/multi-app/setup1.toml",
     )
     with open("output/multi-allreduce-setup1.toml", "w") as f:
         toml.dump(config, f)
@@ -206,6 +208,7 @@ def allreduce_setup2():
                 comm=83,
             ),
         ],
+        "--config eval/multi-app/setup2.toml",
     )
     with open("output/multi-allreduce-setup2.toml", "w") as f:
         toml.dump(config, f)
@@ -233,6 +236,7 @@ def allreduce_setup3():
                 comm=82,
             ),
         ],
+        "--config eval/multi-app/setup3.toml",
     )
     with open("output/multi-allreduce-setup3.toml", "w") as f:
         toml.dump(config, f)
