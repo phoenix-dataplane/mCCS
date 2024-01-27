@@ -194,7 +194,7 @@ fn main() -> ExitCode {
         start = end;
         let round_time = dura.as_micros() as u64;
         if opts.verbose && opts.rank == 0 {
-            println!("Iter time: {} ms", round_time / 1000);
+            println!("[Rank 0] Iter time: {} ms", round_time / 1000);
         }
         round_times.push(round_time);
     }

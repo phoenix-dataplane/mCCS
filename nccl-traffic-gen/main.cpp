@@ -126,7 +126,6 @@ WorkloadSpec load_workload(std::string trace_file)
     try
     {
         tbl = toml::parse_file(trace_file);
-        std::cout << tbl << "\n";
     }
     catch (const toml::parse_error& err)
     {
@@ -136,14 +135,11 @@ WorkloadSpec load_workload(std::string trace_file)
     std::vector<int> cuda_devices;
     std::vector<CommOperationSpec> trace_specs;
 
+    printf("Parsing trace file...\n");
     auto devs = tbl["cuda_devices"];
     toml::array& arr = *devs.as_array();
     for (auto&& elem: arr) {
-        if constexpr (toml::is_integer<decltype(elem)>) {
-            cuda_devices.push_back(**(elem.as_integer()));
-        } else {
-            throw "Failed to parse trace file: invalid cuda_devices, not an array of integers.";
-        }
+        cuda_devices.push_back(**(elem.as_integer()));
     }
     
 
@@ -151,31 +147,26 @@ WorkloadSpec load_workload(std::string trace_file)
     arr = *traces.as_array();
     for (auto&& elem: arr) { 
         for (auto&& op_trace: arr) {
-            if constexpr (toml::is_table<decltype(op_trace)>) {
-                auto& op_table = *op_trace.as_table();
-                size_t msg_size = op_table["size"].value<int64_t>().value();
-                std::string op_name = op_table["type"].value<std::string>().value();
-                printf("test\n");
-                
-                int op_type = -1;
-                if (op_name.compare("all_gather") == 0) {
-                    op_type = AllGatherOp;
-                } else if (op_name.compare("all_reduce") == 0) {
-                    op_type = AllReduceOp;
-                } else {
-                    throw "Failed to parse trace file: unsupported op type.";
-                }
-
-                uint64_t compute_interval = op_table["compute_interval"].value<int64_t>().value();
-                CommOperationSpec trace_spec = {
-                    .op_type = op_type,
-                    .msg_size = msg_size,
-                    .compute_interval = compute_interval,
-                }; 
-                trace_specs.push_back(trace_spec);
+            auto& op_table = *op_trace.as_table();
+            size_t msg_size = op_table["size"].value<int64_t>().value();
+            std::string op_name = op_table["type"].value<std::string>().value();
+            
+            int op_type = -1;
+            if (op_name.compare("all_gather") == 0) {
+                op_type = AllGatherOp;
+            } else if (op_name.compare("all_reduce") == 0) {
+                op_type = AllReduceOp;
             } else {
-                throw "Failed to parse trace file: invalid trace specs, not an array of tables.";
+                throw "Failed to parse trace file: unsupported op type.";
             }
+
+            uint64_t compute_interval = op_table["compute_interval"].value<int64_t>().value();
+            CommOperationSpec trace_spec = {
+                .op_type = op_type,
+                .msg_size = msg_size,
+                .compute_interval = compute_interval,
+            }; 
+            trace_specs.push_back(trace_spec);
         }
     }
 
@@ -243,7 +234,7 @@ int main(int argc, char *argv[])
     }
     int cuda_dev = workload.cuda_devices[world_my_rank];
     if (verbose) {
-        printf("[MPI Rank %d] host %s, local rank %d\n, CUDA dev %d", world_my_rank, hostname, world_local_rank, cuda_dev);
+        printf("[MPI Rank %d] host %s, local rank %d CUDA dev %d \n", world_my_rank, hostname, world_local_rank, cuda_dev);
     }
 
 
@@ -344,22 +335,20 @@ int main(int argc, char *argv[])
                         ncclInt8, comm, stream);
                     break;
                 case AllReduceOp:
-                    ncclAllReduce((const void*)devSendBuff, (void*)devRecvBuff, trace.msg_size,
-                        ncclInt8, ncclSum, comm, stream);
+                    ncclAllReduce((const void*)devSendBuff, (void*)devRecvBuff, trace.msg_size / 2,
+                        ncclFloat16, ncclSum, comm, stream);
                     break;
 
             }
             NCCLCHECK(ncclGroupEnd());
         }
-        if (verbose) {
-            printf("[MPI Rank %d][Iter %u] Success on host %s\n", world_my_rank, i, hostname);
-        }
         HIPCHECK(cudaStreamSynchronize(stream));
         auto end = std::chrono::high_resolution_clock::now();
         auto iter_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        start = end;
         iter_times.push_back(iter_time);
         if (verbose && world_my_rank == 0) {
-            printf("Iter time: %ld ms\n", iter_time);
+            printf("[Rank 0] Iter time: %ld ms\n", iter_time);
         }
     }
     
