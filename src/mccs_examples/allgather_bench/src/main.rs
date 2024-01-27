@@ -162,15 +162,16 @@ fn main() -> ExitCode {
         let dura = end.duration_since(start);
         let tput =
             (buffer_size * num_ranks * opts.round) as f64 / 1e9 / (dura.as_micros() as f64 / 1.0e6);
+        let bus = tput * (num_ranks - 1) as f64 / num_ranks as f64;
         if opts.epoch > 1 {
             println!(
-                "{}[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
-                prefix, e, rank, num_ranks, tput
+                "{}[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s",
+                prefix, e, rank, num_ranks, tput, bus
             );
         } else {
             println!(
-                "{}[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
-                prefix, rank, num_ranks, tput
+                "{}[Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s",
+                prefix, rank, num_ranks, tput, bus
             );
         }
     }

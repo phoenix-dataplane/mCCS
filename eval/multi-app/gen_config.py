@@ -47,7 +47,7 @@ class BenchArgs:
     def get_args(self):
         return f"--root-addr {self.root_addr} --rank {self.rank} \
 --num-ranks {self.num_ranks} --cuda-device-idx {self.cuda_dev} --size {self.size} \
---communicator {self.comm} --round {self.round} --size-in-byte --name {self.name}"
+--communicator {self.comm} --round {self.round} --size-in-byte --name {self.name} --epoch 10"
 
 
 def get_args_group(
@@ -55,7 +55,7 @@ def get_args_group(
     root_addr: str,
     rank_map: list,
     size: int,
-    round: int = 10,
+    round: int,
     comm: int = 42,
 ):
     """
@@ -63,9 +63,9 @@ def get_args_group(
     """
     args_group = []
     global_rank_cnt = 0
-    num_ranks = sum([local_gpu_cnt for _, local_gpu_cnt in rank_map])
-    for machine, local_gpu_cnt in rank_map:
-        for local_rank in range(local_gpu_cnt):
+    num_ranks = sum([len(local_gpu_list) for _, local_gpu_list in rank_map])
+    for machine, local_gpu_list in rank_map:
+        for local_rank, gpu_idx in enumerate(local_gpu_list):
             args_group.append(
                 (
                     machine,
@@ -74,14 +74,14 @@ def get_args_group(
                         root_addr=root_addr,
                         rank=global_rank_cnt + local_rank,
                         num_ranks=num_ranks,
-                        cuda_dev=local_rank,
+                        cuda_dev=gpu_idx,
                         size=size,
                         comm=comm,
                         round=round,
                     ),
                 )
             )
-        global_rank_cnt += local_gpu_cnt
+        global_rank_cnt += len(local_gpu_list)
     return args_group
 
 
@@ -130,6 +130,7 @@ def generate_config(
             app.rank_map,
             convert_size(app.size),
             comm=app.comm,
+            round=80,
         ):
             apps.append(
                 {
@@ -149,8 +150,8 @@ def generate_config(
 
 
 def allreduce_setup1():
-    job1_rank_map = [(2, 2), (1, 2)]
-    job2_rank_map = [(3, 2), (5, 2)]
+    job1_rank_map = [(2, [0, 1]), (1, [0, 1])]
+    job2_rank_map = [(3, [0, 1]), (5, [0, 1])]
     config = generate_config(
         "multi-allreduce-setup1",
         "multi-allreduce",
@@ -176,9 +177,9 @@ def allreduce_setup1():
 
 
 def allreduce_setup2():
-    job1_rank_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
-    job2_rank_map = [(2, 1), (1, 1)]
-    job3_rank_map = [(3, 1), (5, 1)]
+    job1_rank_map = [(2, [0]), (3, [0]), (1, [0]), (5, [0])]
+    job2_rank_map = [(2, [1]), (1, [1])]
+    job3_rank_map = [(3, [1]), (5, [1])]
     config = generate_config(
         "multi-allreduce-setup2",
         "multi-allreduce",
@@ -211,8 +212,8 @@ def allreduce_setup2():
 
 
 def allreduce_setup3():
-    job1_rank_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
-    job2_rank_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
+    job1_rank_map = [(2, [0]), (3, [0]), (1, [0]), (5, [0])]
+    job2_rank_map = [(2, [1]), (1, [1]), (3, [1]), (5, [1])]
     config = generate_config(
         "multi-allreduce-setup3",
         "multi-allreduce",

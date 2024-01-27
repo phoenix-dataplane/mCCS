@@ -40,7 +40,7 @@ def filter_contents(contents: list):
 def rank0_parse_bw(lines: list):
     for line in lines:
         if line.find("Rank 0") != -1:
-            return line.split(": ")[-1]
+            return line.split(": ")[-1].split(" GB")[0]
     print("Error: no rank 0 found: ", lines)
 
 
@@ -51,7 +51,7 @@ def aggregrate(base_dir: str, node_str: str):
         for size in os.listdir(os.path.join(base_dir, node_str, command)):
             val[size] = rank0_parse_bw(
                 filter_contents(get_output(base_dir, node_str, command, size))
-            ).split(" ")[0]
+            )
         # sort by size
         ret[command] = dict(sorted(val.items(), key=lambda item: convert_size(item[0])))
     return ret
