@@ -44,5 +44,5 @@ mpirun --hostfile hostfile.blue.$ring_type -mca pml ob1 -mca btl tcp,self -mca b
 	-x NCCL_IB_GID_INDEX=3 -x NCCL_SOCKET_IFNAME=rdma0 \
 	-x NCCL_MAX_NCHANNELS=2 -x NCCL_MIN_NCHANNELS=2 -x NCCL_IB_QPS_PER_CONNECTION=1 \
 	-x NCCL_IB_TC=106 \
-	-x NCCL_EPOCHS=10 \
+	-x NCCL_EPOCHS=20 \
 		$WORKDIR/../build/all_reduce_perf --datatype=half -b 128M -e 128M
