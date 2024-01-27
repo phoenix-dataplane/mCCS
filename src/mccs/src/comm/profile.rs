@@ -10,6 +10,7 @@ pub struct CommProfile {
     pub buff_sizes: [usize; NUM_PROTOCOLS],
     pub udp_sport_map: HashMap<PeerConnId, u16>,
     pub channel_net_device_map: HashMap<ChannelId, String>,
+    pub tc: Option<u8>,
 }
 
 impl CommProfile {
@@ -39,6 +40,11 @@ impl CommProfile {
     #[inline]
     pub fn get_udp_sport(&self, peer_conn_id: &PeerConnId) -> Option<u16> {
         self.udp_sport_map.get(peer_conn_id).copied()
+    }
+
+    #[inline]
+    pub fn get_tc(&self) -> Option<u8> {
+        self.tc
     }
 
     #[inline]

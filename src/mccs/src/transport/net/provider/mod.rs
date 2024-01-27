@@ -104,10 +104,14 @@ pub trait NetProvider: Send + Sync {
         device: usize,
         handle: Self::NetHandle,
         udp_sport: Option<u16>,
+        tc: Option<u8>,
     ) -> Result<Box<AnyNetComm>, Self::NetError>;
     // Finalize connection establishment after remote peer has called connect.
-    async fn accept(&self, listen_comm: Box<AnyNetComm>)
-        -> Result<Box<AnyNetComm>, Self::NetError>;
+    async fn accept(
+        &self,
+        listen_comm: Box<AnyNetComm>,
+        tc: Option<u8>,
+    ) -> Result<Box<AnyNetComm>, Self::NetError>;
     // Register memory. Comm can be either a sendComm or a recvComm.
     async fn register_mr(
         &self,
@@ -201,10 +205,12 @@ pub trait NetProvierWrap: private::Sealed + Send + Sync {
         device: usize,
         handle: &ConnectHandle,
         udp_sport: Option<u16>,
+        tc: Option<u8>,
     ) -> Result<Box<AnyNetComm>, NetProviderError>;
     async fn accept(
         &self,
         listen_comm: Box<AnyNetComm>,
+        tc: Option<u8>,
     ) -> Result<Box<AnyNetComm>, NetProviderError>;
     async fn register_mr(
         &self,
@@ -297,9 +303,10 @@ impl<T: NetProvider> NetProvierWrap for T {
         device: usize,
         handle: &ConnectHandle,
         udp_sport: Option<u16>,
+        tc: Option<u8>,
     ) -> Result<Box<AnyNetComm>, NetProviderError> {
         let handle = handle.deserialize_to::<<Self as NetProvider>::NetHandle>()?;
-        let send_comm = <Self as NetProvider>::connect(self, device, handle, udp_sport)
+        let send_comm = <Self as NetProvider>::connect(self, device, handle, udp_sport, tc)
             .await
             .map_err(anyhow::Error::new)?;
         Ok(send_comm)
@@ -308,8 +315,9 @@ impl<T: NetProvider> NetProvierWrap for T {
     async fn accept(
         &self,
         listen_comm: Box<AnyNetComm>,
+        tc: Option<u8>,
     ) -> Result<Box<AnyNetComm>, NetProviderError> {
-        let recv_comm = <Self as NetProvider>::accept(self, listen_comm)
+        let recv_comm = <Self as NetProvider>::accept(self, listen_comm, tc)
             .await
             .map_err(anyhow::Error::new)?;
         Ok(recv_comm)
