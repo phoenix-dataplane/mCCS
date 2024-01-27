@@ -107,7 +107,8 @@ eight_gpu_flow:
   ./eval/single-app/set_ecmp_hashing_algo.sh source-port
   just one_8gpu_flow
 
-
-[private]
 allreduce-setup setup:
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/multi-allreduce-setup{{setup}}.toml --silent --output-dir /tmp/multi-allreduce
+
+profiling-vgg:
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup2-vgg-profiling.toml --silent --output-dir /tmp/vgg-profiling
