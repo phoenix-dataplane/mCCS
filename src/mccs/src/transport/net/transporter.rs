@@ -43,6 +43,7 @@ fn net_send_setup(
     // NVLink forward is not supported yet
     let (net_dev, _) = profile.get_network_device(conn_id.channel, my_info.rank, conn_id.peer_rank);
     let udp_sport = profile.get_udp_sport(&conn_id);
+    let tc = profile.get_tc();
 
     let agent_cuda_dev = my_info.cuda_device_idx;
     let use_gdr = profile.check_gdr(my_info.rank, net_dev, true) && config.gdr_enable;
@@ -61,6 +62,7 @@ fn net_send_setup(
         buffer_sizes: profile.buff_sizes,
         provider,
         udp_sport,
+        tc,
     };
     let setup = TransportSetup::PreAgentCb {
         agent_cuda_dev,
@@ -109,6 +111,7 @@ fn net_recv_setup(
     // Use myInfo->rank as the receiver uses its own NIC
     let (net_dev, _) = profile.get_network_device(conn_id.channel, my_info.rank, my_info.rank);
     let udp_sport = profile.get_udp_sport(&conn_id);
+    let tc = profile.get_tc();
 
     let proxy_cuda_dev = my_info.cuda_device_idx;
     let use_gdr = profile.check_gdr(my_info.rank, net_dev, false) && config.gdr_enable;
@@ -125,6 +128,7 @@ fn net_recv_setup(
         buffer_sizes: profile.buff_sizes,
         provider,
         udp_sport,
+        tc,
     };
     let setup = TransportSetup::PreAgentCb {
         agent_cuda_dev: proxy_cuda_dev,

@@ -68,6 +68,7 @@ pub async fn net_agent_send_setup(
         provider: request.provider,
         gdr_copy_sync_enable: config.gdr_copy_sync_enable,
         udp_sport: request.udp_sport,
+        tc: request.tc,
     };
     Ok(resources)
 }
@@ -111,6 +112,7 @@ pub async fn net_agent_recv_setup(
         need_flush: request.need_flush,
         gdr_copy_sync_enable,
         gdr_copy_flush_enable,
+        tc: request.tc,
     };
     let reply = AgentRecvSetupReply {
         handle: listener.handle,
@@ -128,6 +130,7 @@ pub async fn net_agent_send_connect(
             setup_resources.net_device,
             &request.handle,
             setup_resources.udp_sport,
+            setup_resources.tc,
         )
         .await?;
     let mut send_comm = Box::into_pin(send_comm);
@@ -284,7 +287,9 @@ pub async fn net_agent_recv_connect(
     setup_resources: AgentRecvSetup,
 ) -> Result<(AgentRecvConnectReply, AgentRecvResources)> {
     let provider = setup_resources.provider;
-    let recv_comm = provider.accept(setup_resources.listen_comm).await?;
+    let recv_comm = provider
+        .accept(setup_resources.listen_comm, setup_resources.tc)
+        .await?;
     let mut recv_comm = Box::into_pin(recv_comm);
     let mut map = BufferMap::new();
 

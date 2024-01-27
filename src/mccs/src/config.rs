@@ -42,6 +42,7 @@ pub struct ChannelPattern {
 pub struct CommPatternConfig {
     pub communicator_id: u32,
     pub channels: Vec<ChannelPattern>,
+    pub ib_traffic_class: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

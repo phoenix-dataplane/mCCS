@@ -722,6 +722,7 @@ fn ib_rtr_qp(
     qp: *mut ibverbs::ffi::ibv_qp,
     remote_qpn: u32,
     remote_qp_info: &IbQpInfo,
+    traffic_class: Option<u8>,
 ) -> Result<(), IbError> {
     let transport_ctx = RDMA_TRANSPORT.0.get().ok_or(IbError::ContextUninitalized)?;
 
@@ -739,7 +740,11 @@ fn ib_rtr_qp(
         qp_attr.ah_attr.grh.flow_label = 0;
         qp_attr.ah_attr.grh.sgid_index = transport_ctx.config.gid_index;
         qp_attr.ah_attr.grh.hop_limit = 255;
-        qp_attr.ah_attr.grh.traffic_class = transport_ctx.config.traffic_class;
+        if let Some(tc) = traffic_class {
+            qp_attr.ah_attr.grh.traffic_class = tc;
+        } else {
+            qp_attr.ah_attr.grh.traffic_class = transport_ctx.config.traffic_class;
+        }
     } else {
         qp_attr.ah_attr.is_global = 0;
         qp_attr.ah_attr.dlid = remote_qp_info.lid as u16;
@@ -812,6 +817,7 @@ pub async fn ib_connect(
     device: usize,
     handle: &IbConnectHandle,
     udp_sport: Option<u16>,
+    tc: Option<u8>,
 ) -> Result<IbSendComm<'static>, IbError> {
     // Stage 1: connect to peer and set up QPs
     let connect_addr = handle.connect_addr;
@@ -909,7 +915,7 @@ pub async fn ib_connect(
     for (q, qp) in qps.iter().enumerate() {
         let qp = qp.get_qp();
         let remote_qpn = remote_qp_info.qpn[q];
-        ib_rtr_qp(qp, remote_qpn, &remote_qp_info)?;
+        ib_rtr_qp(qp, remote_qpn, &remote_qp_info, tc)?;
         ib_rts_qp(qp, udp_sport)?;
     }
 
@@ -938,7 +944,10 @@ pub async fn ib_connect(
     Ok(send_comm)
 }
 
-pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>, IbError> {
+pub async fn ib_accept(
+    listen_comm: IbListenComm,
+    tc: Option<u8>,
+) -> Result<IbRecvComm<'static>, IbError> {
     let mut stream = tcp::async_accept(&listen_comm.listener, listen_comm.magic).await?;
 
     let mut buf = [0u8; IB_QP_INFO_SEND_SIZE];
@@ -984,7 +993,7 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
     for (q, qp) in qps.iter().enumerate() {
         let qp = qp.get_qp();
         let remote_qpn = remote_qp_info.qpn[q];
-        ib_rtr_qp(qp, remote_qpn, &remote_qp_info)?;
+        ib_rtr_qp(qp, remote_qpn, &remote_qp_info, tc)?;
         ib_rts_qp(qp, None)?;
     }
 
@@ -1042,7 +1051,7 @@ pub async fn ib_accept(listen_comm: IbListenComm) -> Result<IbRecvComm<'static>,
         };
         let qp_ptr = flush_qp.get_qp();
         let qpn = unsafe { &*qp_ptr }.qp_num;
-        ib_rtr_qp(qp_ptr, qpn, &local_qp_info)?;
+        ib_rtr_qp(qp_ptr, qpn, &local_qp_info, None)?;
         ib_rts_qp(qp_ptr, None)?;
         let flush = IbGpuFlush {
             enabled: true,
@@ -1670,19 +1679,21 @@ impl NetProvider for RdmaTransportProvider {
         device: usize,
         handle: Self::NetHandle,
         udp_sport: Option<u16>,
+        tc: Option<u8>,
     ) -> Result<Box<AnyNetComm>, Self::NetError> {
-        let send_comm = ib_connect(device, &handle, udp_sport).await?;
+        let send_comm = ib_connect(device, &handle, udp_sport, tc).await?;
         Ok(Box::new(send_comm))
     }
     // Finalize connection establishment after remote peer has called connect.
     async fn accept(
         &self,
         listen_comm: Box<AnyNetComm>,
+        tc: Option<u8>,
     ) -> Result<Box<AnyNetComm>, Self::NetError> {
         let listen_comm = *listen_comm
             .downcast::<IbListenComm>()
             .map_err(|_| IbError::DowncastNetComm)?;
-        let recv_comm = ib_accept(listen_comm).await?;
+        let recv_comm = ib_accept(listen_comm, tc).await?;
         Ok(Box::new(recv_comm))
     }
 

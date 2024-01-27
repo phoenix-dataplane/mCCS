@@ -941,6 +941,10 @@ impl ProxyEngine {
                                     }
                                 }
                             }
+                            let tc = match comm_pattern {
+                                Some(pattern) => pattern.ib_traffic_class,
+                                None => None,
+                            };
                             let profile = CommProfile {
                                 buff_sizes: self
                                     .resources
@@ -949,6 +953,7 @@ impl ProxyEngine {
                                     .buf_sizes,
                                 udp_sport_map,
                                 channel_net_device_map: channel_net_dev_map,
+                                tc,
                             };
                             let mut comm_init = CommInitState::new(
                                 init.communicator_id,
