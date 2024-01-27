@@ -269,6 +269,7 @@ pub async fn net_agent_send_connect(
         mr_handles,
         step: 0,
         provider,
+        qos_round: 0,
     };
 
     let device_idx = unsafe {
@@ -513,17 +514,21 @@ pub fn net_agent_send_progress(
                 let comm_id = qos_service::CommunicatorId(op.communicator_id.0);
                 let interval = schedule.schedule.get(&comm_id);
                 let delay_send = if let Some(interval) = interval {
-                    if QOS_DISABLE.load(std::sync::atomic::Ordering::Relaxed) {
-                        false
+                    let enforce = if let Some(step) = interval.enforce_step {
+                        resources.qos_round % step == 0 
                     } else {
+                        false
+                    };
+                    if enforce {
                         let time = SystemTime::now();
                         let elapsed = time.duration_since(UNIX_EPOCH).unwrap();
-                        let epoch_ts =
-                            (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
+                        let epoch_ts = (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
                         match interval.mode {
                             QosMode::Allow => !interval.intervals.contains(&epoch_ts),
                             QosMode::Deny => interval.intervals.contains(&epoch_ts),
                         }
+                    } else {
+                        false
                     }
                 } else {
                     false
@@ -597,6 +602,7 @@ pub fn net_agent_send_progress(
             if op.done == num_steps {
                 log::debug!("Send Completed");
                 resources.step = op.base + num_steps;
+                resources.qos_round += 1;
                 op.state = TransportOpState::Completed;
                 return Ok(());
             }
