@@ -78,6 +78,7 @@ pub struct AgentSendResources {
     pub(crate) buffer_sizes: [usize; NUM_PROTOCOLS],
     pub(crate) step: u64,
     pub(crate) provider: &'static dyn NetProvierWrap,
+    pub(crate) qos_round: u64,
 }
 
 unsafe impl Send for AgentSendResources {}

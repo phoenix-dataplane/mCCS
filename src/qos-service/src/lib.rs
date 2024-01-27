@@ -20,6 +20,7 @@ pub struct QosIntervalDef {
     // start and end timestamps in microseconds
     pub intervals: Vec<(u64, u64)>,
     pub mode: QosMode,
+    pub enforce_step: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -49,6 +50,7 @@ where
 pub struct QosInterval {
     pub intervals: IntervalSet<u64>,
     pub mode: QosMode,
+    pub enforce_step: Option<u64>,
 }
 
 impl From<QosIntervalDef> for QosInterval {
@@ -57,6 +59,7 @@ impl From<QosIntervalDef> for QosInterval {
         QosInterval {
             intervals,
             mode: def.mode,
+            enforce_step: def.enforce_step,
         }
     }
 }
