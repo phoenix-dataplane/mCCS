@@ -1,0 +1,10 @@
+# VGG on 4 GPUs (2 on H1, 2 on H3)
+communicator_id = 101
+cuda_devices = [0, 1, 0, 1]
+
+[[traces]]
+# 678M all-reduce
+size = 711839744
+type = "all_reduce"
+# 1750ms compute
+compute_interval = 930000

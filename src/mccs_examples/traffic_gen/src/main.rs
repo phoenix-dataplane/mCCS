@@ -165,7 +165,7 @@ fn main() -> ExitCode {
     // start testing
     let mut start = Instant::now();
     let mut round_times = Vec::with_capacity(num_iters);
-    for _ in 0..num_iters {
+    for iter in 0..num_iters {
         for op in traces.iter() {
             spin_sleep::sleep(Duration::from_micros(op.compute_interval));
             match op.op_type {
@@ -202,11 +202,16 @@ fn main() -> ExitCode {
         let end = Instant::now();
         let dura = end.duration_since(start);
         start = end;
-        let round_time = dura.as_micros() as u64;
-        if opts.verbose && opts.rank == 0 {
-            println!("{}[Rank 0] Iter time: {} ms", prefix, round_time / 1000);
+        // let round_time = dura.as_micros() as u64;
+        // if opts.verbose && opts.rank == 0 {
+        //     println!("{}[Rank 0] Iter time: {} ms", prefix, round_time / 1000);
+        // }
+        round_times.push(dura);
+        if opts.verbose && iter > 0 && iter % 25 == 0 && opts.rank == 0 {
+            let stat = get_stats(&mut round_times);
+            println!("{}(mean, median, min, max) = {:?}", prefix, stat);
+            round_times.clear();
         }
-        round_times.push(round_time);
     }
     if opts.rank == 0 && opts.save_path.is_some() {
         let mut wtr = csv::Writer::from_path(opts.save_path.unwrap()).unwrap();
@@ -214,4 +219,24 @@ fn main() -> ExitCode {
     }
 
     return ExitCode::SUCCESS;
+}
+
+#[allow(dead_code)]
+fn get_stats(durations: &mut Vec<Duration>) -> (Duration, Duration, Duration, Duration) {
+    durations.sort();
+
+    let sum: Duration = durations.iter().sum();
+    let mean = sum / durations.len() as u32;
+
+    let median = if durations.len() % 2 == 0 {
+        let mid = durations.len() / 2;
+        (durations[mid - 1] + durations[mid]) / 2
+    } else {
+        durations[durations.len() / 2]
+    };
+
+    let &min = durations.first().unwrap();
+    let &max = durations.last().unwrap();
+
+    (mean, median, min, max)
 }

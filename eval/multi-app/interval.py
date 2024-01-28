@@ -35,21 +35,32 @@ def calculate_intervals(premium_comp, premium_comm, victim_comp, victim_comm, fu
 import math
 
 
-vgg_comp = 310
-vgg_comm = 110
-resnet_comp = 230
-resnet_comm = 35
-# calculate_intervals(premium_comp, premium_comm, victim_comp, victim_comm, time_limit)
-
-
 def my_lcm(pre_comp, pre_comm, vic_comp, vic_comm):
     return math.lcm(pre_comp + pre_comm, vic_comp + vic_comm)
 
 
+# vgg_comp = 310
+# vgg_comm = 110
+# resnet_comp = 230
+# resnet_comm = 35
+
+# calculate_intervals(
+#     vgg_comp,
+#     vgg_comm,
+#     resnet_comp,
+#     resnet_comm,
+#     my_lcm,
+# )
+
+gpt_comp = 930
+gpt_comm = 115
+resnet_comp = 230
+resnet_comm = 30
+
 calculate_intervals(
-    vgg_comp,
-    vgg_comm,
     resnet_comp,
     resnet_comm,
+    gpt_comp,
+    gpt_comm,
     my_lcm,
 )

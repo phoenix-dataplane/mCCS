@@ -152,14 +152,14 @@ def setup2_vgg_qos():
                 rank_map=resnet_map,
                 iter_cnt=50,
             ),
-            TraceProperties(
-                name="gpt",
-                config="workloads/setup-2_gpt.toml",
-                rank_map=gpt_map,
-                iter_cnt=50,
-            ),
+            # TraceProperties(
+            #     name="gpt",
+            #     config="workloads/setup-2_gpt.toml",
+            #     rank_map=gpt_map,
+            #     iter_cnt=50,
+            # ),
         ],
-        "--config eval/multi-app/setup2-vgg.toml",
+        "--config eval/multi-app/setup2-trace-qosv2.toml",
     )
 
     with open("output/setup2-vgg-qos.toml", "w") as f:
@@ -168,7 +168,6 @@ def setup2_vgg_qos():
 
 def setup1_profile():
     job1_map = [(2, 2), (1, 2)]
-    job2_map = [(3, 2), (5, 2)]
 
     config = generate_traffic_gen_config(
         "setup1-profile",
@@ -176,15 +175,9 @@ def setup1_profile():
         [
             TraceProperties(
                 name="job1",
-                config="workloads/setup-1_gpt.toml",
+                config="workloads/setup-1_vgg_0.toml",
                 rank_map=job1_map,
-                iter_cnt=50,
-            ),
-            TraceProperties(
-                name="job2",
-                config="workloads/setup-1_gpt.toml",
-                rank_map=job2_map,
-                iter_cnt=50,
+                iter_cnt=101,
             ),
         ],
         "--config eval/multi-app/setup1-trace-profile.toml",
@@ -194,4 +187,34 @@ def setup1_profile():
         toml.dump(config, f)
 
 
+def setup1_fair():
+    job1_map = [(2, 2), (1, 2)]
+    job2_map = [(3, 2), (5, 2)]
+
+    config = generate_traffic_gen_config(
+        "setup1-fair",
+        "setup1-fair",
+        [
+            TraceProperties(
+                name="job1",
+                config="workloads/setup-1_vgg_0.toml",
+                rank_map=job1_map,
+                iter_cnt=101,
+            ),
+            TraceProperties(
+                name="job2",
+                config="workloads/setup-1_vgg_1.toml",
+                rank_map=job2_map,
+                iter_cnt=101,
+            ),
+        ],
+        "--config eval/multi-app/setup1-trace-fair.toml",
+    )
+
+    with open("output/setup1-trace-fair.toml", "w") as f:
+        toml.dump(config, f)
+
+
+setup2_vgg_qos()
 setup1_profile()
+setup1_fair()
