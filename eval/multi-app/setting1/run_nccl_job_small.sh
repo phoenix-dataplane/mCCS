@@ -2,10 +2,10 @@
 
 WORKDIR=`dirname $(realpath $0)`
 
-# green or red: both take 2 gpus
+# blue or red: both take 2 gpus
 
 usage() {
-	echo "Usage: $0 <job_color>     ring_type=green|red"
+	echo "Usage: $0 <job_color>     ring_type=blue|red"
 }
 
 if [ $# -ne 1 ]; then
