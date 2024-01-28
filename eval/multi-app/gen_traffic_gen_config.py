@@ -166,4 +166,32 @@ def setup2_vgg_qos():
         toml.dump(config, f)
 
 
-setup2_vgg_qos()
+def setup1_profile():
+    job1_map = [(2, 2), (1, 2)]
+    job2_map = [(3, 2), (5, 2)]
+
+    config = generate_traffic_gen_config(
+        "setup1-profile",
+        "setup1-profile",
+        [
+            TraceProperties(
+                name="job1",
+                config="workloads/setup-1_gpt.toml",
+                rank_map=job1_map,
+                iter_cnt=50,
+            ),
+            TraceProperties(
+                name="job2",
+                config="workloads/setup-1_gpt.toml",
+                rank_map=job2_map,
+                iter_cnt=50,
+            ),
+        ],
+        "--config eval/multi-app/setup1-trace-profile.toml",
+    )
+
+    with open("output/setup1-trace-profile.toml", "w") as f:
+        toml.dump(config, f)
+
+
+setup1_profile()

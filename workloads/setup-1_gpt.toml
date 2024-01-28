@@ -1,5 +1,5 @@
 # VGG on 4 GPUs (2 on H1, 2 on H3)
-communicator_id = 101
+communicator_id = 100
 cuda_devices = [0, 1, 0, 1]
 
 [[traces]]
