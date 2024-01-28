@@ -132,9 +132,9 @@ def generate_traffic_gen_config(
 
 
 def setup2_vgg_qos():
-    vgg_map = [(2, 1), (1, 1)]
-    resnet_map = [(3, 1), (5, 1)]
-    gpt_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
+    vgg_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
+    gpt1_map = [(2, 1), (1, 1)]
+    gpt2_map = [(3, 1), (5, 1)]
 
     config = generate_traffic_gen_config(
         "setup2-vgg",
@@ -144,22 +144,24 @@ def setup2_vgg_qos():
                 name="vgg",
                 config="workloads/setup-2_vgg.toml",
                 rank_map=vgg_map,
-                iter_cnt=50,
-            ),
-            TraceProperties(
-                name="resnet",
-                config="workloads/setup-2_resnet.toml",
-                rank_map=resnet_map,
-                iter_cnt=50,
+                iter_cnt=51,
             ),
             # TraceProperties(
-            #     name="gpt",
-            #     config="workloads/setup-2_gpt.toml",
-            #     rank_map=gpt_map,
-            #     iter_cnt=50,
+            #     name="gpt_1",
+            #     config="workloads/setup-2_gpt_1.toml",
+            #     rank_map=gpt1_map,
+            #     iter_cnt=501,
+            # ),
+            # TraceProperties(
+            #     name="gpt_2",
+            #     config="workloads/setup-2_gpt_2.toml",
+            #     rank_map=gpt2_map,
+            #     iter_cnt=501,
             # ),
         ],
-        "--config eval/multi-app/setup2-trace-qosv2.toml",
+        # "--config eval/multi-app/output/setup2-mccs-config.toml",
+        # "--config eval/multi-app/setup2-trace-fair.toml",
+        "--config eval/multi-app/setup2-trace-qosv1.toml",
     )
 
     with open("output/setup2-vgg-qos.toml", "w") as f:

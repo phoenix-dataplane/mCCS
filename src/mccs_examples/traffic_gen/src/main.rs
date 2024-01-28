@@ -207,9 +207,11 @@ fn main() -> ExitCode {
         //     println!("{}[Rank 0] Iter time: {} ms", prefix, round_time / 1000);
         // }
         round_times.push(dura);
-        if opts.verbose && iter > 0 && iter % 25 == 0 && opts.rank == 0 {
+        if opts.verbose && iter > 0 && iter % 10 == 0 && opts.rank == 0 {
             let stat = get_stats(&mut round_times);
             println!("{}(mean, median, min, max) = {:?}", prefix, stat);
+        }
+        if iter == 20 {
             round_times.clear();
         }
     }
