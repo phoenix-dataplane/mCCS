@@ -162,6 +162,7 @@ fn main() -> ExitCode {
     }
     println!("{}Rank {}: warmup phase finished", prefix, rank);
 
+    let global_start = Instant::now();
     // start testing
     let mut start = Instant::now();
     let mut round_times = Vec::with_capacity(num_iters);
@@ -207,13 +208,22 @@ fn main() -> ExitCode {
         //     println!("{}[Rank 0] Iter time: {} ms", prefix, round_time / 1000);
         // }
         round_times.push(dura);
-        if opts.verbose && iter > 0 && iter % 10 == 0 && opts.rank == 0 {
+        if opts.verbose && iter > 0 && iter % 30 == 0 && opts.rank == 0 {
             let stat = get_stats(&mut round_times);
             println!("{}(mean, median, min, max) = {:?}", prefix, stat);
         }
         if iter == 20 {
             round_times.clear();
         }
+    }
+    let run_time = global_start.elapsed();
+    if rank == 0 {
+        println!(
+            "{}Rank {}: run time: {} ms",
+            prefix,
+            rank,
+            run_time.as_micros() as u64 / 1000
+        );
     }
     if opts.rank == 0 && opts.save_path.is_some() {
         let mut wtr = csv::Writer::from_path(opts.save_path.unwrap()).unwrap();

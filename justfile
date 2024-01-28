@@ -139,11 +139,11 @@ batched-allreduce-multi2:
 
 setup2-vgg:
   # ./eval/single-app/set_ecmp_hashing_algo.sh source-port
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup2-vgg-qos.toml --silent --output-dir /tmp/setup2-vgg-qos --timeout 120
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup2-vgg-qos.toml --silent --output-dir /tmp/setup2-vgg-qos --timeout 180
 
 setup4-vgg:
   # ./eval/single-app/set_ecmp_hashing_algo.sh source-port
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-vgg-qos.toml --silent --output-dir /tmp/setup4-vgg-qos --timeout 120
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-vgg-qos.toml --silent --output-dir /tmp/setup4-vgg-qos --timeout 180
 
 setup1 what:
   ./eval/single-app/set_ecmp_hashing_algo.sh source-port
