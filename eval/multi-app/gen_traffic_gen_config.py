@@ -131,24 +131,39 @@ def generate_traffic_gen_config(
     return config
 
 
-def setup2_vgg_profiling():
-    job1_rank_map = [(2, 1), (1, 1)]
+def setup2_vgg_qos():
+    vgg_map = [(2, 1), (1, 1)]
+    resnet_map = [(3, 1), (5, 1)]
+    gpt_map = [(2, 1), (3, 1), (1, 1), (5, 1)]
+
     config = generate_traffic_gen_config(
-        "setup2-vgg-profiling",
-        "profiling",
+        "setup2-vgg",
+        "qos",
         [
             TraceProperties(
-                name="app1",
+                name="vgg",
                 config="workloads/setup-2_vgg.toml",
-                rank_map=job1_rank_map,
+                rank_map=vgg_map,
+                iter_cnt=50,
+            ),
+            TraceProperties(
+                name="resnet",
+                config="workloads/setup-2_resnet.toml",
+                rank_map=resnet_map,
+                iter_cnt=50,
+            ),
+            TraceProperties(
+                name="gpt",
+                config="workloads/setup-2_gpt.toml",
+                rank_map=gpt_map,
                 iter_cnt=50,
             ),
         ],
-        "--config eval/multi-app/profiling.toml",
+        "--config eval/multi-app/setup2-vgg.toml",
     )
 
-    with open("output/setup2-vgg-profiling.toml", "w") as f:
+    with open("output/setup2-vgg-qos.toml", "w") as f:
         toml.dump(config, f)
 
 
-setup2_vgg_profiling()
+setup2_vgg_qos()

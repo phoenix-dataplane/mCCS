@@ -49,15 +49,69 @@ def filter_contents(contents: list, filter_list: list):
 def collect_setup(base_dir: str, group: str, setup: int, app_cnt: int):
     path = os.path.join(base_dir, group, group + "-setup" + str(setup))
     outputs = get_output(path)
+    res = []
     for i in range(1, app_cnt + 1):
         line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=3"])
-        print(f"app{i}", line[0].split(": ")[-1].split(" GB")[0])
+        res.append(
+            (
+                f"app{i}",
+                line[0].split(": ")[-2].split(" GB")[0],
+                line[0].split(": ")[-1].split(" GB")[0],
+            )
+        )
+    return res
 
 
-if __name__ == "__main__":
-    import sys
+def collect_setup2(base_dir: str, group: str, each: str, setup: int, app_cnt: int):
+    path = os.path.join(base_dir, group, each + "-setup" + str(setup))
+    outputs = get_output(path)
+    res = []
+    for i in range(1, app_cnt + 1):
+        line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=3"])
+        res.append(
+            (
+                f"app{i}",
+                line[0].split(": ")[-2].split(" GB")[0],
+                line[0].split(": ")[-1].split(" GB")[0],
+            )
+        )
+    return res
 
-    # input: setup
-    mapping = {1: 2, 2: 3, 3: 2}
-    setup = int(sys.argv[1])
-    collect_setup("/tmp", "multi-allreduce", setup, mapping[setup])
+
+def interactive():
+    if __name__ == "__main__":
+        import sys
+
+        # input: setup
+        mapping = {1: 2, 2: 3, 3: 2}
+        setup = int(sys.argv[1])
+        collect_setup("/tmp", "multi-allreduce", setup, mapping[setup])
+
+
+def collect_allreduce_all():
+    res = "Solution,App,Size (Bytes),Dtype,Latency (us),AlgBW (GB/s),BusBW (GB/s)\n"
+    if __name__ == "__main__":
+        mapping = {1: 2, 2: 3, 3: 2}
+        for setup in [1, 2, 3]:
+            for i in range(10):
+                for line in collect_setup2(
+                    "/tmp",
+                    f"multi-allreduce-ecmp-{i}",
+                    "multi-allreduce-ecmp",
+                    setup,
+                    mapping[setup],
+                ):
+                    res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
+        for setup in [1, 2, 3]:
+            for line in collect_setup2(
+                "/tmp",
+                "multi-allreduce-flow-0",
+                "multi-allreduce-flow",
+                setup,
+                mapping[setup],
+            ):
+                res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
+        print(res)
+
+
+collect_allreduce_all()

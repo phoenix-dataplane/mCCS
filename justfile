@@ -112,15 +112,18 @@ allreduce-multi type setup cnt:
 
 batched-allreduce-multi:
   #!/usr/bin/env bash
+  ./eval/single-app/set_ecmp_hashing_algo.sh everything
   for i in {1..3}; do
     for j in {0..9}; do
       just allreduce-multi ecmp $i $j
     done
   done
+  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
   for i in {1..3}; do
     just allreduce-multi flow $i 0
   done
 
 
-profiling-vgg:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup2-vgg-profiling.toml --silent --output-dir /tmp/vgg-profiling
+setup2-vgg:
+  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup2-vgg-qos.toml --silent --output-dir /tmp/setup2-vgg-qos

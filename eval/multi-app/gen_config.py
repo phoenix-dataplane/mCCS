@@ -47,7 +47,7 @@ class BenchArgs:
     def get_args(self):
         return f"--root-addr {self.root_addr} --rank {self.rank} \
 --num-ranks {self.num_ranks} --cuda-device-idx {self.cuda_dev} --size {self.size} \
---communicator {self.comm} --round {self.round} --size-in-byte --name {self.name} --epoch 10"
+--communicator {self.comm} --round {self.round} --size-in-byte --name {self.name} --epoch 6"
 
 
 def get_args_group(
@@ -131,7 +131,7 @@ def generate_config(
             app.rank_map,
             convert_size(app.size),
             comm=app.comm,
-            round=80,
+            round=25,
         ):
             apps.append(
                 {
@@ -316,6 +316,7 @@ def allreduce_setup3():
     )
     with open("output/multi-allreduce-flow-setup3.toml", "w") as f:
         toml.dump(config, f)
+
 
 allreduce_setup1()
 allreduce_setup2()
