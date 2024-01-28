@@ -67,7 +67,7 @@ def collect_setup2(base_dir: str, group: str, each: str, setup: int, app_cnt: in
     outputs = get_output(path)
     res = []
     for i in range(1, app_cnt + 1):
-        line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=3"])
+        line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=1"])
         res.append(
             (
                 f"app{i}",

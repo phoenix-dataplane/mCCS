@@ -7,4 +7,4 @@ cuda_devices = [0, 0, 0, 0]
 size = 711839744
 type = "all_reduce"
 # 1750ms compute
-compute_interval = 1750000
+compute_interval = 930000

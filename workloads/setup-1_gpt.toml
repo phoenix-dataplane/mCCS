@@ -3,8 +3,8 @@ communicator_id = 101
 cuda_devices = [0, 1, 0, 1]
 
 [[traces]]
-# 548M all-reduce
-size = 574668960
+# 678M all-reduce
+size = 711839744
 type = "all_reduce"
-# 310ms compute
-compute_interval = 310000
+# 1750ms compute
+compute_interval = 930000
