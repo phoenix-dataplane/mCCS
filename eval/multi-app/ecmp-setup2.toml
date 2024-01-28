@@ -60,15 +60,15 @@ ib_traffic_class = 66
 [[comm_patterns_override]]
 communicator_id = 82
 channels = [
-    { channel_id = 0, ring = [0, 1], udp_sport = [[0, 1, 49200], [1, 0, 49200]], net_dev = "mlx5_0" },
-    { channel_id = 1, ring = [0, 1], udp_sport = [[0, 1, 49200], [1, 0, 49200]], net_dev = "mlx5_0" },
+    { channel_id = 0, ring = [0, 1], net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1], net_dev = "mlx5_0" },
 ]
 ib_traffic_class = 106
 
 [[comm_patterns_override]]
 communicator_id = 83
 channels = [
-    { channel_id = 0, ring = [0, 1], udp_sport = [[0, 1, 49200], [1, 0, 49200]], net_dev = "mlx5_0" },
-    { channel_id = 1, ring = [0, 1], udp_sport = [[0, 1, 49200], [1, 0, 49200]], net_dev = "mlx5_0" },
+    { channel_id = 0, ring = [0, 1], net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1], net_dev = "mlx5_0" },
 ]
 ib_traffic_class = 106
