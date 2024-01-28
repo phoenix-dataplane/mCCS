@@ -53,7 +53,7 @@ channels = [
     { channel_id = 0, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49202], [3, 0, 49202]], net_dev = "mlx5_0" },
     { channel_id = 1, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49202], [3, 0, 49202]], net_dev = "mlx5_0" },
 ]
-ib_traffic_class = 106
+ib_traffic_class = 0
 
 [[comm_patterns_override]]
 communicator_id = 201

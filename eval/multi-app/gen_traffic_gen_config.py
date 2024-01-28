@@ -244,10 +244,16 @@ def setup4_vgg_qos():
                 rank_map=gpt2_map,
                 iter_cnt=501,
             ),
+            #  TraceProperties(
+            #     name="resnet",
+            #     config="workloads/setup-4_resnet_0.toml",
+            #     rank_map=gpt2_map,
+            #     iter_cnt=501,
+            # ),
         ],
-        # "--config eval/multi-app/output/setup4-mccs-config.toml",
+        "--config eval/multi-app/output/setup4-mccs-config.toml",
         # "--config eval/multi-app/setup4-trace-fair.toml",
-        "--config eval/multi-app/setup4-trace-qosv1.toml",
+        # "--config eval/multi-app/setup4-trace-qosv1.toml",
     )
 
     with open("output/setup4-vgg-qos.toml", "w") as f:

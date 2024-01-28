@@ -1,0 +1,10 @@
+# ResNet on 4 GPUs (2 on H0, 2 on H2)
+communicator_id = 202
+cuda_devices = [1, 1]
+
+[[traces]]
+# 170M all-reduce
+size = 178196640
+type = "all_reduce"
+# 230ms compute
+compute_interval = 120000

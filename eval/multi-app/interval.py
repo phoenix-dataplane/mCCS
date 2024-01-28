@@ -126,7 +126,7 @@ epoch_microsecs = """
 intervals = """
         + str(list1)
         + r"""
-mode = "Deny"
+mode = "Allow"
         
 [qos_schedule.schedule.202]
 intervals = """
@@ -143,7 +143,7 @@ channels = [
     { channel_id = 0, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49200], [3, 0, 49200]], net_dev = "mlx5_0" },
     { channel_id = 1, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49200], [3, 0, 49200]], net_dev = "mlx5_0" },
 ]
-ib_traffic_class = 106
+ib_traffic_class = 0
 
 [[comm_patterns_override]]
 communicator_id = 201
@@ -170,17 +170,19 @@ def gen_qos():
     gpt_comm = 115
     vgg_comp = 310
     vgg_comm = 110
+    gpt_comp = 6
+    gpt_comm = 17
     intvl, victim, epoch_time = calculate_intervals(
-        vgg_comp,
-        vgg_comm,
-        gpt_comp,
-        gpt_comm,
-        my_lcm,
+        6,
+        17,
+        6,
+        1,
+        lambda x,y,z,w:1000,
     )
     intvl = (np.array(intvl) * 1000).tolist()
     victim = (np.array(victim) * 1000).tolist()
-    text = fill_template(victim, intvl, epoch_time * 1000)
-    with open("output/setup2-mccs-config.toml", "w") as f:
+    text = fill_template(intvl, intvl, epoch_time * 1000)
+    with open("output/setup4-mccs-config.toml", "w") as f:
         f.write(text)
 
 
