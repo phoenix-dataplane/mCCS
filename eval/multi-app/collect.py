@@ -103,14 +103,15 @@ def collect_allreduce_all():
                 ):
                     res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
         for setup in [1, 2, 3]:
-            for line in collect_setup2(
-                "/tmp",
-                "multi-allreduce-flow-0",
-                "multi-allreduce-flow",
-                setup,
-                mapping[setup],
-            ):
-                res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
+            for i in range(10):
+                for line in collect_setup2(
+                    "/tmp",
+                    f"multi-allreduce-flow-{i}",
+                    "multi-allreduce-flow",
+                    setup,
+                    mapping[setup],
+                ):
+                    res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
         print(res)
 
 

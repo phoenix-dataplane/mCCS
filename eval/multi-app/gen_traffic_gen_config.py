@@ -61,7 +61,7 @@ class RealTrafficArgs:
 
     def get_args(self) -> str:
         return f"--root-addr {self.root_addr} --rank {self.rank} \
---iters {self.iter} --config {self.config} --verbose"
+--iters {self.iter} --config {self.config} --verbose --name {self.name}"
 
 
 def get_traffic_gen_groups(

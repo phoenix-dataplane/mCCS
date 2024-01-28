@@ -123,6 +123,18 @@ batched-allreduce-multi:
     just allreduce-multi flow $i 0
   done
 
+batched-allreduce-multi2:
+  #!/usr/bin/env bash
+  ./eval/single-app/set_ecmp_hashing_algo.sh everything
+  for j in {0..9}; do
+    just allreduce-multi ecmp 3 $j
+  done
+  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  for i in {1..3}; do
+    for j in {0..9}; do
+      just allreduce-multi flow $i $j
+    done
+  done
 
 setup2-vgg:
   ./eval/single-app/set_ecmp_hashing_algo.sh source-port
