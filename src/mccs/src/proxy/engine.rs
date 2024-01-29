@@ -70,6 +70,8 @@ pub struct ProxyResources {
     pub task_submit_pool: Vec<TaskSubmission>,
     pub daemon_shutdown: Vec<(DaemonId, usize)>,
     pub transport_shutdown: Vec<(TransportEngineId, usize)>,
+    // TODO: FIXME
+    pub queued_commands: Vec<(DaemonId, super::command::AllReduceRequest)>,
 }
 
 unsafe impl Send for ProxyResources {}
@@ -641,6 +643,16 @@ impl ProxyResources {
             }
             ProxyOp::RebootCommunicator(comm_id) => {
                 let res = self.init_communicator(*comm_id);
+                if res {
+                    let comm = self.communicators.get_mut(comm_id).unwrap();
+                    for (daemon_id, coll) in self.queued_commands.drain(..) {
+                        let user_events = self.user_events.get(&daemon_id).unwrap();
+                        comm.schedule_all_reduce(coll, user_events);
+                        comm.launch_scheduled_and_record(&mut self.transport_engines_tx);
+                        let sender = self.daemon_tx.get(&daemon_id).unwrap();
+                        sender.send(ProxyCompletion::AllReduce).unwrap();
+                    }
+                }
                 res
             }
             ProxyOp::PollCommunicatorComplete(comm_id) => {
@@ -710,6 +722,7 @@ impl ProxyEngine {
             task_submit_pool: Vec::new(),
             daemon_shutdown: Vec::new(),
             transport_shutdown: Vec::new(),
+            queued_commands: Vec::new(),
         };
         let engine = ProxyEngine {
             resources,
@@ -772,56 +785,57 @@ impl ProxyEngine {
                     comm.bootstrap_handle = Some(handle);
                 }
                 ExchangeNotification::CommPatternReconfig(comm_pattern) => {
-                    log::error!("CommPatternReconfig: business is closed");
                     let comm_id = CommunicatorId(comm_pattern.communicator_id.0);
-                    let comm = self.resources.communicators.remove(&comm_id).unwrap();
-                    let mut channels = Vec::with_capacity(comm_pattern.channels.len());
-                    for chan in comm_pattern.channels.iter() {
-                        assert_eq!(chan.ring.len(), comm.num_ranks);
-                        let ix_rank = chan.ring.iter().position(|x| *x == comm.rank).unwrap();
-                        let ix_zero = chan.ring.iter().position(|x| *x == 0).unwrap();
-                        let mut user_ranks = Vec::with_capacity(comm.num_ranks);
-                        for i in 0..comm.num_ranks {
-                            let ring_rank = chan.ring[(i + ix_rank) % comm.num_ranks];
-                            assert!(ring_rank < comm.num_ranks);
-                            user_ranks.push(ring_rank);
+                    let comm = self.resources.communicators.remove(&comm_id);
+                    if let Some(comm) = comm {
+                        let mut channels = Vec::with_capacity(comm_pattern.channels.len());
+                        for chan in comm_pattern.channels.iter() {
+                            assert_eq!(chan.ring.len(), comm.num_ranks);
+                            let ix_rank = chan.ring.iter().position(|x| *x == comm.rank).unwrap();
+                            let ix_zero = chan.ring.iter().position(|x| *x == 0).unwrap();
+                            let mut user_ranks = Vec::with_capacity(comm.num_ranks);
+                            for i in 0..comm.num_ranks {
+                                let ring_rank = chan.ring[(i + ix_rank) % comm.num_ranks];
+                                assert!(ring_rank < comm.num_ranks);
+                                user_ranks.push(ring_rank);
+                            }
+                            let ring = crate::pattern::RingPattern {
+                                prev: user_ranks[comm.num_ranks - 1],
+                                next: user_ranks[1],
+                                user_ranks,
+                                index: (ix_rank + comm.num_ranks - ix_zero) % comm.num_ranks,
+                            };
+                            let chan_pattern = crate::comm::ChannelCommPattern {
+                                channel: ChannelId(chan.channel_id),
+                                ring,
+                            };
+                            channels.push(chan_pattern);
                         }
-                        let ring = crate::pattern::RingPattern {
-                            prev: user_ranks[comm.num_ranks - 1],
-                            next: user_ranks[1],
-                            user_ranks,
-                            index: (ix_rank + comm.num_ranks - ix_zero) % comm.num_ranks,
-                        };
-                        let chan_pattern = crate::comm::ChannelCommPattern {
-                            channel: ChannelId(chan.channel_id),
-                            ring,
-                        };
-                        channels.push(chan_pattern);
-                    }
-                    let task = CommReconfigTask::CommPattern(channels);
-                    let state = CommSuspendState::init(&comm, task);
-                    if state.check_suspended() {
-                        let output =
-                            state.emit(comm, &self.resources.global_registry.transport_catalog);
-                        match output {
-                            CommReconfigOutout::CommPattern(init) => {
-                                let op = ProxyOp::RebootCommunicator(init.id);
-                                self.resources.comms_init.insert(init.id, init);
+                        let task = CommReconfigTask::CommPattern(channels, comm_pattern);
+                        let state = CommSuspendState::init(&comm, task);
+                        if state.check_suspended() {
+                            let output =
+                                state.emit(comm, &self.resources.global_registry.transport_catalog);
+                            match output {
+                                CommReconfigOutout::CommPattern(init) => {
+                                    let op = ProxyOp::RebootCommunicator(init.id);
+                                    self.resources.comms_init.insert(init.id, init);
+                                    self.ops.enqueue(op);
+                                }
+                            }
+                        } else {
+                            if !state.stream_completed {
+                                let op = ProxyOp::PollCommunicatorComplete(comm_id);
                                 self.ops.enqueue(op);
                             }
+                            Self::shutdown_transport_agents(
+                                &mut self.resources.transport_engines_tx,
+                                &comm,
+                            );
+                            self.resources
+                                .comms_suspended
+                                .insert(comm_id, (comm, state));
                         }
-                    } else {
-                        if !state.stream_completed {
-                            let op = ProxyOp::PollCommunicatorComplete(comm_id);
-                            self.ops.enqueue(op);
-                        }
-                        Self::shutdown_transport_agents(
-                            &mut self.resources.transport_engines_tx,
-                            &comm,
-                        );
-                        self.resources
-                            .comms_suspended
-                            .insert(comm_id, (comm, state));
                     }
                 }
             },
@@ -1018,18 +1032,19 @@ impl ProxyEngine {
                             sender.send(ProxyCompletion::AllGather).unwrap();
                         }
                         ProxyCommand::AllReduce(coll) => {
-                            let comm = self
-                                .resources
-                                .communicators
-                                .get_mut(&coll.communicator_id)
-                                .unwrap();
-                            let user_events = self.resources.user_events.get(daemon_id).unwrap();
-                            comm.schedule_all_reduce(coll, user_events);
-                            comm.launch_scheduled_and_record(
-                                &mut self.resources.transport_engines_tx,
-                            );
-                            let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
-                            sender.send(ProxyCompletion::AllReduce).unwrap();
+                            let comm = self.resources.communicators.get_mut(&coll.communicator_id);
+                            if let Some(comm) = comm {
+                                let user_events =
+                                    self.resources.user_events.get(daemon_id).unwrap();
+                                comm.schedule_all_reduce(coll, user_events);
+                                comm.launch_scheduled_and_record(
+                                    &mut self.resources.transport_engines_tx,
+                                );
+                                let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
+                                sender.send(ProxyCompletion::AllReduce).unwrap();
+                            } else {
+                                self.resources.queued_commands.push((*daemon_id, coll));
+                            }
                         }
                         ProxyCommand::GroupCall(colls) => {
                             let comm_id = match &colls[0] {

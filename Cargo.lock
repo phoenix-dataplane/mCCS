@@ -2003,6 +2003,9 @@ dependencies = [
  "bincode",
  "byteorder",
  "ipc",
+ "serde",
+ "structopt",
+ "toml 0.8.8",
 ]
 
 [[package]]

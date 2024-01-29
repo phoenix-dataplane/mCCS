@@ -1,49 +1,59 @@
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::path::{Path, PathBuf};
 
 use byteorder::{ByteOrder, LittleEndian};
+use serde::{Deserialize, Serialize};
+use structopt::StructOpt;
 
-use ipc::mccs::reconfig::{
-    ChannelPattern, CommPatternReconfig, CommunicatorId, ExchangeReconfigCommand,
-};
+use ipc::mccs::reconfig::{CommPatternReconfig, ExchangeReconfigCommand};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Config {
+    mccs_addrs: Vec<IpAddr>,
+    mccs_port: u16,
+    comm_patterns_reconfig: Vec<CommPatternReconfig>,
+}
+
+impl Config {
+    fn from_path<P: AsRef<Path>>(path: P) -> Config {
+        let content = std::fs::read_to_string(path).unwrap();
+        let config = toml::from_str(&content).unwrap();
+        config
+    }
+}
+
+#[derive(Debug, Clone, StructOpt)]
+#[structopt(name = "Comm pattern configurator")]
+struct Opts {
+    // Path to toml traffic trace
+    #[structopt(long, short = "c")]
+    config: PathBuf,
+}
+
+const EXCHANGE_MAGIC: u64 = 0x424ab9f2fc4b9d6e;
 
 fn main() {
-    let ring = vec![2, 1, 0];
-    let config = CommPatternReconfig {
-        communicator_id: CommunicatorId(42),
-        channels: vec![ChannelPattern {
-            channel_id: 0,
-            ring,
-        }],
-    };
-    let cmd = ExchangeReconfigCommand::CommPatternReconfig(config);
+    let opts = Opts::from_args();
+    let config = Config::from_path(opts.config);
 
-    let encoded = bincode::serialize(&cmd).unwrap();
-    let mut buf = [0u8; 5];
-    buf[0] = 1;
-    LittleEndian::write_u32(&mut buf[1..], encoded.len() as u32);
+    let pattern_config = config.comm_patterns_reconfig.clone();
+    let command = ExchangeReconfigCommand::CommPatternReconfig(pattern_config);
+    let encoded = bincode::serialize(&command).unwrap();
 
-    let magic: u64 = 0x424ab9f2fc4b9d6e;
-    let mut magic_buf = [0u8; std::mem::size_of::<u64>()];
-    LittleEndian::write_u64(&mut magic_buf, magic);
+    for addr in config.mccs_addrs.iter() {
+        let addr = SocketAddr::new(*addr, config.mccs_port);
+        let mut buf = [0u8; 5];
+        buf[0] = 1;
+        LittleEndian::write_u32(&mut buf[1..], encoded.len() as u32);
+        let mut magic_buf = [0u8; std::mem::size_of::<u64>()];
+        LittleEndian::write_u64(&mut magic_buf, EXCHANGE_MAGIC);
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream.set_nodelay(true).unwrap();
+        stream.write_all(&magic_buf).unwrap();
+        stream.write_all(&buf).unwrap();
+        stream.write_all(encoded.as_slice()).unwrap();
 
-    let mut stream = TcpStream::connect(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(192, 168, 211, 130)),
-        5000,
-    ))
-    .unwrap();
-    stream.set_nodelay(true).unwrap();
-    stream.write_all(&magic_buf).unwrap();
-    stream.write_all(&buf).unwrap();
-    stream.write_all(encoded.as_slice()).unwrap();
-
-    let mut stream = TcpStream::connect(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(192, 168, 211, 195)),
-        5000,
-    ))
-    .unwrap();
-    stream.set_nodelay(true).unwrap();
-    stream.write_all(&magic_buf).unwrap();
-    stream.write_all(&buf).unwrap();
-    stream.write_all(encoded.as_slice()).unwrap();
+        println!("Sent command to {}", addr);
+    }
 }
