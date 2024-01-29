@@ -203,10 +203,15 @@ fn main() -> ExitCode {
         let end = Instant::now();
         let dura = end.duration_since(start);
         start = end;
-        // let round_time = dura.as_micros() as u64;
-        // if opts.verbose && opts.rank == 0 {
-        //     println!("{}[Rank 0] Iter time: {} ms", prefix, round_time / 1000);
-        // }
+        let round_time = dura.as_micros() as u64;
+        if opts.verbose && opts.rank == 0 {
+            println!(
+                "{}[Rank 0] Iter {} time: {} ms",
+                prefix,
+                iter,
+                round_time as f64 / 1000.0
+            );
+        }
         round_times.push(dura);
         if opts.verbose && iter > 0 && iter % 30 == 0 && opts.rank == 0 {
             let stat = get_stats(&mut round_times);
