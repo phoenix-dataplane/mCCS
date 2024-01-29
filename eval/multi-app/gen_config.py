@@ -318,6 +318,73 @@ def allreduce_setup3():
         toml.dump(config, f)
 
 
+def allreduce_setup4():
+    job1_rank_map = [(2, [0, 1]), (1, [0, 1])]
+    job2_rank_map = [(3, [0]), (5, [0])]
+    job3_rank_map = [(3, [1]), (5, [1])]
+    config = generate_config(
+        "multi-allreduce-ecmp-setup4",
+        "multi-allreduce-ecmp",
+        [
+            AppProperties(
+                name="app1",
+                binary="allreduce_bench",
+                size="128M",
+                rank_map=job1_rank_map,
+                comm=81,
+            ),
+            AppProperties(
+                name="app2",
+                binary="allreduce_bench",
+                size="128M",
+                rank_map=job2_rank_map,
+                comm=82,
+            ),
+            AppProperties(
+                name="app3",
+                binary="allreduce_bench",
+                size="128M",
+                rank_map=job3_rank_map,
+                comm=83,
+            ),
+        ],
+        "--config eval/multi-app/ecmp-setup4.toml",
+    )
+    with open("output/multi-allreduce-ecmp-setup4.toml", "w") as f:
+        toml.dump(config, f)
+    config = generate_config(
+        "multi-allreduce-flow-setup4",
+        "multi-allreduce-flow",
+        [
+            AppProperties(
+                name="app1",
+                binary="allreduce_bench",
+                size="128M",
+                rank_map=job1_rank_map,
+                comm=81,
+            ),
+            AppProperties(
+                name="app2",
+                binary="allreduce_bench",
+                size="128M",
+                rank_map=job2_rank_map,
+                comm=82,
+            ),
+            AppProperties(
+                name="app3",
+                binary="allreduce_bench",
+                size="128M",
+                rank_map=job3_rank_map,
+                comm=83,
+            ),
+        ],
+        "--config eval/multi-app/flow-setup4.toml",
+    )
+    with open("output/multi-allreduce-flow-setup4.toml", "w") as f:
+        toml.dump(config, f)
+
+
 allreduce_setup1()
 allreduce_setup2()
 allreduce_setup3()
+allreduce_setup4()

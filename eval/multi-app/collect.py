@@ -91,7 +91,7 @@ def interactive():
 def collect_allreduce_all():
     res = "Solution,App,Size (Bytes),Dtype,Latency (us),AlgBW (GB/s),BusBW (GB/s)\n"
     if __name__ == "__main__":
-        mapping = {1: 2, 2: 3, 3: 2}
+        mapping = {1: 2, 2: 3, 3: 2, 4: 3}
         for setup in [1, 2, 3]:
             for i in range(10):
                 for line in collect_setup2(
@@ -102,7 +102,7 @@ def collect_allreduce_all():
                     mapping[setup],
                 ):
                     res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
-        for setup in [1, 2, 3]:
+        for setup in [1, 2, 3, 4]:
             for i in range(10):
                 for line in collect_setup2(
                     "/tmp",

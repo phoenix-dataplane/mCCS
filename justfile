@@ -136,6 +136,17 @@ batched-allreduce-multi2:
     done
   done
 
+allreduce-setup4:
+  #!/usr/bin/env bash
+  ./eval/single-app/set_ecmp_hashing_algo.sh everything
+  for j in {0..9}; do
+    just allreduce-multi ecmp 4 $j
+  done
+   ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  for j in {0..9}; do
+    just allreduce-multi flow 4 $j
+  done
+
 
 setup2-vgg:
   # ./eval/single-app/set_ecmp_hashing_algo.sh source-port
