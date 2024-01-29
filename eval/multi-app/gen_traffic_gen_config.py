@@ -217,49 +217,56 @@ def setup1_fair():
         toml.dump(config, f)
 
 
-def setup4_real_qos(setup: str):
+def setup4_real_qos(setup: str, is_ecmp: bool = False):
     vgg_map = [(2, 2), (1, 2)]
     gpt1_map = [(3, 1), (5, 1)]
     gpt2_map = [(3, 1), (5, 1)]
+    if is_ecmp:
+        ecmp_str = "-ecmp"
+    else:
+        ecmp_str = ""
 
     if setup == "qosv2":
-        config = "eval/multi-app/output/setup4-mccs-config.toml"
+        config = f"eval/multi-app/output/setup4-mccs{ecmp_str}-config.toml"
     else:
-        config = f"eval/multi-app/setup4-trace-{setup}.toml"
+        config = f"eval/multi-app/setup4-trace{ecmp_str}-{setup}.toml"
 
     config = generate_traffic_gen_config(
-        f"setup4-real-{setup}",
-        "setup4-real",
+        f"setup4-real{ecmp_str}-{setup}",
+        f"setup4-real{ecmp_str}",
         [
             TraceProperties(
                 name="vgg",
                 config="workloads/setup-4_vgg.toml",
                 rank_map=vgg_map,
-                iter_cnt=301,
+                iter_cnt=101,
             ),
             TraceProperties(
                 name="gpt_1",
                 config="workloads/setup-4_gpt_1.toml",
                 rank_map=gpt1_map,
-                iter_cnt=4501,
+                iter_cnt=1501,
             ),
             TraceProperties(
                 name="gpt_2",
                 config="workloads/setup-4_gpt_2.toml",
                 rank_map=gpt2_map,
-                iter_cnt=9001,
+                iter_cnt=3001,
             ),
         ],
         "--config " + config,
     )
 
-    with open(f"output/setup4-real-{setup}.toml", "w") as f:
+    with open(f"output/setup4-real{ecmp_str}-{setup}.toml", "w") as f:
         toml.dump(config, f)
 
 
 setup2_vgg_qos()
 setup1_profile()
 setup1_fair()
-setup4_real_qos('fair')
-setup4_real_qos('qosv1')
-setup4_real_qos('qosv2')
+setup4_real_qos("fair")
+setup4_real_qos("qosv1")
+setup4_real_qos("qosv2")
+setup4_real_qos("fair", True)
+setup4_real_qos("qosv1", True)
+setup4_real_qos("qosv2", True)

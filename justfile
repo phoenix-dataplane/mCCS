@@ -154,6 +154,31 @@ collect-cdf:
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-real-qosv1.toml --silent --output-dir /tmp/setup4-cdf --timeout 600
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-real-qosv2.toml --silent --output-dir /tmp/setup4-cdf --timeout 600
 
+one-setup4-normal type cnt:
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-real-{{type}}.toml --silent --output-dir /tmp/setup4-real-normal-{{cnt}} --timeout 600
+
+one-setup4-ecmp type cnt:
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-real-ecmp-{{type}}.toml --silent --output-dir /tmp/setup4-real-ecmp-{{cnt}} --timeout 600
+
+collect-setup4-ecmp:
+  #!/usr/bin/env bash
+  ./eval/set_ecmp_hashing_algo.sh everything
+  for i in {0..9}; do
+    for t in {'fair','qosv1','qosv2'}; do
+      just one-setup4-ecmp $t $i
+    done
+  done
+
+collect-setup4-normal:
+  #!/usr/bin/env bash
+  ./eval/set_ecmp_hashing_algo.sh source-port
+  for i in {0..9}; do
+    for t in {'fair','qosv1','qosv2'}; do
+      just one-setup4-normal $t $i
+    done
+  done
+
+
 setup2-vgg:
   ./eval/set_ecmp_hashing_algo.sh source-port
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup2-vgg-qos.toml --silent --output-dir /tmp/setup2-vgg-qos --timeout 180
