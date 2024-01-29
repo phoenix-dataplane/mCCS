@@ -283,7 +283,7 @@ pub async fn net_agent_send_connect(
     Ok((reply, recv_resources))
 }
 
-pub static QOS_DISABLE: AtomicBool = AtomicBool::new(false);
+pub static QOS_DISABLE: AtomicBool = AtomicBool::new(true);
 
 pub async fn net_agent_recv_connect(
     request: AgentRecvConnectRequest,

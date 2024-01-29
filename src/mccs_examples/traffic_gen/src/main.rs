@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use chrono::Local;
+
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
@@ -205,9 +207,12 @@ fn main() -> ExitCode {
         start = end;
         let round_time = dura.as_micros() as u64;
         if opts.verbose && opts.rank == 0 {
+            let now = Local::now();
+            let formatted_time = now.format("%H:%M:%S%.3f").to_string();
             println!(
-                "{}[Rank 0] Iter {} time: {} ms",
+                "{}[Rank 0] <{}> Iter {} time: {} ms",
                 prefix,
+                formatted_time,
                 iter,
                 round_time as f64 / 1000.0
             );

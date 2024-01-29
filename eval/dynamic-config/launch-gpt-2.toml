@@ -1,0 +1,14 @@
+name = "setup4-dynamic-gpt-2"
+group = "setup4-dynamic-gpt-2"
+[[worker]]
+host = "danyang-03"
+bin = "traffic_gen"
+args = "--root-addr 192.168.211.66 --rank 0 --iters 40001 --config workloads/setup-4_gpt_2.toml --verbose --name gpt_2"
+dependencies = []
+
+[[worker]]
+host = "danyang-05"
+bin = "traffic_gen"
+args = "--root-addr 192.168.211.66 --rank 1 --iters 40001 --config workloads/setup-4_gpt_2.toml --verbose --name gpt_2"
+dependencies = []
+
