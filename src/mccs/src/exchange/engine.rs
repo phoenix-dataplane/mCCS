@@ -152,12 +152,14 @@ impl ExchangeEngineResources {
                                 }
                             },
                             ExchangeMessage::ReconfigCommand(cmd) => match cmd {
-                                ExchangeReconfigCommand::CommPatternReconfig(pattern) => {
-                                    for tx in self.proxy_tx.iter() {
-                                        let notify = ExchangeNotification::CommPatternReconfig(
-                                            pattern.clone(),
-                                        );
-                                        tx.send(notify).unwrap();
+                                ExchangeReconfigCommand::CommPatternReconfig(patterns) => {
+                                    for pattern in patterns {
+                                        for tx in self.proxy_tx.iter() {
+                                            let notify = ExchangeNotification::CommPatternReconfig(
+                                                pattern.clone(),
+                                            );
+                                            tx.send(notify).unwrap();
+                                        }
                                     }
                                     None
                                 }

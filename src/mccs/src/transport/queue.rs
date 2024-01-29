@@ -65,11 +65,10 @@ impl TransrportOpQueue {
         for mut idx in self.removal_indices.drain(..).rev() {
             self.queue.swap_remove(idx);
             if self.queue.len() > 0 {
-                if idx == self.queue.len() {
-                    idx -= 1;
+                if idx < self.queue.len() {
+                    let agent_id = self.queue[idx].0;
+                    self.connections_index_map.insert(agent_id, idx);
                 }
-                let agent_id = self.queue[idx].0;
-                self.connections_index_map.insert(agent_id, idx);
             }
         }
         &mut self.removed_agents
@@ -84,11 +83,10 @@ impl TransrportOpQueue {
                 let agent_id = *agent_id;
                 self.queue.swap_remove(index);
                 if self.queue.len() > 0 {
-                    if index == self.queue.len() {
-                        index -= 1;
+                    if index < self.queue.len() {
+                        let swap_agent_id = self.queue[index].0;
+                        self.connections_index_map.insert(swap_agent_id, index);
                     }
-                    let swap_agent_id = self.queue[index].0;
-                    self.connections_index_map.insert(swap_agent_id, index);
                 }
                 self.connections_index_map.remove(&agent_id);
                 true

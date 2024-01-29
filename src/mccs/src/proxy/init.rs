@@ -7,6 +7,7 @@ use std::sync::Arc;
 use cuda_runtime_sys::{cudaError, cudaEventCreateWithFlags, cudaStreamCreate};
 use cuda_runtime_sys::{cudaEventDisableTiming, cudaEventInterprocess};
 use cuda_runtime_sys::{cudaEvent_t, cudaStream_t};
+use ipc::mccs::reconfig::CommPatternReconfig;
 
 use crate::bootstrap::{BootstrapHandle, BootstrapState};
 use crate::comm::device::CommDevResources;
@@ -210,7 +211,7 @@ impl CommInitState {
 }
 
 pub enum CommReconfigTask {
-    CommPattern(Vec<ChannelCommPattern>),
+    CommPattern(Vec<ChannelCommPattern>, CommPatternReconfig),
 }
 
 pub enum CommReconfigOutout {
@@ -304,14 +305,45 @@ impl CommSuspendState {
         transport_catalog: &TransportCatalog,
     ) -> CommReconfigOutout {
         match self.reconfig_task {
-            CommReconfigTask::CommPattern(channels) => {
+            CommReconfigTask::CommPattern(channels, comm_pattern) => {
+                let mut udp_sport_map = HashMap::new();
+                let mut channel_net_dev_map = HashMap::new();
+                for channel in comm_pattern.channels.iter() {
+                    if let Some(sport_map) = channel.udp_sport.as_ref() {
+                        for spec in sport_map.iter() {
+                            let send_rank = spec.0;
+                            let recv_rank = spec.1;
+                            if send_rank != comm.rank {
+                                continue;
+                            }
+                            let conn_id = PeerConnId {
+                                peer_rank: recv_rank,
+                                channel: ChannelId(channel.channel_id),
+                                conn_index: 0,
+                                conn_type: ConnType::Send,
+                            };
+                            udp_sport_map.insert(conn_id, spec.2);
+                        }
+                    }
+                    if let Some(net_dev) = channel.net_dev.as_ref() {
+                        channel_net_dev_map.insert(ChannelId(channel.channel_id), net_dev.clone());
+                    }
+                }
+                let tc = comm_pattern.ib_traffic_class;
+                let profile = CommProfile {
+                    buff_sizes: comm.profile.buff_sizes,
+                    udp_sport_map,
+                    channel_net_device_map: channel_net_dev_map,
+                    tc,
+                };
+
                 let mut init = CommInitState::new(
                     comm.id,
                     comm.cuda_dev,
                     comm.daemon,
                     comm.rank,
                     comm.num_ranks,
-                    comm.profile,
+                    profile,
                 );
                 let peers_info = comm.peers_info;
 
@@ -346,10 +378,10 @@ impl CommSuspendState {
                     };
                     transport_connect.register_connect(&ring_next).unwrap();
                     transport_connect.register_connect(&ring_prev).unwrap();
-                    transport_connect
-                        .post_setup_tasks(peers_info.as_slice(), &init.profile, transport_catalog)
-                        .unwrap();
                 }
+                transport_connect
+                    .post_setup_tasks(peers_info.as_slice(), &comm.profile, &transport_catalog)
+                    .unwrap();
                 init.comm_patterns = Some(channels);
                 init.peers_info = Some(peers_info);
                 init.transport_connect = Some(transport_connect);

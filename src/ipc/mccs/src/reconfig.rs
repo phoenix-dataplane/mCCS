@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 pub struct ChannelPattern {
     pub channel_id: u32,
     pub ring: Vec<usize>,
+    // (send_rank, recv_rank) -> port
+    pub udp_sport: Option<Vec<(usize, usize, u16)>>,
+    pub net_dev: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -14,9 +17,10 @@ pub struct CommunicatorId(pub u32);
 pub struct CommPatternReconfig {
     pub communicator_id: CommunicatorId,
     pub channels: Vec<ChannelPattern>,
+    pub ib_traffic_class: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ExchangeReconfigCommand {
-    CommPatternReconfig(CommPatternReconfig),
+    CommPatternReconfig(Vec<CommPatternReconfig>),
 }
