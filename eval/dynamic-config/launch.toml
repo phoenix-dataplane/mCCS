@@ -1,0 +1,54 @@
+name = "setup4-dynamic"
+group = "setup4-dynamic"
+[[worker]]
+host = "danyang-01"
+bin = "mccs"
+args = "--host 1 --config eval/dynamic-config/setup4-trace-fair.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-02"
+bin = "mccs"
+args = "--host 2 --config eval/dynamic-config/setup4-trace-fair.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-03"
+bin = "mccs"
+args = "--host 3 --config eval/dynamic-config/setup4-trace-fair.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-05"
+bin = "mccs"
+args = "--host 5 --config eval/dynamic-config/setup4-trace-fair.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-02"
+bin = "traffic_gen"
+args = "--root-addr 192.168.211.34 --rank 0 --iters 5001 --config workloads/setup-4_vgg.toml --verbose --name vgg"
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-02"
+bin = "traffic_gen"
+args = "--root-addr 192.168.211.34 --rank 1 --iters 5001 --config workloads/setup-4_vgg.toml --verbose --name vgg"
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-01"
+bin = "traffic_gen"
+args = "--root-addr 192.168.211.34 --rank 2 --iters 5001 --config workloads/setup-4_vgg.toml --verbose --name vgg"
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-01"
+bin = "traffic_gen"
+args = "--root-addr 192.168.211.34 --rank 3 --iters 5001 --config workloads/setup-4_vgg.toml --verbose --name vgg"
+dependencies = [ 0, 1, 2, 3,]
+

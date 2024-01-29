@@ -261,6 +261,65 @@ def setup4_real_qos(setup: str, is_ecmp: bool = False):
         toml.dump(config, f)
 
 
+def setup4_dynamic():
+    vgg_map = [(2, 2), (1, 2)]
+    gpt1_map = [(3, 1), (5, 1)]
+    gpt2_map = [(3, 1), (5, 1)]
+
+    config = generate_traffic_gen_config(
+        f"setup4-dynamic",
+        f"setup4-dynamic",
+        [
+            TraceProperties(
+                name="vgg",
+                config="workloads/setup-4_vgg.toml",
+                rank_map=vgg_map,
+                iter_cnt=5001,
+            ),
+            TraceProperties(
+                name="gpt_1",
+                config="workloads/setup-4_gpt_1.toml",
+                rank_map=gpt1_map,
+                iter_cnt=40001,
+            ),
+            TraceProperties(
+                name="gpt_2",
+                config="workloads/setup-4_gpt_2.toml",
+                rank_map=gpt2_map,
+                iter_cnt=40001,
+            ),
+        ],
+        "--config eval/dynamic-config/setup4-trace-fair.toml",
+    )
+
+    config["worker"], worker_1, worker_2 = (
+        config["worker"][:8],
+        config["worker"][8:10],
+        config["worker"][10:12],
+    )
+    for i in worker_1:
+        i["dependencies"] = []
+    for i in worker_2:
+        i["dependencies"] = []
+    launch_gpt_1 = {
+        'name': 'setup4-dynamic-gpt-1',
+        'group': 'setup4-dynamic-gpt-1',
+        'worker': worker_1
+    }
+    launch_gpt_2 = {
+        'name': 'setup4-dynamic-gpt-2',
+        'group': 'setup4-dynamic-gpt-2',
+        'worker': worker_2
+    }
+
+    with open(f"../dynamic-config/launch.toml", "w") as f:
+        toml.dump(config, f)
+    with open(f"../dynamic-config/launch-gpt-1.toml", "w") as f:
+        toml.dump(launch_gpt_1, f)
+    with open(f"../dynamic-config/launch-gpt-2.toml", "w") as f:
+        toml.dump(launch_gpt_2, f)
+
+
 setup2_vgg_qos()
 setup1_profile()
 setup1_fair()
@@ -270,3 +329,4 @@ setup4_real_qos("qosv2")
 setup4_real_qos("fair", True)
 setup4_real_qos("qosv1", True)
 setup4_real_qos("qosv2", True)
+setup4_dynamic()
