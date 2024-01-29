@@ -217,44 +217,49 @@ def setup1_fair():
         toml.dump(config, f)
 
 
-def setup4_vgg_qos():
+def setup4_real_qos(setup: str):
     vgg_map = [(2, 2), (1, 2)]
     gpt1_map = [(3, 1), (5, 1)]
     gpt2_map = [(3, 1), (5, 1)]
 
+    if setup == "qosv2":
+        config = "eval/multi-app/output/setup4-mccs-config.toml"
+    else:
+        config = f"eval/multi-app/setup4-trace-{setup}.toml"
+
     config = generate_traffic_gen_config(
-        "setup4-vgg",
-        "qos",
+        f"setup4-real-{setup}",
+        "setup4-real",
         [
             TraceProperties(
                 name="vgg",
                 config="workloads/setup-4_vgg.toml",
                 rank_map=vgg_map,
-                iter_cnt=101,
+                iter_cnt=301,
             ),
             TraceProperties(
                 name="gpt_1",
                 config="workloads/setup-4_gpt_1.toml",
                 rank_map=gpt1_map,
-                iter_cnt=1501,
+                iter_cnt=4501,
             ),
             TraceProperties(
                 name="gpt_2",
                 config="workloads/setup-4_gpt_2.toml",
                 rank_map=gpt2_map,
-                iter_cnt=1501,
+                iter_cnt=9001,
             ),
         ],
-        # "--config eval/multi-app/output/setup4-mccs-config.toml",
-        "--config eval/multi-app/setup4-trace-fair.toml",
-        # "--config eval/multi-app/setup4-trace-qosv1.toml",
+        "--config " + config,
     )
 
-    with open("output/setup4-vgg-qos.toml", "w") as f:
+    with open(f"output/setup4-real-{setup}.toml", "w") as f:
         toml.dump(config, f)
 
 
 setup2_vgg_qos()
 setup1_profile()
 setup1_fair()
-setup4_vgg_qos()
+setup4_real_qos('fair')
+setup4_real_qos('qosv1')
+setup4_real_qos('qosv2')

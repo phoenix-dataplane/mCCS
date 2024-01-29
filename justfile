@@ -72,7 +72,7 @@ one_8gpu_flow :
   just launch 8GPU_FLOW single-app-flow
 
 four_gpu_ecmp:
-  ./eval/single-app/set_ecmp_hashing_algo.sh everything
+  ./eval/set_ecmp_hashing_algo.sh everything
   # 1 to 10
   just one_4gpu_ecmp 0
   just one_4gpu_ecmp 1
@@ -86,7 +86,7 @@ four_gpu_ecmp:
   just one_4gpu_ecmp 9
 
 eight_gpu_ecmp:
-  ./eval/single-app/set_ecmp_hashing_algo.sh everything
+  ./eval/set_ecmp_hashing_algo.sh everything
   # 1 to 10
   just one_8gpu_ecmp 0
   just one_8gpu_ecmp 1
@@ -100,11 +100,11 @@ eight_gpu_ecmp:
   just one_8gpu_ecmp 9  
 
 four_gpu_flow:
-  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  ./eval/set_ecmp_hashing_algo.sh source-port
   just one_4gpu_flow
 
 eight_gpu_flow:
-  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  ./eval/set_ecmp_hashing_algo.sh source-port
   just one_8gpu_flow
 
 allreduce-multi type setup cnt:
@@ -112,24 +112,24 @@ allreduce-multi type setup cnt:
 
 batched-allreduce-multi:
   #!/usr/bin/env bash
-  ./eval/single-app/set_ecmp_hashing_algo.sh everything
+  ./eval/set_ecmp_hashing_algo.sh everything
   for i in {1..3}; do
     for j in {0..9}; do
       just allreduce-multi ecmp $i $j
     done
   done
-  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  ./eval/set_ecmp_hashing_algo.sh source-port
   for i in {1..3}; do
     just allreduce-multi flow $i 0
   done
 
 batched-allreduce-multi2:
   #!/usr/bin/env bash
-  ./eval/single-app/set_ecmp_hashing_algo.sh everything
+  ./eval/set_ecmp_hashing_algo.sh everything
   for j in {0..9}; do
     just allreduce-multi ecmp 3 $j
   done
-  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  ./eval/set_ecmp_hashing_algo.sh source-port
   for i in {1..3}; do
     for j in {0..9}; do
       just allreduce-multi flow $i $j
@@ -138,24 +138,30 @@ batched-allreduce-multi2:
 
 allreduce-setup cnt:
   #!/usr/bin/env bash
-  ./eval/single-app/set_ecmp_hashing_algo.sh everything
+  ./eval/set_ecmp_hashing_algo.sh everything
   for j in {0..9}; do
     just allreduce-multi ecmp {{cnt}} $j
   done
-   ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+   ./eval/set_ecmp_hashing_algo.sh source-port
   for j in {0..9}; do
     just allreduce-multi flow {{cnt}} $j
   done
 
 
+collect-cdf: 
+  ./eval/set_ecmp_hashing_algo.sh source-port
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-real-fair.toml --silent --output-dir /tmp/setup4-cdf --timeout 600
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-real-qosv1.toml --silent --output-dir /tmp/setup4-cdf --timeout 600
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-real-qosv2.toml --silent --output-dir /tmp/setup4-cdf --timeout 600
+
 setup2-vgg:
-  # ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  ./eval/set_ecmp_hashing_algo.sh source-port
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup2-vgg-qos.toml --silent --output-dir /tmp/setup2-vgg-qos --timeout 180
 
 setup4-vgg:
-  # ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  ./eval/set_ecmp_hashing_algo.sh source-port
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup4-vgg-qos.toml --silent --output-dir /tmp/setup4-vgg-qos --timeout 180
 
 setup1 what:
-  ./eval/single-app/set_ecmp_hashing_algo.sh source-port
+  ./eval/set_ecmp_hashing_algo.sh source-port
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup1-trace-{{what}}.toml --silent --output-dir /tmp/setup1-trace-{{what}}
