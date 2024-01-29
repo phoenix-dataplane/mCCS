@@ -67,7 +67,13 @@ def my_lcm(pre_comp, pre_comm, vic_comp, vic_comm):
 # )
 
 
-def fill_template(list1, list2, time):
+def fill_template(list1, list2, time, is_ecmp=False):
+    if not is_ecmp:
+        s_port1 = "udp_sport = [[1, 2, 49200], [3, 0, 49200]],"
+        s_port2 = "udp_sport = [[0, 1, 49202], [1, 0, 49202]],"
+    else:
+        s_port1 = ""
+        s_port2 = ""
     return (
         r"""
 mccs_daemon_basename = "mccs-deamon"
@@ -140,16 +146,24 @@ mode = "Deny"
 [[comm_patterns_override]]
 communicator_id = 200
 channels = [
-    { channel_id = 0, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49200], [3, 0, 49200]], net_dev = "mlx5_0" },
-    { channel_id = 1, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49200], [3, 0, 49200]], net_dev = "mlx5_0" },
+    { channel_id = 0, ring = [0, 1, 2, 3], """
+        + s_port1
+        + r""" net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1, 2, 3], """
+        + s_port1
+        + r""" net_dev = "mlx5_0" },
 ]
 ib_traffic_class = 0
 
 [[comm_patterns_override]]
 communicator_id = 201
 channels = [
-    { channel_id = 0, ring = [0, 1], udp_sport = [[0, 1, 49202], [1, 0, 49202]], net_dev = "mlx5_0" },
-    { channel_id = 1, ring = [0, 1], udp_sport = [[0, 1, 49202], [1, 0, 49202]], net_dev = "mlx5_0" },
+    { channel_id = 0, ring = [0, 1],  """
+        + s_port2
+        + r""" net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1], """
+        + s_port2
+        + r""" net_dev = "mlx5_0" },
 ]
 ib_traffic_class = 66
 
@@ -157,8 +171,12 @@ ib_traffic_class = 66
 [[comm_patterns_override]]
 communicator_id = 202
 channels = [
-    { channel_id = 0, ring = [0, 1], udp_sport = [[0, 1, 49202], [1, 0, 49202]], net_dev = "mlx5_0" },
-    { channel_id = 1, ring = [0, 1], udp_sport = [[0, 1, 49202], [1, 0, 49202]], net_dev = "mlx5_0" },
+    { channel_id = 0, ring = [0, 1],"""
+        + s_port2
+        + r""" net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1], """
+        + s_port2
+        + r""" net_dev = "mlx5_0" },
 ]
 ib_traffic_class = 66
 """
@@ -177,12 +195,15 @@ def gen_qos():
         17,
         6,
         1,
-        lambda x,y,z,w:1000,
+        lambda x, y, z, w: 1000,
     )
     intvl = (np.array(intvl) * 1000).tolist()
     victim = (np.array(victim) * 1000).tolist()
-    text = fill_template(intvl, intvl, epoch_time * 1000)
+    text = fill_template(intvl, intvl, epoch_time * 1000, False)
     with open("output/setup4-mccs-config.toml", "w") as f:
+        f.write(text)
+    text = fill_template(intvl, intvl, epoch_time * 1000, True)
+    with open("output/setup4-mccs-ecmp-config.toml", "w") as f:
         f.write(text)
 
 
