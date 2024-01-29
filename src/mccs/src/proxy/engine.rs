@@ -1084,6 +1084,11 @@ impl ProxyEngine {
             self.resources.daemon_rx.swap_remove(idx);
             self.resources.user_events.remove(&daemon_id);
             self.resources.communicators.retain(|_, comm| {
+                // DO NOT FIX ME
+                use crate::transport::net::agent::QOS_DISABLE;
+                if comm.id == CommunicatorId(201) {
+                    QOS_DISABLE.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
                 if comm.daemon == daemon_id {
                     Self::shutdown_transport_agents(&mut self.resources.transport_engines_tx, comm);
                     let request = ExchangeCommand::RemoveCommunicator(comm.id);

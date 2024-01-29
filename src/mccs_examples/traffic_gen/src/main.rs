@@ -66,6 +66,15 @@ struct Opts {
     save_path: Option<PathBuf>,
     #[structopt(long, short = "v")]
     verbose: bool,
+    #[structopt(long)]
+    name: Option<String>,
+}
+
+fn get_prefix(name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("[{}] ", name),
+        None => String::new(),
+    }
 }
 
 fn main() -> ExitCode {
@@ -73,6 +82,7 @@ fn main() -> ExitCode {
     let rank = opts.rank;
     let num_iters = opts.iters;
     let config = Config::from_path(opts.config);
+    let prefix = get_prefix(opts.name.as_deref());
 
     let num_ranks = config.communicator_devices.len();
     let cuda_device_idx = config.communicator_devices[rank];
@@ -112,7 +122,7 @@ fn main() -> ExitCode {
         libmccs::init_communicator_rank(comm_id, rank, num_ranks, cuda_device_idx, opts.root_addr)
             .unwrap();
     libmccs::register_stream(cuda_device_idx, 0 as cudaStream_t).unwrap();
-    println!("Rank {}: start warmup", rank);
+    println!("{}Rank {}: start warmup", prefix, rank);
 
     for _ in 0..5 {
         libmccs::all_gather(
@@ -130,7 +140,7 @@ fn main() -> ExitCode {
             panic!("cudaStreamSynchronize failed");
         }
     }
-    println!("Rank {}: warmup phase AG finished", rank);
+    println!("{}Rank {}: warmup phase AG finished", prefix, rank);
 
     for _ in 0..5 {
         libmccs::all_reduce(
@@ -150,12 +160,13 @@ fn main() -> ExitCode {
             panic!("cudaStreamSynchronize failed");
         }
     }
-    println!("Rank {}: warmup phase finished", rank);
+    println!("{}Rank {}: warmup phase finished", prefix, rank);
 
+    let global_start = Instant::now();
     // start testing
     let mut start = Instant::now();
     let mut round_times = Vec::with_capacity(num_iters);
-    for _ in 0..num_iters {
+    for iter in 0..num_iters {
         for op in traces.iter() {
             spin_sleep::sleep(Duration::from_micros(op.compute_interval));
             match op.op_type {
@@ -192,11 +203,27 @@ fn main() -> ExitCode {
         let end = Instant::now();
         let dura = end.duration_since(start);
         start = end;
-        let round_time = dura.as_micros() as u64;
-        if opts.verbose && opts.rank == 0 {
-            println!("[Rank 0] Iter time: {} ms", round_time / 1000);
+        // let round_time = dura.as_micros() as u64;
+        // if opts.verbose && opts.rank == 0 {
+        //     println!("{}[Rank 0] Iter time: {} ms", prefix, round_time / 1000);
+        // }
+        round_times.push(dura);
+        if opts.verbose && iter > 0 && iter % 30 == 0 && opts.rank == 0 {
+            let stat = get_stats(&mut round_times);
+            println!("{}(mean, median, min, max) = {:?}", prefix, stat);
         }
-        round_times.push(round_time);
+        if iter == 20 {
+            round_times.clear();
+        }
+    }
+    let run_time = global_start.elapsed();
+    if rank == 0 {
+        println!(
+            "{}Rank {}: run time: {} ms",
+            prefix,
+            rank,
+            run_time.as_micros() as u64 / 1000
+        );
     }
     if opts.rank == 0 && opts.save_path.is_some() {
         let mut wtr = csv::Writer::from_path(opts.save_path.unwrap()).unwrap();
@@ -204,4 +231,24 @@ fn main() -> ExitCode {
     }
 
     return ExitCode::SUCCESS;
+}
+
+#[allow(dead_code)]
+fn get_stats(durations: &mut Vec<Duration>) -> (Duration, Duration, Duration, Duration) {
+    durations.sort();
+
+    let sum: Duration = durations.iter().sum();
+    let mean = sum / durations.len() as u32;
+
+    let median = if durations.len() % 2 == 0 {
+        let mid = durations.len() / 2;
+        (durations[mid - 1] + durations[mid]) / 2
+    } else {
+        durations[durations.len() / 2]
+    };
+
+    let &min = durations.first().unwrap();
+    let &max = durations.last().unwrap();
+
+    (mean, median, min, max)
 }

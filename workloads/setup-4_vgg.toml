@@ -1,6 +1,6 @@
 # VGG on 2 GPUs (1 on H1, 1 on H3)
 communicator_id = 200
-cuda_devices = [1, 1, 1, 1]
+cuda_devices = [0, 1, 0, 1]
 
 [[traces]]
 # 548M all-reduce

@@ -28,6 +28,15 @@ struct Opts {
     round: usize,
     #[structopt(long, default_value = "1")]
     epoch: usize,
+    #[structopt(long)]
+    name: Option<String>,
+}
+
+fn get_prefix(name: Option<&str>) -> String {
+    match name {
+        Some(name) => format!("[{}] ", name),
+        None => String::new(),
+    }
 }
 
 fn main() -> ExitCode {
@@ -40,6 +49,7 @@ fn main() -> ExitCode {
     };
     let rank = opts.rank;
     let num_ranks = opts.num_ranks;
+    let prefix = get_prefix(opts.name.as_deref());
 
     unsafe {
         let err = cudaSetDevice(opts.cuda_device_idx);
@@ -61,10 +71,11 @@ fn main() -> ExitCode {
     if err != cudaError::cudaSuccess {
         panic!("cudaMemcpy failed");
     }
-    println!("Rank {}: warm phase started", rank);
+    println!("{}Rank {}: warm phase started", prefix, rank);
     for r in 0..num_ranks {
         println!(
-            "buf[{}]={}",
+            "{}buf[{}]={}",
+            prefix,
             r * buffer_size / num_ranks / std::mem::size_of::<i32>(),
             buf[r * buffer_size / num_ranks / std::mem::size_of::<i32>()]
         );
@@ -78,7 +89,7 @@ fn main() -> ExitCode {
     )
     .unwrap();
     libmccs::register_stream(opts.cuda_device_idx, 0 as cudaStream_t).unwrap();
-    println!("Rank {}: start issuing", rank);
+    println!("{}Rank {}: start issuing", prefix, rank);
 
     libmccs::all_reduce(
         comm,
@@ -90,7 +101,7 @@ fn main() -> ExitCode {
         0 as cudaStream_t,
     )
     .unwrap();
-    println!("Rank {}: warmup call returned", rank);
+    println!("{}Rank {}: warmup call returned", prefix, rank);
     let mut buf2 = vec![0; buffer_size / std::mem::size_of::<i32>()];
     unsafe {
         let err = cudaMemcpy(
@@ -129,7 +140,7 @@ fn main() -> ExitCode {
             panic!("cudaStreamSynchronize failed");
         }
     }
-    println!("Rank{}: warmup phase finished", opts.rank);
+    println!("{}Rank{}: warmup phase finished", prefix, opts.rank);
     // start testing
     for e in 0..opts.epoch {
         let start = Instant::now();
@@ -154,15 +165,16 @@ fn main() -> ExitCode {
         let end = Instant::now();
         let dura = end.duration_since(start);
         let tput = (opts.size * opts.round) as f64 / 1e9 / (dura.as_micros() as f64 / 1.0e6);
+        let bus = tput * 2.0 * (num_ranks - 1) as f64 / num_ranks as f64;
         if opts.epoch > 1 {
             println!(
-                "[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
-                e, rank, num_ranks, tput
+                "{}[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s",
+                prefix, e, rank, num_ranks, tput, bus
             );
         } else {
             println!(
-                "[Rank {}/{}] Algorithm bandwidth: {:.} GB/s",
-                rank, num_ranks, tput
+                "{}[Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s",
+                prefix, rank, num_ranks, tput, bus
             );
         }
     }

@@ -2,6 +2,7 @@ use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::ptr::addr_of_mut;
 use std::ptr::NonNull;
+use std::sync::atomic::AtomicBool;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -282,6 +283,8 @@ pub async fn net_agent_send_connect(
     Ok((reply, recv_resources))
 }
 
+pub static QOS_DISABLE: AtomicBool = AtomicBool::new(false);
+
 pub async fn net_agent_recv_connect(
     request: AgentRecvConnectRequest,
     setup_resources: AgentRecvSetup,
@@ -510,12 +513,16 @@ pub fn net_agent_send_progress(
                 let comm_id = qos_service::CommunicatorId(op.communicator_id.0);
                 let interval = schedule.schedule.get(&comm_id);
                 let delay_send = if let Some(interval) = interval {
-                    let time = SystemTime::now();
-                    let elapsed = time.duration_since(UNIX_EPOCH).unwrap();
-                    let epoch_ts = (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
-                    match interval.mode {
-                        QosMode::Allow => !interval.intervals.contains(&epoch_ts),
-                        QosMode::Deny => interval.intervals.contains(&epoch_ts),
+                    if QOS_DISABLE.load(std::sync::atomic::Ordering::Relaxed) {
+                        false
+                    } else {
+                        let time = SystemTime::now();
+                        let elapsed = time.duration_since(UNIX_EPOCH).unwrap();
+                        let epoch_ts = (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
+                        match interval.mode {
+                            QosMode::Allow => !interval.intervals.contains(&epoch_ts),
+                            QosMode::Deny => interval.intervals.contains(&epoch_ts),
+                        }
                     }
                 } else {
                     false
