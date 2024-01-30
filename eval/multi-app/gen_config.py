@@ -47,7 +47,7 @@ class BenchArgs:
     def get_args(self):
         return f"--root-addr {self.root_addr} --rank {self.rank} \
 --num-ranks {self.num_ranks} --cuda-device-idx {self.cuda_dev} --size {self.size} \
---communicator {self.comm} --round {self.round} --size-in-byte --name {self.name} --epoch 1000  "
+--communicator {self.comm} --round {self.round} --size-in-byte --name {self.name} --epoch 8000  "
 
 
 def get_args_group(
@@ -401,7 +401,7 @@ def allreduce_reconfig():
             )
         ],
         "--config eval/dynamic-config/reconfig.toml",
-        round=15
+        round=1
     )
     with open(f"../dynamic-config/launch-allreduce-ring-reconfig.toml", "w") as f:
         toml.dump(config, f)

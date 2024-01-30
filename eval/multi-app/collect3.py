@@ -184,5 +184,5 @@ for i in data.split('\n'):
     if setting.find('ecmp-qosv2')==-1:
         app = i.split('[')[1].split(']')[0]
         time = i.split(': ')[-1].split(' ')[0]
-        print(f'{setting},{app}, {time}')
+        print(f'{setting},{app},{time}')
     

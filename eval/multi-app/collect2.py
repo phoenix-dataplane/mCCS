@@ -161,15 +161,17 @@ def get_reconfig_figure():
         return (dt - datetime.min).total_seconds() * 1000
 
     def extrect(data, tag):
-        return [(convert_to_datetime(i[2]), 1 / (float(i[1])/1000)) for i in data[tag]]
+        return [
+            (convert_to_datetime(i[2]), 1 / (float(i[1]) / 1000)) for i in data[tag]
+        ]
         # return [(convert_to_datetime(i[2]), float(i[1])) for i in data[tag]]
 
-    data = moving_average(extrect(parse_file(gpt_path)[0], "gpt"),3)
+    data = moving_average(extrect(parse_file(gpt_path)[0], "gpt"), 2)
     earliest_timestamp = min(data)[0]
     aligned_vgg = [
         (timestamp - earliest_timestamp, throughput) for timestamp, throughput in data
     ]
-   
+
     aligned_vgg = [i for i in aligned_vgg if i[0] > 24000 and i[0] < 35000]
     plt.figure(figsize=(10, 6))
     plt.plot(
@@ -177,11 +179,60 @@ def get_reconfig_figure():
         [throughput for _, throughput in aligned_vgg],
         label="GPT",
     )
-   
+
     plt.xlabel("Time")
     plt.ylabel("Throughput")
     plt.title("Throughput Over Time")
     plt.legend()
     plt.show()
 
+
 # get_reconfig_figure()
+
+
+def get_allreduce_reconfig_figure():
+    path = "/tmp/allreduce-ring-reconfig/8gpu-dynamic-allreduce/allreduce_bench_danyang-02.stdout"
+
+    def convert_to_datetime(timestamp):
+        dt = datetime.strptime(timestamp, "%H:%M:%S.%f")
+        return (dt - datetime.min).total_seconds() * 1000
+
+    def extrect(data, tag):
+        return [
+            (convert_to_datetime(i[2]), 1 / (float(i[1]) / 1000)) for i in data[tag]
+        ]
+
+    with open(path, "r") as f:
+        lines = f.readlines()
+    res = []
+    for line in lines:
+        if line.find("Bus bandwidth") != -1 and line.find("Rank") != -1:
+            timestamp = line.split("<")[-1].split(">")[0]
+            algo_bw = line.split("Algorithm bandwidth: ")[-1].split(" ")[0]
+            bus_bw = line.split("Bus bandwidth: ")[-1].split(" ")[0]
+            res.append((convert_to_datetime(timestamp), float(algo_bw)))
+    data = moving_average(res, 3)
+
+    earliest_timestamp = min(data)[0]
+    print(data)
+    aligned = [
+        (timestamp - earliest_timestamp, throughput) for timestamp, throughput in data
+    ]
+
+    aligned = [i for i in aligned if i[0] > 32000 and i[0] < 42000]
+    plt.figure(figsize=(10, 6))
+    plt.plot(
+        [time for time, _ in aligned],
+        [throughput for _, throughput in aligned],
+        label="Allreduce",
+    )
+
+    plt.xlabel("Time")
+    plt.ylabel("Throughput")
+    plt.ylim(0, 8)
+    plt.title("Throughput Over Time")
+    plt.legend()
+    plt.show()
+
+
+get_allreduce_reconfig_figure()

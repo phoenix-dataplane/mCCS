@@ -225,5 +225,5 @@ reconfig-ring:
 
 reconfig-ring-allreduce:
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/dynamic-config/launch-allreduce-ring-reconfig.toml --silent --output-dir /tmp/allreduce-ring-reconfig --timeout 600 &
-  sleep 30
+  sleep 40
   cargo run --bin ring_config -- -c eval/dynamic-config/reconfig-patch.toml
