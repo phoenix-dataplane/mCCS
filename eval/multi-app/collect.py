@@ -68,6 +68,8 @@ def collect_setup2(base_dir: str, group: str, each: str, setup: int, app_cnt: in
     res = []
     for i in range(1, app_cnt + 1):
         line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=1"])
+        if len(line) == 0:
+            continue
         res.append(
             (
                 f"app{i}",
@@ -92,8 +94,8 @@ def collect_allreduce_all():
     res = "Solution,App,Size (Bytes),Dtype,Latency (us),AlgBW (GB/s),BusBW (GB/s)\n"
     if __name__ == "__main__":
         mapping = {1: 2, 2: 3, 3: 2, 4: 3}
-        for setup in [1, 2, 3]:
-            for i in range(10):
+        for setup in [1, 2, 3, 4]:
+            for i in range(20):
                 for line in collect_setup2(
                     "/tmp",
                     f"multi-allreduce-ecmp-{i}",
@@ -103,7 +105,7 @@ def collect_allreduce_all():
                 ):
                     res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
         for setup in [1, 2, 3, 4]:
-            for i in range(10):
+            for i in range(20):
                 for line in collect_setup2(
                     "/tmp",
                     f"multi-allreduce-flow-{i}",
