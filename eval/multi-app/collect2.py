@@ -148,7 +148,7 @@ def get_trend_figure():
     plt.show()
 
 
-get_trend_figure()
+# get_trend_figure()
 # get_cdf()
 
 
@@ -184,4 +184,4 @@ def get_reconfig_figure():
     plt.legend()
     plt.show()
 
-get_reconfig_figure()
+# get_reconfig_figure()
