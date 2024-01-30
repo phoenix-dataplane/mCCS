@@ -2,6 +2,7 @@ use std::net::IpAddr;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
+use chrono::Local;
 use structopt::StructOpt;
 
 use cuda_runtime_sys::{cudaError, cudaMemcpyKind, cudaStream_t};
@@ -167,9 +168,10 @@ fn main() -> ExitCode {
         let tput = (opts.size * opts.round) as f64 / 1e9 / (dura.as_micros() as f64 / 1.0e6);
         let bus = tput * 2.0 * (num_ranks - 1) as f64 / num_ranks as f64;
         if opts.epoch > 1 {
+            let formatted_time = Local::now().format("%H:%M:%S%.3f").to_string();
             println!(
-                "{}[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s {}",
-                prefix, e, rank, num_ranks, tput, bus, 
+                "{}[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s <{}>",
+                prefix, e, rank, num_ranks, tput, bus, formatted_time
             );
         } else {
             println!(
