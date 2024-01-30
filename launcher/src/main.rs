@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 // $ launcher --timeout 60 --benchmark benchmark/send_bw.toml
 use std::env;
 use std::fs;
@@ -53,6 +54,8 @@ struct WorkerSpec {
     /// OK to kill after all non-weak finished
     #[serde(default)]
     weak: bool,
+    #[serde(default)]
+    worker_env: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -265,11 +268,20 @@ fn start_ssh(
     let host = worker.host.clone();
     let output_dir = opt.output_dir.as_ref().map(|d| d.join(&benchmark_name));
     let debug_mode = opt.debug;
-    let env_str = envs
+    let mut env_str = envs
         .iter()
         .map(|(name, val)| format!("{name}={val}"))
         .collect::<Vec<String>>()
         .join(" ");
+    if worker.worker_env.len() > 0 {
+        let env_str2 = worker
+            .worker_env
+            .iter()
+            .map(|(name, val)| format!("{name}={val}"))
+            .collect::<Vec<String>>()
+            .join(" ");
+        env_str = format!("{} {}", env_str, env_str2);
+    }
     let timeout = if let Some(case_timeout) = benchmark.timeout_secs {
         Duration::from_secs(case_timeout.min(opt.global_timeout_secs))
     } else {

@@ -49,63 +49,88 @@ killall:
 
 [private]
 launch group folder:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/single-app/output/ --group {{group}} --silent --output-dir /tmp/{{folder}}
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/single-app/output/ --group {{group}} --silent --output-dir /tmp/single_v2/{{folder}}
 
 [private]
 launch-multi group folder:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/ --group {{group}} --silent --output-dir /tmp/{{folder}}
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/ --group {{group}} --silent --output-dir /tmp/single_v2/{{folder}}
 
 [private]
 one_4gpu_ecmp cnt="0":
-  just launch 4GPU_ECMP single-app{{cnt}}
+  just launch 4GPU_ECMP single-app-ecmp{{cnt}}
 
 [private]
 one_8gpu_ecmp cnt="0":
-  just launch 8GPU_ECMP single-app{{cnt}}
+  just launch 8GPU_ECMP single-app-ecmp{{cnt}}
 
 [private]
-one_4gpu_flow :
-  just launch 4GPU_FLOW single-app-flow
+one_4gpu_flow cnt:
+  just launch 4GPU_FLOW single-app-flow{{cnt}}
 
 [private]
-one_8gpu_flow :
-  just launch 8GPU_FLOW single-app-flow
+one_8gpu_flow cnt:
+  just launch 8GPU_FLOW single-app-flow{{cnt}}
 
 four_gpu_ecmp:
+  #!/usr/bin/env bash
   ./eval/set_ecmp_hashing_algo.sh everything
-  # 1 to 10
-  just one_4gpu_ecmp 0
-  just one_4gpu_ecmp 1
-  just one_4gpu_ecmp 2
-  just one_4gpu_ecmp 3
-  just one_4gpu_ecmp 4
-  just one_4gpu_ecmp 5
-  just one_4gpu_ecmp 6
-  just one_4gpu_ecmp 7
-  just one_4gpu_ecmp 8
-  just one_4gpu_ecmp 9
+  for i in {0..19}; do
+    just one_4gpu_ecmp $i
+  done
 
 eight_gpu_ecmp:
+  #!/usr/bin/env bash
   ./eval/set_ecmp_hashing_algo.sh everything
-  # 1 to 10
-  just one_8gpu_ecmp 0
-  just one_8gpu_ecmp 1
-  just one_8gpu_ecmp 2
-  just one_8gpu_ecmp 3
-  just one_8gpu_ecmp 4
-  just one_8gpu_ecmp 5
-  just one_8gpu_ecmp 6
-  just one_8gpu_ecmp 7
-  just one_8gpu_ecmp 8
-  just one_8gpu_ecmp 9  
+  for i in {0..19}; do
+    just one_8gpu_ecmp $i
+  done
 
 four_gpu_flow:
+  #!/usr/bin/env bash
   ./eval/set_ecmp_hashing_algo.sh source-port
-  just one_4gpu_flow
+  for i in {0..19}; do
+    just one_4gpu_flow $i
+  done
 
 eight_gpu_flow:
+  #!/usr/bin/env bash
   ./eval/set_ecmp_hashing_algo.sh source-port
-  just one_8gpu_flow
+  for i in {0..19}; do
+    just one_8gpu_flow $i
+  done
+
+
+single-app-all:
+  #!/usr/bin/env bash
+  ./eval/set_ecmp_hashing_algo.sh everything
+  for i in {0..9}; do
+    just one_4gpu_ecmp $i
+  done
+  for i in {0..9}; do
+    just one_8gpu_ecmp $i
+  done
+  ./eval/set_ecmp_hashing_algo.sh source-port
+  for i in {0..9}; do
+    just one_4gpu_flow $i
+  done
+  for i in {0..9}; do
+    just one_8gpu_flow $i
+  done
+  ./eval/set_ecmp_hashing_algo.sh everything
+  for i in {10..19}; do
+    just one_4gpu_ecmp $i
+  done
+  for i in {10..19}; do
+    just one_8gpu_ecmp $i
+  done
+  ./eval/set_ecmp_hashing_algo.sh source-port
+  for i in {10..19}; do
+    just one_4gpu_flow $i
+  done
+  for i in {10..19}; do
+    just one_8gpu_flow $i
+  done
+  
 
 allreduce-multi type setup cnt:
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/multi-allreduce-{{type}}-setup{{setup}}.toml --silent --output-dir /tmp/multi-allreduce-{{type}}-{{cnt}}

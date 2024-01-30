@@ -39,7 +39,7 @@ class BenchArgs:
 
 def get_args_group(
     root_addr: str, machine_map: list, size: int, round: int = 10, comm: int = 42
-):
+) -> list[tuple[int, BenchArgs]]:
     """
     machine_map: list of (machine_id, local_gpu_cnt)
     """
@@ -96,6 +96,9 @@ def generate_config(
                 "bin": binary,
                 "args": arg.get_args(),
                 "dependencies": dep,
+                "worker_env": {
+                    "MCCS_DEVICE_AFFINITY": str(arg.cuda_dev),
+                },
             }
         )
 
@@ -146,6 +149,7 @@ def four_gpu_ecmp():
     ]
     generate(size_list, command, node_configurations, 42, "eval/single-app/4gpu.toml")
 
+
 def four_gpu_flow_scheduling():
     size_list = ["32K", "128K", "512K", "2M", "8M", "32M", "128M", "512M"]
     command = ["allreduce", "allgather"]
@@ -153,6 +157,7 @@ def four_gpu_flow_scheduling():
         ("4GPU_FLOW", [(2, 1), (3, 1), (1, 1), (5, 1)]),
     ]
     generate(size_list, command, node_configurations, 137, "eval/single-app/4gpu.toml")
+
 
 def eight_gpu_ecmp():
     size_list = ["32K", "128K", "512K", "2M", "8M", "32M", "128M", "512M"]
@@ -162,6 +167,7 @@ def eight_gpu_ecmp():
     ]
     generate(size_list, command, node_configurations, 42, "eval/single-app/8gpu.toml")
 
+
 def eight_gpu_flow_scheduling():
     size_list = ["32K", "128K", "512K", "2M", "8M", "32M", "128M", "512M"]
     command = ["allreduce", "allgather"]
@@ -169,6 +175,7 @@ def eight_gpu_flow_scheduling():
         ("8GPU_FLOW", [(2, 2), (3, 2), (1, 2), (5, 2)]),
     ]
     generate(size_list, command, node_configurations, 137, "eval/single-app/8gpu.toml")
+
 
 four_gpu_ecmp()
 four_gpu_flow_scheduling()
