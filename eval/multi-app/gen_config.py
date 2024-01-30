@@ -47,7 +47,7 @@ class BenchArgs:
     def get_args(self):
         return f"--root-addr {self.root_addr} --rank {self.rank} \
 --num-ranks {self.num_ranks} --cuda-device-idx {self.cuda_dev} --size {self.size} \
---communicator {self.comm} --round {self.round} --size-in-byte --name {self.name} --epoch 6"
+--communicator {self.comm} --round {self.round} --size-in-byte --name {self.name} --epoch 1000  "
 
 
 def get_args_group(
@@ -114,6 +114,7 @@ def generate_config(
     group: str,
     app_list: list[AppProperties],
     daemon_args: str,
+    round: int = 25,
 ) -> dict:
     # get unique set of machines from app_list.machine_map
     machines = set()
@@ -131,7 +132,7 @@ def generate_config(
             app.rank_map,
             convert_size(app.size),
             comm=app.comm,
-            round=25,
+            round=round,
         ):
             apps.append(
                 {
@@ -384,7 +385,30 @@ def allreduce_setup4():
         toml.dump(config, f)
 
 
+def allreduce_reconfig():
+    gpt_map = [(2, [0, 1]), (3, [0, 1]), (1, [0, 1]), (5, [0, 1])]
+
+    config = generate_config(
+        f"8gpu-dynamic-allreduce",
+        f"8gpu-dynamic-allreduce",
+        [
+            AppProperties(
+                name="reconfig-allreduce",
+                binary="allreduce_bench",
+                size="128M",
+                rank_map=gpt_map,
+                comm=600,
+            )
+        ],
+        "--config eval/dynamic-config/reconfig.toml",
+        round=15
+    )
+    with open(f"../dynamic-config/launch-allreduce-ring-reconfig.toml", "w") as f:
+        toml.dump(config, f)
+
+
 allreduce_setup1()
 allreduce_setup2()
 allreduce_setup3()
 allreduce_setup4()
+allreduce_reconfig()

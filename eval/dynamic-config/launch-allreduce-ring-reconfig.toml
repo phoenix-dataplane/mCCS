@@ -1,0 +1,78 @@
+name = "8gpu-dynamic-allreduce"
+group = "8gpu-dynamic-allreduce"
+[[worker]]
+host = "danyang-01"
+bin = "mccs"
+args = "--host 1 --config eval/dynamic-config/reconfig.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-02"
+bin = "mccs"
+args = "--host 2 --config eval/dynamic-config/reconfig.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-03"
+bin = "mccs"
+args = "--host 3 --config eval/dynamic-config/reconfig.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-05"
+bin = "mccs"
+args = "--host 5 --config eval/dynamic-config/reconfig.toml"
+weak = true
+dependencies = []
+
+[[worker]]
+host = "danyang-02"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 0 --num-ranks 8 --cuda-device-idx 0 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-02"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 1 --num-ranks 8 --cuda-device-idx 1 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-03"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 2 --num-ranks 8 --cuda-device-idx 0 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-03"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 3 --num-ranks 8 --cuda-device-idx 1 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-01"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 4 --num-ranks 8 --cuda-device-idx 0 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-01"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 5 --num-ranks 8 --cuda-device-idx 1 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-05"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 6 --num-ranks 8 --cuda-device-idx 0 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+
+[[worker]]
+host = "danyang-05"
+bin = "allreduce_bench"
+args = "--root-addr 192.168.211.34 --rank 7 --num-ranks 8 --cuda-device-idx 1 --size 134217728 --communicator 600 --round 15 --size-in-byte --name reconfig-allreduce --epoch 1000  "
+dependencies = [ 0, 1, 2, 3,]
+

@@ -116,3 +116,6 @@ def collect_allreduce_all():
 
 
 collect_allreduce_all()
+
+# def reconfig_allreduce():
+#     s = collect_setup2

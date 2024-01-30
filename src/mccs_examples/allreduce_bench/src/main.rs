@@ -168,8 +168,8 @@ fn main() -> ExitCode {
         let bus = tput * 2.0 * (num_ranks - 1) as f64 / num_ranks as f64;
         if opts.epoch > 1 {
             println!(
-                "{}[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s",
-                prefix, e, rank, num_ranks, tput, bus
+                "{}[Epoch={}] [Rank {}/{}] Algorithm bandwidth: {:.} GB/s, Bus bandwidth: {:.} GB/s {}",
+                prefix, e, rank, num_ranks, tput, bus, 
             );
         } else {
             println!(
