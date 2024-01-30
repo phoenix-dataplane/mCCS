@@ -196,9 +196,9 @@ run-dynamic:
   set -e
   ./eval/set_ecmp_hashing_algo.sh source-port
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/dynamic-config/launch.toml --silent --output-dir /tmp/dynamic-config --timeout 600 &
-  sleep 10
+  sleep 60
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/dynamic-config/launch-gpt-1.toml --silent --output-dir /tmp/dynamic-config --timeout 600 &
-  sleep 10
+  sleep 30
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/dynamic-config/launch-gpt-2.toml --silent --output-dir /tmp/dynamic-config --timeout 600 &
-  sleep 10
+  sleep 30
   cargo run --bin ring_config -- -c eval/dynamic-config/dynamic-patch.toml

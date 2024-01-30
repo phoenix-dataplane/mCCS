@@ -135,8 +135,8 @@ impl DaemonEngine {
                 );
                 if init.id == 202 {
                     std::thread::spawn(|| {
-                        log::warn!("QOS_DISABLE is going to be set to true in 25 seconds");
-                        std::thread::sleep(std::time::Duration::from_secs(25));
+                        log::warn!("QOS_DISABLE is going to be set to false in 60 seconds");
+                        std::thread::sleep(std::time::Duration::from_secs(60));
                         use crate::transport::net::agent::QOS_DISABLE;
                         log::warn!("QOS_DISABLE is set to false");
                         QOS_DISABLE.store(false, std::sync::atomic::Ordering::Relaxed);
