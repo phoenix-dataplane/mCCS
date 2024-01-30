@@ -90,6 +90,8 @@ static char *trace_path = NULL;
 static bool verbose = false;
 // Save path
 static char *save_path = NULL;
+static char *prefix = NULL;
+static char *job_name = NULL;
 
 // Communication operation types
 enum CommOperationType {
@@ -322,7 +324,8 @@ int main(int argc, char *argv[])
     MPI_Barrier(MPI_COMM_WORLD);
 
     std::vector<int> iter_times;
-    auto start = std::chrono::high_resolution_clock::now();
+    auto global_start = std::chrono::high_resolution_clock::now();
+    auto start = global_start;
     // Communicate using NCCL
     for (unsigned int i = 0; i < iters; i++) {
         for (auto& trace : workload.traces) {
@@ -353,6 +356,12 @@ int main(int argc, char *argv[])
     }
     
     MPI_Barrier(MPI_COMM_WORLD);
+    auto global_end = std::chrono::high_resolution_clock::now();
+    auto total_time = std::chrono::duration_cast<std::chrono::milliseconds>(global_end - global_start).count();
+
+    if (verbose && world_my_rank == 0) {
+        printf("[%s] [Rank 0] Total time: [%ld] ms\n", job_name, total_time);
+    }
 
     if (world_my_rank == 0) {
         if (save_path != NULL) {
@@ -437,6 +446,7 @@ static bool parse_args(int argc, char *argv[])
 {
     while (1) {
         static struct option long_options[] = {
+            {"job_name",        required_argument,  0,  'j'},
             {"iters",           required_argument,  0,  'n'},
             {"trace_path",      required_argument,  0,  'p'},
             {"save_path",       no_argument,        0,  's'},
@@ -446,13 +456,17 @@ static bool parse_args(int argc, char *argv[])
         };
 
         int option_index = 0;
-        int c = getopt_long(argc, argv, "n:p:g:vsh", long_options, &option_index);
+        int c = getopt_long(argc, argv, "j:n:p:g:vsh", long_options, &option_index);
 
         if (c == -1) {
             break;
         }
 
         switch (c) {
+            case 'j':
+                job_name = optarg;
+                break;
+
             case 'n':
                 iters = atoi(optarg);
                 if (iters == 0) {
@@ -503,6 +517,7 @@ static void print_usage(const char *progname)
     fprintf(stderr, "Usage: %s [OPTIONS]\n", progname);
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -n, --iters <iters>      Number of iterations (default: %u)\n", DEFAULT_ITERS);
+    fprintf(stderr, "  -j, --job_name <name>    Job name\n");
     fprintf(stderr, "  -p, --trace_path <path>  Path to the workload file\n");
     fprintf(stderr, "  -s, --save_path <path>   Path to the save iteration time\n");
     fprintf(stderr, "  -v, --verbose            Print verbose output\n");
