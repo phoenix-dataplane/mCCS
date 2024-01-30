@@ -1,0 +1,15 @@
+mccs_addrs = [
+    "192.168.211.2",
+    "192.168.211.34",
+    "192.168.211.66",
+    "192.168.211.162",
+]
+mccs_port = 5000
+
+[[comm_patterns_reconfig]]
+communicator_id = 600
+channels = [
+    { channel_id = 0, ring = [7, 6, 5, 4, 3, 2, 1, 0], udp_sport = [[4, 3, 49200], [0,7, 49200]], net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [7, 6, 5, 4, 3, 2, 1, 0], udp_sport = [[4, 3, 49202], [0,7, 49202]], net_dev = "mlx5_0" },
+]
+ib_traffic_class = 0
