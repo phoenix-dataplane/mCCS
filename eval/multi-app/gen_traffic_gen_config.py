@@ -302,14 +302,14 @@ def setup4_dynamic():
     for i in worker_2:
         i["dependencies"] = []
     launch_gpt_1 = {
-        'name': 'setup4-dynamic-gpt-1',
-        'group': 'setup4-dynamic-gpt-1',
-        'worker': worker_1
+        "name": "setup4-dynamic-gpt-1",
+        "group": "setup4-dynamic-gpt-1",
+        "worker": worker_1,
     }
     launch_gpt_2 = {
-        'name': 'setup4-dynamic-gpt-2',
-        'group': 'setup4-dynamic-gpt-2',
-        'worker': worker_2
+        "name": "setup4-dynamic-gpt-2",
+        "group": "setup4-dynamic-gpt-2",
+        "worker": worker_2,
     }
 
     with open(f"../dynamic-config/launch.toml", "w") as f:
@@ -318,6 +318,26 @@ def setup4_dynamic():
         toml.dump(launch_gpt_1, f)
     with open(f"../dynamic-config/launch-gpt-2.toml", "w") as f:
         toml.dump(launch_gpt_2, f)
+
+
+def ring_reconfig():
+    gpt_map = [(2, 2), (3, 2), (1, 2), (5, 2)]
+
+    config = generate_traffic_gen_config(
+        f"setup4-dynamic",
+        f"setup4-dynamic",
+        [
+            TraceProperties(
+                name="gpt",
+                config="workloads/reconfig_gpt.toml",
+                rank_map=gpt_map,
+                iter_cnt=5001,
+            ),
+        ],
+        "--config eval/dynamic-config/reconfig.toml",
+    )
+    with open(f"../dynamic-config/launch-ring-reconfig.toml", "w") as f:
+        toml.dump(config, f)
 
 
 setup2_vgg_qos()
@@ -330,3 +350,4 @@ setup4_real_qos("fair", True)
 setup4_real_qos("qosv1", True)
 setup4_real_qos("qosv2", True)
 setup4_dynamic()
+ring_reconfig()

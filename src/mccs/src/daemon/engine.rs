@@ -133,15 +133,15 @@ impl DaemonEngine {
                     init.num_ranks,
                     init.cuda_device_idx
                 );
-                if init.id == 202 {
-                    std::thread::spawn(|| {
-                        log::warn!("QOS_DISABLE is going to be set to false in 60 seconds");
-                        std::thread::sleep(std::time::Duration::from_secs(60));
-                        use crate::transport::net::agent::QOS_DISABLE;
-                        log::warn!("QOS_DISABLE is set to false");
-                        QOS_DISABLE.store(false, std::sync::atomic::Ordering::Relaxed);
-                    });
-                }
+                // if init.id == 202 {
+                //     std::thread::spawn(|| {
+                //         log::warn!("QOS_DISABLE is going to be set to false in 60 seconds");
+                //         std::thread::sleep(std::time::Duration::from_secs(60));
+                //         use crate::transport::net::agent::QOS_DISABLE;
+                //         log::warn!("QOS_DISABLE is set to false");
+                //         QOS_DISABLE.store(false, std::sync::atomic::Ordering::Relaxed);
+                //     });
+                // }
                 let proxy_init = InitCommunicator {
                     communicator_id: CommunicatorId(init.id),
                     rank: init.rank,

@@ -1,0 +1,8 @@
+# GPT-350M 4 GPUs on H0, H1, H2 and H3
+communicator_id = 600
+cuda_devices = [0, 1, 0, 1, 0, 1, 0, 1]
+
+[[traces]]
+size = 83886080
+type = "all_reduce"
+compute_interval = 6000

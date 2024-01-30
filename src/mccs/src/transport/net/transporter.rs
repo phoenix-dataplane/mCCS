@@ -1,3 +1,4 @@
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,7 +22,7 @@ use crate::comm::{CommProfile, PeerInfo};
 use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::transport::catalog::TransportCatalog;
-use crate::transport::channel::{PeerConnId, PeerConnInfo};
+use crate::transport::channel::{PeerConnId, PeerConnInfo, ConnType};
 use crate::transport::meta::{RecvBufMeta, SendBufMeta};
 use crate::transport::op::TransportOp;
 use crate::transport::transporter::TransporterError;
@@ -41,9 +42,17 @@ fn net_send_setup(
     config: &NetTransportConfig,
 ) -> Result<TransportSetup, NetTransportError> {
     // NVLink forward is not supported yet
+    // 8 GPUs GPT trace
+    // 2 -> 3 -> 1 -> 5 -> 2: Bad (25G) (5->2) corresponds to rank 7 -> rank 0
+    // 5 -> 1 -> 3 -> 2 -> 5: Good (100G)
     let (net_dev, _) = profile.get_network_device(conn_id.channel, my_info.rank, conn_id.peer_rank);
     let udp_sport = profile.get_udp_sport(&conn_id);
-    let tc = profile.get_tc();
+    let mut tc = profile.get_tc();
+
+    if conn_id.peer_rank == 0 && my_info.rank == 7 && conn_id.conn_type == ConnType::Send && my_info.host == IpAddr::V4(Ipv4Addr::new(192, 168, 211, 162)) {
+        log::warn!("Force to use TC 66 for 25G connection.");
+        tc = Some(66);
+    }
 
     let agent_cuda_dev = my_info.cuda_device_idx;
     let use_gdr = profile.check_gdr(my_info.rank, net_dev, true) && config.gdr_enable;
