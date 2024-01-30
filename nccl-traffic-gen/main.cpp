@@ -271,7 +271,6 @@ int main(int argc, char *argv[])
     HIPCHECK(cudaStreamSynchronize(stream));
 
     // Allocate memory for GPU buffers, streams and communicators
-    float *devSendBuff;
     float *devRecvBuff;
 
     // Calculate the maximum buffer size needed for all the communication operations
@@ -286,9 +285,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    HIPCHECK(cudaMalloc((void**)&devSendBuff, buffer_size));
     HIPCHECK(cudaMalloc((void**)&devRecvBuff, buffer_size));
-    HIPCHECK(cudaMemset(devSendBuff, 1, buffer_size));
     HIPCHECK(cudaMemset(devRecvBuff, 0, buffer_size));
 
     // Warm up
@@ -300,11 +297,11 @@ int main(int argc, char *argv[])
             NCCLCHECK(ncclGroupStart());
             switch (trace.op_type) {
                 case AllGatherOp:
-                    ncclAllGather((const void*)devSendBuff, (void*)devRecvBuff, trace.msg_size,
+                    ncclAllGather((const void*)devRecvBuff, (void*)devRecvBuff, trace.msg_size,
                         ncclInt8, comm, stream);
                     break;
                 case AllReduceOp:
-                    ncclAllReduce((const void*)devSendBuff, (void*)devRecvBuff, trace.msg_size,
+                    ncclAllReduce((const void*)devRecvBuff, (void*)devRecvBuff, trace.msg_size,
                         ncclInt8, ncclSum, comm, stream);
                     break;
 
@@ -330,15 +327,19 @@ int main(int argc, char *argv[])
     for (unsigned int i = 0; i < iters; i++) {
         for (auto& trace : workload.traces) {
             // sleep 
-            std::this_thread::sleep_for(std::chrono::microseconds(trace.compute_interval));
+            // std::this_thread::sleep_for(std::chrono::microseconds(trace.compute_interval));
+            auto now = std::chrono::high_resolution_clock::now();
+            while (now < start + std::chrono::microseconds(trace.compute_interval)) {
+              now = std::chrono::high_resolution_clock::now();
+            }
             NCCLCHECK(ncclGroupStart());
             switch (trace.op_type) {
                 case AllGatherOp:
-                    ncclAllGather((const void*)devSendBuff, (void*)devRecvBuff, trace.msg_size,
+                    ncclAllGather((const void*)((const char*)devRecvBuff + world_my_rank * trace.msg_size / world_num_ranks), (void*)devRecvBuff, trace.msg_size,
                         ncclInt8, comm, stream);
                     break;
                 case AllReduceOp:
-                    ncclAllReduce((const void*)devSendBuff, (void*)devRecvBuff, trace.msg_size / 2,
+                    ncclAllReduce((const void*)devRecvBuff, (void*)devRecvBuff, trace.msg_size / 2,
                         ncclFloat16, ncclSum, comm, stream);
                     break;
 
@@ -351,7 +352,7 @@ int main(int argc, char *argv[])
         start = end;
         iter_times.push_back(iter_time);
         if (verbose && world_my_rank == 0) {
-            printf("[Rank 0] Iter time: %ld ms\n", iter_time);
+            printf("[%s] [Rank 0] Iter time: %ld ms\n", job_name, iter_time);
         }
     }
     
@@ -378,7 +379,6 @@ int main(int argc, char *argv[])
     }
 
     // Free device buffers and streams
-    HIPCHECK(cudaFree(devSendBuff));
     HIPCHECK(cudaFree(devRecvBuff));
     HIPCHECK(cudaStreamDestroy(stream));
 
