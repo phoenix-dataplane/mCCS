@@ -136,6 +136,21 @@ batched-allreduce-multi2:
     done
   done
 
+batched-allreduce-multi-final:
+  #!/usr/bin/env bash
+  ./eval/set_ecmp_hashing_algo.sh everything
+  for i in {1..4}; do
+    for j in {0..19}; do
+      just allreduce-multi ecmp $i $j
+    done
+  done
+  ./eval/set_ecmp_hashing_algo.sh source-port
+  for i in {1..4}; do
+    for j in {0..19}; do
+      just allreduce-multi flow $i $j
+    done
+  done
+
 allreduce-setup cnt:
   #!/usr/bin/env bash
   ./eval/set_ecmp_hashing_algo.sh everything
