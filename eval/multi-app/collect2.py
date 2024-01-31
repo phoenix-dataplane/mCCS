@@ -219,7 +219,7 @@ def get_allreduce_reconfig_figure():
         (timestamp - earliest_timestamp, throughput) for timestamp, throughput in data
     ]
 
-    aligned = [i for i in aligned if i[0] > 32000 and i[0] < 42000]
+    aligned = [i for i in aligned if i[0] > 1000 and i[0] < 4200000]
     plt.figure(figsize=(10, 6))
     plt.plot(
         [time for time, _ in aligned],

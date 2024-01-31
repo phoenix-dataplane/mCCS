@@ -46,7 +46,7 @@ fn net_send_setup(
     // 2 -> 3 -> 1 -> 5 -> 2: Bad (25G) (5->2) corresponds to rank 7 -> rank 0
     // 5 -> 1 -> 3 -> 2 -> 5: Good (100G)
     let (net_dev, _) = profile.get_network_device(conn_id.channel, my_info.rank, conn_id.peer_rank);
-    let udp_sport = profile.get_udp_sport(&conn_id);
+    let mut udp_sport = profile.get_udp_sport(&conn_id);
     let mut tc = profile.get_tc();
 
     if conn_id.peer_rank == 0 && my_info.rank == 7 && conn_id.conn_type == ConnType::Send && my_info.host == IpAddr::V4(Ipv4Addr::new(192, 168, 211, 162)) {

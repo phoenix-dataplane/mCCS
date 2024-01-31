@@ -224,6 +224,10 @@ reconfig-ring:
   cargo run --bin ring_config -- -c eval/dynamic-config/reconfig-patch.toml
 
 reconfig-ring-allreduce:
+  sudo mlnx_qos -i rdma0 -r 0,0,0,46,0,0,0,0
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/dynamic-config/launch-allreduce-ring-reconfig.toml --silent --output-dir /tmp/allreduce-ring-reconfig --timeout 600 &
-  sleep 40
+  sleep 30
+  sudo mlnx_qos -i rdma0 -r 0,0,25,46,0,0,0,0
+  sleep 30
   cargo run --bin ring_config -- -c eval/dynamic-config/reconfig-patch.toml
+  sudo mlnx_qos -i rdma0 -r 0,0,46,46,0,0,0,0
