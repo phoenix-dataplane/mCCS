@@ -22,7 +22,7 @@ use crate::comm::{CommProfile, PeerInfo};
 use crate::cuda::ptr::DeviceNonNull;
 use crate::cuda_warning;
 use crate::transport::catalog::TransportCatalog;
-use crate::transport::channel::{PeerConnId, PeerConnInfo, ConnType};
+use crate::transport::channel::{ConnType, PeerConnId, PeerConnInfo};
 use crate::transport::meta::{RecvBufMeta, SendBufMeta};
 use crate::transport::op::TransportOp;
 use crate::transport::transporter::TransporterError;
@@ -49,7 +49,11 @@ fn net_send_setup(
     let mut udp_sport = profile.get_udp_sport(&conn_id);
     let mut tc = profile.get_tc();
 
-    if conn_id.peer_rank == 0 && my_info.rank == 7 && conn_id.conn_type == ConnType::Send && my_info.host == IpAddr::V4(Ipv4Addr::new(192, 168, 211, 162)) {
+    if conn_id.peer_rank == 0
+        && my_info.rank == 7
+        && conn_id.conn_type == ConnType::Send
+        && my_info.host == IpAddr::V4(Ipv4Addr::new(192, 168, 211, 162))
+    {
         log::warn!("Force to use TC 66 for 25G connection.");
         tc = Some(66);
     }

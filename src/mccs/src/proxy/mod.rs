@@ -6,6 +6,7 @@ pub mod init;
 pub mod message;
 pub mod op;
 pub mod plan;
+pub mod reconfig;
 pub mod task;
 
 pub struct DeviceInfo {

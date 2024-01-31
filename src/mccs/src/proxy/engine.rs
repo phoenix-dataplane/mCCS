@@ -17,6 +17,7 @@ use cuda_runtime_sys::{
 use super::command::{self, ProxyCommand, ProxyCompletion};
 use super::init::{CommInitStage, CommInitState, CommReconfigTask, CommSuspendState};
 use super::op::ProxyOp;
+use super::reconfig::ReconfigState;
 use super::task::{CollTask, TaskDataType, TaskFuncType, TaskReduceOp};
 use super::DeviceInfo;
 use crate::bootstrap::BootstrapState;
@@ -58,7 +59,7 @@ pub struct ProxyResources {
     pub exchange_chan: DuplexChannel<ExchangeCommand, ExchangeNotification>,
     // communications and transport
     pub comms_init: HashMap<CommunicatorId, CommInitState>,
-    pub comms_suspended: HashMap<CommunicatorId, (Communicator, CommSuspendState)>,
+    pub comms_suspended: HashMap<CommunicatorId, ReconfigState>,
     // for each daemon, user stream handle -> user event
     pub user_events: HashMap<DaemonId, HashMap<usize, cudaEvent_t>>,
     // established communicators
@@ -72,6 +73,7 @@ pub struct ProxyResources {
     pub transport_shutdown: Vec<(TransportEngineId, usize)>,
     // TODO: FIXME
     pub queued_commands: Vec<(DaemonId, super::command::AllReduceRequest)>,
+    pub launched_allreduce_cnt: u64,
 }
 
 unsafe impl Send for ProxyResources {}
@@ -656,37 +658,45 @@ impl ProxyResources {
                 res
             }
             ProxyOp::PollCommunicatorComplete(comm_id) => {
-                let (comm, state) = self.comms_suspended.get_mut(comm_id).unwrap();
-                let stream_completed = unsafe {
-                    match cudaStreamQuery(comm.stream) {
-                        cudaError::cudaSuccess => true,
-                        cudaError::cudaErrorNotReady => false,
-                        e => {
-                            log::error!(
-                                "CUDA runtime failed with {:?} at {}:{}.",
-                                e,
-                                file!(),
-                                line!()
-                            );
-                            panic!("CUDA runtime error");
-                        }
-                    }
-                };
-                if stream_completed {
-                    state.stream_completed = true;
-                    if state.check_suspended() {
-                        let (comm, state) = self.comms_suspended.remove(&comm_id).unwrap();
-                        let output = state.emit(comm, &self.global_registry.transport_catalog);
-                        match output {
-                            CommReconfigOutout::CommPattern(init) => {
-                                let op = ProxyOp::RebootCommunicator(init.id);
-                                self.comms_init.insert(init.id, init);
-                                self.task_submit_pool.push(TaskSubmission::ProxyOp(op));
+                match self.comms_suspended.get_mut(comm_id).unwrap() {
+                    ReconfigState::Start(comm, state) => false,
+                    ReconfigState::UntilLaunchNTasks(val, comm, state) => false,
+                    ReconfigState::Reserved => unreachable!(),
+                    ReconfigState::Ready(comm, state) => {
+                        let stream_completed = unsafe {
+                            match cudaStreamQuery(comm.stream) {
+                                cudaError::cudaSuccess => true,
+                                cudaError::cudaErrorNotReady => false,
+                                e => {
+                                    log::error!(
+                                        "CUDA runtime failed with {:?} at {}:{}.",
+                                        e,
+                                        file!(),
+                                        line!()
+                                    );
+                                    panic!("CUDA runtime error");
+                                }
+                            }
+                        };
+                        if stream_completed {
+                            state.stream_completed = true;
+                            if state.check_suspended() {
+                                let (comm, state) =
+                                    self.comms_suspended.remove(&comm_id).unwrap().to_inner();
+                                let output =
+                                    state.emit(comm, &self.global_registry.transport_catalog);
+                                match output {
+                                    CommReconfigOutout::CommPattern(init) => {
+                                        let op = ProxyOp::RebootCommunicator(init.id);
+                                        self.comms_init.insert(init.id, init);
+                                        self.task_submit_pool.push(TaskSubmission::ProxyOp(op));
+                                    }
+                                }
                             }
                         }
+                        stream_completed
                     }
                 }
-                stream_completed
             }
         }
     }
@@ -723,6 +733,7 @@ impl ProxyEngine {
             daemon_shutdown: Vec::new(),
             transport_shutdown: Vec::new(),
             queued_commands: Vec::new(),
+            launched_allreduce_cnt: 0,
         };
         let engine = ProxyEngine {
             resources,
@@ -787,6 +798,7 @@ impl ProxyEngine {
                 ExchangeNotification::CommPatternReconfig(comm_pattern) => {
                     let comm_id = CommunicatorId(comm_pattern.communicator_id.0);
                     let comm = self.resources.communicators.remove(&comm_id);
+                    // wait for outstanding tasks to complete
                     if let Some(comm) = comm {
                         let mut channels = Vec::with_capacity(comm_pattern.channels.len());
                         for chan in comm_pattern.channels.iter() {
@@ -813,29 +825,12 @@ impl ProxyEngine {
                         }
                         let task = CommReconfigTask::CommPattern(channels, comm_pattern);
                         let state = CommSuspendState::init(&comm, task);
-                        if state.check_suspended() {
-                            let output =
-                                state.emit(comm, &self.resources.global_registry.transport_catalog);
-                            match output {
-                                CommReconfigOutout::CommPattern(init) => {
-                                    let op = ProxyOp::RebootCommunicator(init.id);
-                                    self.resources.comms_init.insert(init.id, init);
-                                    self.ops.enqueue(op);
-                                }
-                            }
-                        } else {
-                            if !state.stream_completed {
-                                let op = ProxyOp::PollCommunicatorComplete(comm_id);
-                                self.ops.enqueue(op);
-                            }
-                            Self::shutdown_transport_agents(
-                                &mut self.resources.transport_engines_tx,
-                                &comm,
-                            );
-                            self.resources
-                                .comms_suspended
-                                .insert(comm_id, (comm, state));
-                        }
+
+                        self.resources
+                            .comms_suspended
+                            .insert(comm_id, ReconfigState::Start(comm, state));
+                        let op = ProxyOp::PollCommunicatorComplete(comm_id);
+                        self.ops.enqueue(op);
                     }
                 }
             },
@@ -878,17 +873,22 @@ impl ProxyEngine {
                     }
                     TransportEngineReply::AgentShutdown(agent_id) => {
                         let comm_id = agent_id.communicator_id;
-                        let removed = if let Some((communicator, suspend_state)) =
-                            self.resources.comms_suspended.get_mut(&comm_id)
-                        {
-                            suspend_state.agents_pending_shutdown.remove(&agent_id);
-                            suspend_state.check_suspended()
-                        } else {
-                            false
-                        };
+                        let removed =
+                            if let Some(ReconfigState::Ready(communicator, suspend_state)) =
+                                self.resources.comms_suspended.get_mut(&comm_id)
+                            {
+                                suspend_state.agents_pending_shutdown.remove(&agent_id);
+                                suspend_state.check_suspended()
+                            } else {
+                                false
+                            };
                         if removed {
-                            let (comm, state) =
-                                self.resources.comms_suspended.remove(&comm_id).unwrap();
+                            let (comm, state) = self
+                                .resources
+                                .comms_suspended
+                                .remove(&comm_id)
+                                .unwrap()
+                                .to_inner();
                             let output =
                                 state.emit(comm, &self.resources.global_registry.transport_catalog);
                             match output {
@@ -1040,8 +1040,38 @@ impl ProxyEngine {
                                 comm.launch_scheduled_and_record(
                                     &mut self.resources.transport_engines_tx,
                                 );
+                                self.resources.launched_allreduce_cnt += 1;
                                 let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
                                 sender.send(ProxyCompletion::AllReduce).unwrap();
+                            } else if let Some(state) = self
+                                .resources
+                                .comms_suspended
+                                .get_mut(&coll.communicator_id)
+                            {
+                                if let ReconfigState::UntilLaunchNTasks(val, comm, _) = state {
+                                    if self.resources.launched_allreduce_cnt < *val {
+                                        let user_events =
+                                            self.resources.user_events.get(daemon_id).unwrap();
+                                        comm.schedule_all_reduce(coll, user_events);
+                                        comm.launch_scheduled_and_record(
+                                            &mut self.resources.transport_engines_tx,
+                                        );
+                                        self.resources.launched_allreduce_cnt += 1;
+                                        let sender =
+                                            self.resources.daemon_tx.get(daemon_id).unwrap();
+                                        sender.send(ProxyCompletion::AllReduce).unwrap();
+                                        // transistion to Ready state
+                                        if self.resources.launched_allreduce_cnt == *val {
+                                            Self::shutdown_transport_agents(
+                                                &mut self.resources.transport_engines_tx,
+                                                &comm,
+                                            );
+                                            state.set_ready();
+                                        }
+                                    }
+                                } else {
+                                    self.resources.queued_commands.push((*daemon_id, coll));
+                                }
                             } else {
                                 self.resources.queued_commands.push((*daemon_id, coll));
                             }
