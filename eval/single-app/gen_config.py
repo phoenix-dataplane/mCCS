@@ -129,7 +129,7 @@ def generate(size_list, command, node_configurations, communicator, mccs_cfg_pat
             for size in size_list:
                 config = generate_config(
                     name=f"{node_str}/{comm}/{size}",
-                    group=node_str,
+                    group=node_str+"_"+comm,
                     binary=comm + "_bench",
                     root_addr=addrs[root],
                     machine_map=node_config,

@@ -128,11 +128,13 @@ def collect_all():
     allgather_8gpu = [res]
     allreduce_4gpu = [res]
     allreduce_8gpu = [res]
+    # command_list = ["allgather", "allreduce"]
+    command_list = ["allgather"]
     for i in range(20):
-        base_dir = "/tmp/single_v2/single-app-ecmp" + str(i)
+        base_dir = "/tmp/single_v4/single-app-ecmp" + str(i)
         node_str = "4GPU_ECMP"
         r = aggregrate(base_dir, node_str)
-        for command in ["allgather", "allreduce"]:
+        for command in command_list:
             for size in r[command]:
                 line = f"4GPU_ECMP,{command},{convert_size(size)},float16,0,{r[command][size]},0"
                 if command == "allgather":
@@ -141,17 +143,17 @@ def collect_all():
                     allreduce_4gpu.append(line)
         node_str = "8GPU_ECMP"
         r = aggregrate(base_dir, node_str)
-        for command in ["allgather", "allreduce"]:
+        for command in command_list:
             for size in r[command]:
                 line = f"8GPU_ECMP,{command},{convert_size(size)},float16,0,{r[command][size]},0"
                 if command == "allgather":
                     allgather_8gpu.append(line)
                 else:
                     allreduce_8gpu.append(line)
-        base_dir = "/tmp/single_v2/single-app-flow"+str(i)
+        base_dir = "/tmp/single_v4/single-app-flow"+str(i)
         node_str = "4GPU_FLOW"
         r = aggregrate(base_dir, node_str)
-        for command in ["allgather", "allreduce"]:
+        for command in command_list:
             for size in r[command]:
                 line = f"4GPU_FLOW,{command},{convert_size(size)},float16,0,{r[command][size]},0"
                 if command == "allgather":
@@ -160,20 +162,20 @@ def collect_all():
                     allreduce_4gpu.append(line)
         node_str = "8GPU_FLOW"
         r = aggregrate(base_dir, node_str)
-        for command in ["allgather", "allreduce"]:
+        for command in command_list:
             for size in r[command]:
                 line = f"8GPU_FLOW,{command},{convert_size(size)},float16,0,{r[command][size]},0"
                 if command == "allgather":
                     allgather_8gpu.append(line)
                 else:
                     allreduce_8gpu.append(line)
-    with open(f"/nfs/public/mccs-data/mccs-allgather-4gpu_v2.csv", "w") as f:
+    with open(f"/nfs/public/mccs-data/mccs-allgather-4gpu_v4.csv", "w") as f:
         f.write("\n".join(allgather_4gpu) + "\n")
-    with open(f"/nfs/public/mccs-data/mccs-allgather-8gpu_v2.csv", "w") as f:
+    with open(f"/nfs/public/mccs-data/mccs-allgather-8gpu_v4.csv", "w") as f:
         f.write("\n".join(allgather_8gpu) + "\n")
-    with open(f"/nfs/public/mccs-data/mccs-allreduce-4gpu_v2.csv", "w") as f:
+    with open(f"/nfs/public/mccs-data/mccs-allreduce-4gpu_v4.csv", "w") as f:
         f.write("\n".join(allreduce_4gpu) + "\n")
-    with open(f"/nfs/public/mccs-data/mccs-allreduce-8gpu_v2.csv", "w") as f:
+    with open(f"/nfs/public/mccs-data/mccs-allreduce-8gpu_v4.csv", "w") as f:
         f.write("\n".join(allreduce_8gpu) + "\n")
 
 

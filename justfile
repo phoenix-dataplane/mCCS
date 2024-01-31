@@ -49,11 +49,11 @@ killall:
 
 [private]
 launch group folder:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/single-app/output/ --group {{group}} --silent --output-dir /tmp/single_v3/{{folder}}
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/single-app/output/ --group {{group}} --silent --output-dir /tmp/single_v4/{{folder}}
 
 [private]
 launch-multi group folder:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/ --group {{group}} --silent --output-dir /tmp/single_v3/{{folder}}
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/ --group {{group}} --silent --output-dir /tmp/single_v4/{{folder}}
 
 [private]
 one_4gpu_ecmp cnt="0":
@@ -70,6 +70,22 @@ one_4gpu_flow cnt:
 [private]
 one_8gpu_flow cnt:
   just launch 8GPU_FLOW single-app-flow{{cnt}}
+
+[private]
+one_4gpu_ecmp_allgather cnt="0":
+  just launch 4GPU_ECMP_allgather single-app-ecmp{{cnt}}
+
+[private]
+one_8gpu_ecmp_allgather cnt="0":
+  just launch 8GPU_ECMP_allgather single-app-ecmp{{cnt}}
+
+[private]
+one_4gpu_flow_allgather  cnt:
+  just launch 4GPU_FLOW_allgather single-app-flow{{cnt}}
+
+[private]
+one_8gpu_flow_allgather  cnt:
+  just launch 8GPU_FLOW_allgather single-app-flow{{cnt}}
 
 four_gpu_ecmp:
   #!/usr/bin/env bash
@@ -102,34 +118,26 @@ eight_gpu_flow:
 
 single-app-all:
   #!/usr/bin/env bash
-  ./eval/set_ecmp_hashing_algo.sh everything
-  for i in {0..9}; do
-    just one_4gpu_ecmp $i
-  done
-  for i in {0..9}; do
-    just one_8gpu_ecmp $i
-  done
+  # ./eval/set_ecmp_hashing_algo.sh everything
+  # for i in {0..9}; do
+  #   just one_4gpu_ecmp_allgather  $i
+  #   just one_8gpu_ecmp_allgather  $i
+  # done
   # ./eval/set_ecmp_hashing_algo.sh source-port
   # for i in {0..9}; do
-  #   just one_4gpu_flow $i
+  #   just one_4gpu_flow_allgather  $i
+  #   just one_8gpu_flow_allgather  $i
   # done
-  # for i in {0..9}; do
-  #   just one_8gpu_flow $i
-  done
   ./eval/set_ecmp_hashing_algo.sh everything
   for i in {10..19}; do
-    just one_4gpu_ecmp $i
+    just one_4gpu_ecmp_allgather  $i
+    just one_8gpu_ecmp_allgather  $i
   done
+  ./eval/set_ecmp_hashing_algo.sh source-port
   for i in {10..19}; do
-    just one_8gpu_ecmp $i
+    just one_4gpu_flow_allgather  $i
+    just one_8gpu_flow_allgather  $i
   done
-  # ./eval/set_ecmp_hashing_algo.sh source-port
-  # for i in {10..19}; do
-  #   just one_4gpu_flow $i
-  # done
-  # for i in {10..19}; do
-  #   just one_8gpu_flow $i
-  # done
   
 
 allreduce-multi type setup cnt:

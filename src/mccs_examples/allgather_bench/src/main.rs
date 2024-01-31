@@ -42,13 +42,13 @@ fn get_prefix(name: Option<&str>) -> String {
 fn main() -> ExitCode {
     let base_val = 2042;
     let opts = Opts::from_args();
+    let num_ranks = opts.num_ranks;
     let buffer_size = if opts.size_in_byte {
         opts.size
     } else {
         opts.size * 1024 * 1024
-    };
+    } / num_ranks;
     let rank = opts.rank;
-    let num_ranks = opts.num_ranks;
     let prefix = get_prefix(opts.name.as_deref());
 
     unsafe {
