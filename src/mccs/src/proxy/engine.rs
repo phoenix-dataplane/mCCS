@@ -73,7 +73,7 @@ pub struct ProxyResources {
     pub transport_shutdown: Vec<(TransportEngineId, usize)>,
     // TODO: FIXME
     pub queued_commands: Vec<(DaemonId, super::command::AllReduceRequest)>,
-    pub launched_allreduce_cnt: u64,
+    pub launched_allreduce_cnt: HashMap<CommunicatorId, u64>,
 }
 
 unsafe impl Send for ProxyResources {}
@@ -83,6 +83,7 @@ enum AsyncTaskOutput {
     BootstrapInit(BootstrapState),
     HandleExchange(HashMap<PeerConnId, ConnectHandle>),
     AllGatherPeerInfo(Vec<PeerInfoExchange>),
+    ReconfigNegotiation(u64),
 }
 
 pub struct AsyncTask {
@@ -103,16 +104,18 @@ impl ProxyResources {
         match poll {
             Poll::Ready(result) => {
                 let output = result.unwrap();
-                let comm = self.comms_init.get_mut(&task.comm_id).unwrap();
                 match output {
                     AsyncTaskOutput::BootstrapInit(state) => {
+                        let comm = self.comms_init.get_mut(&task.comm_id).unwrap();
                         comm.bootstrap_state = Some(Arc::new(state));
                     }
                     AsyncTaskOutput::HandleExchange(handles) => {
+                        let comm = self.comms_init.get_mut(&task.comm_id).unwrap();
                         let transport_connect = comm.transport_connect.as_mut().unwrap();
                         transport_connect.put_peer_connect_handles(handles);
                     }
                     AsyncTaskOutput::AllGatherPeerInfo(info) => {
+                        let comm = self.comms_init.get_mut(&task.comm_id).unwrap();
                         assert_eq!(info.len(), comm.num_ranks);
                         let mut peers_info = info
                             .into_iter()
@@ -142,6 +145,12 @@ impl ProxyResources {
                         comm.peers_info = Some(peers_info);
                     }
                     AsyncTaskOutput::BootstrapRoot => {}
+                    AsyncTaskOutput::ReconfigNegotiation(val) => {
+                        self.comms_suspended
+                            .get_mut(&task.comm_id)
+                            .unwrap()
+                            .update_val(val);
+                    }
                 }
                 true
             }
@@ -616,6 +625,7 @@ impl ProxyResources {
             let comm_init = self.comms_init.remove(&comm_id).unwrap();
             let communicator = comm_init.finalize_communicator();
             self.communicators.insert(comm_id, communicator);
+            self.launched_allreduce_cnt.insert(comm_id, 0);
             true
         } else {
             false
@@ -660,7 +670,22 @@ impl ProxyResources {
             ProxyOp::PollCommunicatorComplete(comm_id) => {
                 match self.comms_suspended.get_mut(comm_id).unwrap() {
                     ReconfigState::Start(comm, state) => false,
-                    ReconfigState::UntilLaunchNTasks(val, comm, state) => false,
+                    ReconfigState::UntilLaunchNTasks(val, comm, state) => {
+                        if *self.launched_allreduce_cnt.get(&comm_id).unwrap() == *val {
+                            log::info!(
+                                "Rank {}: comm_id {} launched {} tasks, ready for reconfiuration",
+                                comm.rank,
+                                comm_id.0,
+                                val
+                            );
+                            ProxyEngine::shutdown_transport_agents(
+                                &mut self.transport_engines_tx,
+                                comm,
+                            );
+                            self.comms_suspended.get_mut(comm_id).unwrap().set_ready();
+                        }
+                        false
+                    }
                     ReconfigState::Reserved => unreachable!(),
                     ReconfigState::Ready(comm, state) => {
                         let stream_completed = unsafe {
@@ -733,7 +758,7 @@ impl ProxyEngine {
             daemon_shutdown: Vec::new(),
             transport_shutdown: Vec::new(),
             queued_commands: Vec::new(),
-            launched_allreduce_cnt: 0,
+            launched_allreduce_cnt: HashMap::new(),
         };
         let engine = ProxyEngine {
             resources,
@@ -824,8 +849,47 @@ impl ProxyEngine {
                             channels.push(chan_pattern);
                         }
                         let task = CommReconfigTask::CommPattern(channels, comm_pattern);
-                        let state = CommSuspendState::init(&comm, task);
 
+                        // negotiate req id
+                        let our_req_id =
+                            *self.resources.launched_allreduce_cnt.get(&comm_id).unwrap();
+                        log::info!(
+                            "Rank {}: comm_id {} negotiating req_id={}",
+                            comm.rank,
+                            comm_id.0,
+                            our_req_id
+                        );
+                        let req_id_bytes = our_req_id.to_be_bytes().to_vec();
+
+                        let num_rank = comm.num_ranks;
+                        let fut = comm
+                            .bootstrap_state
+                            .clone()
+                            .bootstrap_all_gather(req_id_bytes)
+                            .map(move |dat| {
+                                let arr = dat.expect("allgather latest req id failed");
+                                let mut max_req = 0;
+
+                                for r in 0..num_rank {
+                                    let mut buf = &arr[r * std::mem::size_of::<u64>()
+                                        ..((r + 1) * std::mem::size_of::<u64>())];
+                                    let req_id = u64::from_be_bytes(buf[..8].try_into().unwrap());
+                                    max_req = std::cmp::max(max_req, req_id);
+                                }
+                                log::info!(
+                                    "Rank {}: comm_id {} allgathered max_req_id={}",
+                                    comm.rank,
+                                    comm_id.0,
+                                    max_req
+                                );
+                                Ok(AsyncTaskOutput::ReconfigNegotiation(max_req))
+                            });
+                        self.async_tasks.enqueue(AsyncTask {
+                            comm_id,
+                            fut: Box::pin(fut),
+                        });
+
+                        let state = CommSuspendState::init(&comm, task);
                         self.resources
                             .comms_suspended
                             .insert(comm_id, ReconfigState::Start(comm, state));
@@ -1033,6 +1097,11 @@ impl ProxyEngine {
                         }
                         ProxyCommand::AllReduce(coll) => {
                             let comm = self.resources.communicators.get_mut(&coll.communicator_id);
+                            let req_cnt = self
+                                .resources
+                                .launched_allreduce_cnt
+                                .get_mut(&coll.communicator_id)
+                                .unwrap();
                             if let Some(comm) = comm {
                                 let user_events =
                                     self.resources.user_events.get(daemon_id).unwrap();
@@ -1040,7 +1109,7 @@ impl ProxyEngine {
                                 comm.launch_scheduled_and_record(
                                     &mut self.resources.transport_engines_tx,
                                 );
-                                self.resources.launched_allreduce_cnt += 1;
+                                *req_cnt += 1;
                                 let sender = self.resources.daemon_tx.get(daemon_id).unwrap();
                                 sender.send(ProxyCompletion::AllReduce).unwrap();
                             } else if let Some(state) = self
@@ -1049,19 +1118,19 @@ impl ProxyEngine {
                                 .get_mut(&coll.communicator_id)
                             {
                                 if let ReconfigState::UntilLaunchNTasks(val, comm, _) = state {
-                                    if self.resources.launched_allreduce_cnt < *val {
+                                    if *req_cnt < *val {
                                         let user_events =
                                             self.resources.user_events.get(daemon_id).unwrap();
                                         comm.schedule_all_reduce(coll, user_events);
                                         comm.launch_scheduled_and_record(
                                             &mut self.resources.transport_engines_tx,
                                         );
-                                        self.resources.launched_allreduce_cnt += 1;
+                                        *req_cnt += 1;
                                         let sender =
                                             self.resources.daemon_tx.get(daemon_id).unwrap();
                                         sender.send(ProxyCompletion::AllReduce).unwrap();
                                         // transistion to Ready state
-                                        if self.resources.launched_allreduce_cnt == *val {
+                                        if *req_cnt == *val {
                                             Self::shutdown_transport_agents(
                                                 &mut self.resources.transport_engines_tx,
                                                 &comm,
