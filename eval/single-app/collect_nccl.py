@@ -10,22 +10,17 @@ import argparse
 
 OUTPUT_DIR = "/tmp/nccl_single_app"
 
-parser = argparse.ArgumentParser(description='Launch a dsagent and deepscheduler')
-parser.add_argument('--solution', '--solution', required=True, type=str,
-                    help = 'Give a name to the trial, either NCCL Bad Ring|NCCL Good Ring.')
+parser = argparse.ArgumentParser(description='')
 parser.add_argument('--app', '--app', type=str,
-                    help = 'The app of the trial, either Allgather or Allreduce')
+                    help = 'The app of the trial, either allgather or allreduce')
+parser.add_argument('--num-gpus', '--num-gpus', type=str,
+                    help = 'The number of gpus to match, either 1 or 2')
 
 args = parser.parse_args()
-assert args.solution
+assert args.app
+assert args.num_gpus
 
-if args.app is not None:
-    app = args.app
-else:
-    basename = os.readlink(OUTPUT_DIR).split('/')[-1]
-    app = basename.split('_')[0]
-
-nccl_results = glob.glob(os.path.join(OUTPUT_DIR, "*"))
+nccl_results = glob.glob(os.path.join(OUTPUT_DIR, "*{}_*_{}.stdout".format(args.app, args.num_gpus)))
 
 writer = csv.writer(sys.stdout)
 writer.writerow(['Solution', 'App', 'Size (Bytes)', 'Dtype', 'Latency (us)', 'AlgBW (GB/s)', 'BusBW (GB/s)'])
@@ -33,6 +28,7 @@ writer.writerow(['Solution', 'App', 'Size (Bytes)', 'Dtype', 'Latency (us)', 'Al
 pat = re.compile(r'\s*\d+\s+\d+.*')
 for path in nccl_results:
     with open(path, 'r') as fin:
+        solution = path.split('/')[-1].split('_')[-2]
         for line in fin:
             match = pat.match(line)
             if match is not None:
@@ -44,4 +40,4 @@ for path in nccl_results:
                 latency_us = tokens[9]
                 algbw = tokens[10]
                 busbw = tokens[11]
-                writer.writerow([args.solution, app, size, dtype, latency_us, algbw, busbw])
+                writer.writerow([solution, args.app, size, dtype, latency_us, algbw, busbw])

@@ -10,7 +10,7 @@ import argparse
 
 OUTPUT_DIR = "/tmp/nccl_setting3"
 
-parser = argparse.ArgumentParser(description='Launch a dsagent and deepscheduler')
+parser = argparse.ArgumentParser(description='')
 parser.add_argument('--solution', '--solution', required=True, type=str,
                     help = 'Give a name to the trial, either NCCL Bad Ring|NCCL Good Ring.')
 parser.add_argument('--strip-head', '--strip-head', required=False, type=int, default=1,

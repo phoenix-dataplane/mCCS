@@ -20,14 +20,9 @@ num_gpus=$1
 ring_type=$2
 app=$3
 
-suffix=`date +%Y%m%d.%H.%M.%S`
-output_dir=/tmp/${app}_${ring_type}_${num_gpus}gpus.${suffix}
-mkdir -p $output_dir
-unlink /tmp/nccl_single_app
-ln -sf $output_dir /tmp/nccl_single_app
-
+output_dir=/tmp/nccl_single_app
 
 for i in `seq 1 $num_iters`; do
 	echo Case $i
-	./run_nccl_once.sh $num_gpus $ring_type $app |& tee $output_dir/$i.stdout
+	./run_nccl_once.sh $num_gpus $ring_type $app |& tee $output_dir/${i}_${app}_${ring_type}_${num_gpus}.stdout
 done
