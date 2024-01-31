@@ -147,7 +147,7 @@ def four_gpu_ecmp():
     node_configurations = [
         ("4GPU_ECMP", [(2, 1), (3, 1), (1, 1), (5, 1)]),
     ]
-    generate(size_list, command, node_configurations, 42, "eval/single-app/4gpu.toml")
+    generate(size_list, command, node_configurations, 42, "eval/single-app/4gpu_ecmp.toml")
 
 
 def four_gpu_flow_scheduling():
@@ -165,7 +165,7 @@ def eight_gpu_ecmp():
     node_configurations = [
         ("8GPU_ECMP", [(2, 2), (3, 2), (1, 2), (5, 2)]),
     ]
-    generate(size_list, command, node_configurations, 42, "eval/single-app/8gpu.toml")
+    generate(size_list, command, node_configurations, 42, "eval/single-app/8gpu_ecmp.toml")
 
 
 def eight_gpu_flow_scheduling():

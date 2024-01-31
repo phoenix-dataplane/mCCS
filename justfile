@@ -49,11 +49,11 @@ killall:
 
 [private]
 launch group folder:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/single-app/output/ --group {{group}} --silent --output-dir /tmp/single_v2/{{folder}}
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/single-app/output/ --group {{group}} --silent --output-dir /tmp/single_v3/{{folder}}
 
 [private]
 launch-multi group folder:
-  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/ --group {{group}} --silent --output-dir /tmp/single_v2/{{folder}}
+  cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/ --group {{group}} --silent --output-dir /tmp/single_v3/{{folder}}
 
 [private]
 one_4gpu_ecmp cnt="0":
@@ -109,12 +109,12 @@ single-app-all:
   for i in {0..9}; do
     just one_8gpu_ecmp $i
   done
-  ./eval/set_ecmp_hashing_algo.sh source-port
-  for i in {0..9}; do
-    just one_4gpu_flow $i
-  done
-  for i in {0..9}; do
-    just one_8gpu_flow $i
+  # ./eval/set_ecmp_hashing_algo.sh source-port
+  # for i in {0..9}; do
+  #   just one_4gpu_flow $i
+  # done
+  # for i in {0..9}; do
+  #   just one_8gpu_flow $i
   done
   ./eval/set_ecmp_hashing_algo.sh everything
   for i in {10..19}; do
@@ -123,13 +123,13 @@ single-app-all:
   for i in {10..19}; do
     just one_8gpu_ecmp $i
   done
-  ./eval/set_ecmp_hashing_algo.sh source-port
-  for i in {10..19}; do
-    just one_4gpu_flow $i
-  done
-  for i in {10..19}; do
-    just one_8gpu_flow $i
-  done
+  # ./eval/set_ecmp_hashing_algo.sh source-port
+  # for i in {10..19}; do
+  #   just one_4gpu_flow $i
+  # done
+  # for i in {10..19}; do
+  #   just one_8gpu_flow $i
+  # done
   
 
 allreduce-multi type setup cnt:

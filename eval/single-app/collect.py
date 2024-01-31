@@ -40,7 +40,7 @@ def filter_contents(contents: list):
 def rank0_parse_bw(lines: list):
     for line in lines:
         if line.find("Rank 0") != -1:
-            return line.split(": ")[-1].split(" GB")[0]
+            return line.split(": ")[-2].split(" GB")[0]
     print("Error: no rank 0 found: ", lines)
 
 
