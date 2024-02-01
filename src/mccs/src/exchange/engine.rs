@@ -297,6 +297,6 @@ impl Engine for ExchangeEngine {
     fn progress(&mut self) -> EngineStatus {
         self.progress_async_tasks();
         self.check_proxy_requests();
-        EngineStatus::Progressed
+        EngineStatus::Idle
     }
 }

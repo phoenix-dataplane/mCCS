@@ -72,7 +72,10 @@ impl Runtime {
             let mut engines = self.running.borrow_mut();
             for (idx, engine) in engines.iter_mut().enumerate() {
                 match engine.progress() {
-                    EngineStatus::Idle => {}
+                    EngineStatus::Idle => {
+                        println!("Idle");
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
                     EngineStatus::Progressed => {}
                     EngineStatus::Completed => {
                         shutdown.push(idx);

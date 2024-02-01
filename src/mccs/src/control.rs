@@ -178,6 +178,7 @@ impl Control {
                 }
             }
             self.check_proxy_requests();
+            std::thread::sleep(Duration::from_millis(50));
         }
         Ok(())
     }
