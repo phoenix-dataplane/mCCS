@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import numpy as np
 
 
 def convert_size(size: str):
@@ -66,15 +67,23 @@ def collect_setup2(base_dir: str, group: str, each: str, setup: int, app_cnt: in
     path = os.path.join(base_dir, group, each + "-setup" + str(setup))
     outputs = get_output(path)
     res = []
+    def mapping(line):
+        return line.split(": ")[-2].split(" GB")[0], line.split(": ")[-1].split(" GB")[0]
     for i in range(1, app_cnt + 1):
-        line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=1"])
+        line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=4"])
+        line += filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=2"])
+        line += filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=3"])
         if len(line) == 0:
             continue
+        line = [mapping(l) for l in line]
+        # get average
+        line = np.array(line, dtype=np.float32)
+        line = np.mean(line, axis=0)
         res.append(
             (
                 f"app{i}",
-                line[0].split(": ")[-2].split(" GB")[0],
-                line[0].split(": ")[-1].split(" GB")[0],
+                line[0],
+                line[1],
             )
         )
     return res
@@ -114,7 +123,19 @@ def collect_allreduce_all():
                     mapping[setup],
                 ):
                     res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
-        print(res)
+        # clean data where the same solution has missing app
+        res = res.split("\n")
+        data = {}
+        for i in res[1:]:
+            if i == "":
+                continue
+            i = i.split(",")
+            if i[0] not in data:
+                data[i[0]] = []
+            data[i[0]].append(i)
+        for k, v in data.items():
+            if len(v) != mapping[int(k.split("-")[-2][-1])]:
+                print(f"Missing data for {k}")
 
 
 collect_allreduce_all()

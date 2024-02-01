@@ -152,7 +152,6 @@ def get_trend_figure():
 # get_cdf()
 
 
-# %%
 def get_reconfig_figure():
     gpt_path = "/tmp/ring-reconfig/setup4-dynamic/traffic_gen_danyang-02.stdout"
 
