@@ -224,10 +224,19 @@ reconfig-ring:
   cargo run --bin ring_config -- -c eval/dynamic-config/reconfig-patch.toml
 
 reconfig-ring-allreduce:
-  sudo mlnx_qos -i rdma0 -r 0,0,0,46,0,0,0,0
+  #!/usr/bin/env bash
+  sudo mlnx_qos -i rdma0 -r 0,0,25,46,0,0,0,0
+  sudo mlnx_qos -i rdma0 --dscp2prio=set,16,0
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/dynamic-config/launch-allreduce-ring-reconfig.toml --silent --output-dir /tmp/allreduce-ring-reconfig --timeout 600 &
   sleep 15
-  sudo mlnx_qos -i rdma0 -r 0,0,25,46,0,0,0,0
+  # background flow
+  # sudo mlnx_qos -i rdma0 --dscp2prio=set,16,2
+  ib_write_bw -n 350000 rdma0.danyang-02 -q 5 &
   sleep 5
   cargo run --bin ring_config -- -c eval/dynamic-config/reconfig-patch.toml
-  sudo mlnx_qos -i rdma0 -r 0,0,46,46,0,0,0,0
+  for i in {1..100}; do
+    echo -n ' '
+  done
+  pkill ib_write_bw
+  sleep 15
+  sudo mlnx_qos -i rdma0 -r 0,0,46,46,0,0,0,0 --dscp2prio=set,16,2

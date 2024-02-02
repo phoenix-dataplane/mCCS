@@ -210,7 +210,7 @@ def get_allreduce_reconfig_figure():
             algo_bw = line.split("Algorithm bandwidth: ")[-1].split(" ")[0]
             bus_bw = line.split("Bus bandwidth: ")[-1].split(" ")[0]
             res.append((convert_to_datetime(timestamp), float(algo_bw)))
-    data = moving_average(res, 3)
+    data = moving_average(res, 2)
 
     earliest_timestamp = min(data)[0]
     print(data)
@@ -218,7 +218,7 @@ def get_allreduce_reconfig_figure():
         (timestamp - earliest_timestamp, throughput) for timestamp, throughput in data
     ]
 
-    aligned = [i for i in aligned if i[0] > 1000 and i[0] < 4200000]
+    aligned = [i for i in aligned if i[0] > 1000 and i[0] < 30000]
     plt.figure(figsize=(10, 6))
     plt.plot(
         [time for time, _ in aligned],
