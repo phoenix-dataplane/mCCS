@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#%%
 import os
 
 
@@ -61,18 +62,28 @@ def collect_setup(base_dir: str, group: str, setup: int, app_cnt: int):
         )
     return res
 
-
+import numpy as np
 def collect_setup2(base_dir: str, group: str, each: str, setup: int, app_cnt: int):
     path = os.path.join(base_dir, group, each + "-setup" + str(setup))
     outputs = get_output(path)
     res = []
+    def mapping(line):
+        return line.split(": ")[-2].split(" GB")[0], line.split(": ")[-1].split(" GB")[0]
     for i in range(1, app_cnt + 1):
         line = filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=1"])
+        line += filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=2"])
+        line += filter_contents(outputs, ["app" + str(i), "Rank 0", "Epoch=3"])
+        if len(line) == 0:
+            continue
+        line = [mapping(l) for l in line]
+        # get average
+        line = np.array(line, dtype=np.float32)
+        line = np.mean(line, axis=0)
         res.append(
             (
                 f"app{i}",
-                line[0].split(": ")[-2].split(" GB")[0],
-                line[0].split(": ")[-1].split(" GB")[0],
+                line[0],
+                line[1]
             )
         )
     return res
@@ -92,8 +103,9 @@ def collect_allreduce_all():
     res = "Solution,App,Size (Bytes),Dtype,Latency (us),AlgBW (GB/s),BusBW (GB/s)\n"
     if __name__ == "__main__":
         mapping = {1: 2, 2: 3, 3: 2, 4: 3}
-        for setup in [1, 2, 3]:
-            for i in range(10):
+        avg = 0
+        for setup in [4]:
+            for i in range(400,420):
                 for line in collect_setup2(
                     "/tmp",
                     f"multi-allreduce-ecmp-{i}",
@@ -102,8 +114,9 @@ def collect_allreduce_all():
                     mapping[setup],
                 ):
                     res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
-        for setup in [1, 2, 3, 4]:
-            for i in range(10):
+                    avg+=float(line[1])
+        for setup in [4]:
+            for i in range(400, 410):
                 for line in collect_setup2(
                     "/tmp",
                     f"multi-allreduce-flow-{i}",
@@ -113,6 +126,7 @@ def collect_allreduce_all():
                 ):
                     res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
         print(res)
+        print(avg/20)
 
 
 collect_allreduce_all()

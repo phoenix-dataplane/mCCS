@@ -223,3 +223,15 @@ setup4-vgg:
 setup1 what:
   ./eval/set_ecmp_hashing_algo.sh source-port
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/setup1-trace-{{what}}.toml --silent --output-dir /tmp/setup1-trace-{{what}}
+
+emergency:
+  #!/usr/bin/env bash
+  # ./eval/set_ecmp_hashing_algo.sh source-port
+  # for j in {400..409}; do
+  #   just allreduce-multi flow 4 $j
+  # done
+  ./eval/set_ecmp_hashing_algo.sh everything
+  for j in {400..419}; do
+    just allreduce-multi ecmp 4 $j
+  done
+  
