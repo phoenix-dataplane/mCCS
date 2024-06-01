@@ -1,0 +1,323 @@
+cjr@danyang-01 ~ % ssh -oKexAlgorithms=+diffie-hellman-group14-sha1 danyang@danyang-mellanox-switch.cs.duke.edu
+Mellanox Onyx Switch Management
+Last login: Mon May 10 01:51:40 UTC 2004 from 10.236.186.221 on pts/0
+Number of total successful connections since last 30 days: 5
+
+Mellanox Switch
+
+danyang-mellanox-switch [standalone: master] > en
+danyang-mellanox-switch [standalone: master] # conf t
+danyang-mellanox-switch [standalone: master] (config) # show ru
+##
+## Running database "initial"
+## Generated at 2004/05/29 02:48:54 +0000
+## Hostname: danyang-mellanox-switch
+## Product release: 3.9.0300
+##
+
+##
+## Running-config temporary prefix mode setting
+##
+no cli default prefix-modes enable
+
+##
+## Interface Ethernet buffer configuration
+##
+   traffic pool roce-reserved type lossless
+   traffic pool roce-reserved memory percent 50.00
+   traffic pool rocecontrol type lossless
+   traffic pool rocecontrol memory percent 10.00
+   traffic pool roce-reserved map switch-priority 0 2 3
+   traffic pool rocecontrol map switch-priority 6
+
+##
+## Interface Ethernet configuration
+##
+   interface port-channel 1-2
+   interface ethernet 1/2 speed 50G force
+   interface ethernet 1/2 speed 50G force
+   interface ethernet 1/5 speed 50G force
+   interface ethernet 1/7 speed 50G force
+   interface ethernet 1/9-1/11 speed 50G force
+   interface ethernet 1/13 speed 50G force
+   interface ethernet 1/15 speed 50G force
+   interface ethernet 1/1-1/16 mtu 9000 force
+   interface port-channel 1-2 mtu 9000 force
+   interface ethernet 1/2 channel-group 1 mode on
+   interface ethernet 1/5 channel-group 2 mode on
+   interface ethernet 1/7 channel-group 1 mode on
+   interface ethernet 1/9 channel-group 2 mode on
+   interface ethernet 1/8 shutdown
+   interface ethernet 1/12 shutdown
+
+##
+## LAG configuration
+##
+   port-channel load-balance ethernet source-destination-mac source-destination-ip source-destination-port l3-protocol l2-protocol flow-label symmetric
+
+##
+## L3 configuration
+##
+   ip routing vrf default
+
+##
+## QoS switch configuration
+##
+   interface ethernet 1/1 qos trust L3
+   interface ethernet 1/3-1/4 qos trust L3
+   interface ethernet 1/6 qos trust L3
+##
+## Running database "initial"
+## Generated at 2004/05/29 02:48:54 +0000
+## Hostname: danyang-mellanox-switch
+## Product release: 3.9.0300
+##
+
+##
+## Running-config temporary prefix mode setting
+##
+no cli default prefix-modes enable
+
+##
+## Interface Ethernet buffer configuration
+##
+   traffic pool roce-reserved type lossless
+   traffic pool roce-reserved memory percent 50.00
+   traffic pool rocecontrol type lossless
+   traffic pool rocecontrol memory percent 10.00
+   traffic pool roce-reserved map switch-priority 0 2 3
+   traffic pool rocecontrol map switch-priority 6
+
+##
+## Interface Ethernet configuration
+##
+   interface port-channel 1-2
+   interface ethernet 1/2 speed 50G force
+   interface ethernet 1/5 speed 50G force
+   interface ethernet 1/7 speed 50G force
+   interface ethernet 1/9-1/11 speed 50G force
+   interface ethernet 1/13 speed 50G force
+   interface ethernet 1/15 speed 50G force
+   interface ethernet 1/1-1/16 mtu 9000 force
+   interface port-channel 1-2 mtu 9000 force
+   interface ethernet 1/2 channel-group 1 mode on
+   interface ethernet 1/5 channel-group 2 mode on
+   interface ethernet 1/7 channel-group 1 mode on
+   interface ethernet 1/9 channel-group 2 mode on
+   interface ethernet 1/8 shutdown
+   interface ethernet 1/12 shutdown
+
+##
+## LAG configuration
+##
+   port-channel load-balance ethernet source-destination-mac source-destination-ip source-destination-port l3-protocol l2-protocol flow-label symmetric
+
+##
+## L3 configuration
+##
+   ip routing vrf default
+
+##
+## QoS switch configuration
+##
+   interface ethernet 1/1 qos trust L3
+   interface ethernet 1/3-1/4 qos trust L3
+   interface ethernet 1/6 qos trust L3
+   interface ethernet 1/8 qos trust L3
+   interface ethernet 1/10-1/16 qos trust L3
+   interface port-channel 1-2 qos trust L3
+   interface ethernet 1/1 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/1 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/3-1/4 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/3-1/4 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/6 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/6 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/8 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/8 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/10-1/16 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/10-1/16 qos map dscp 16 to switch-priority 3
+   interface port-channel 1-2 qos map dscp 0 to switch-priority 3
+   interface port-channel 1-2 qos map dscp 16 to switch-priority 3
+
+##
+## DCBX ETS configuration
+##
+   interface ethernet 1/1 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface ethernet 1/1 traffic-class 6 dcb ets strict
+   interface ethernet 1/3-1/4 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface ethernet 1/3-1/4 traffic-class 6 dcb ets strict
+##
+## Running database "initial"
+## Generated at 2004/05/29 02:48:54 +0000
+## Hostname: danyang-mellanox-switch
+## Product release: 3.9.0300
+##
+
+##
+## Running-config temporary prefix mode setting
+##
+no cli default prefix-modes enable
+
+##
+## Interface Ethernet buffer configuration
+##
+## Interface Ethernet buffer configuration
+##
+   traffic pool roce-reserved type lossless
+   traffic pool roce-reserved memory percent 50.00
+   traffic pool rocecontrol type lossless
+   traffic pool rocecontrol memory percent 10.00
+   traffic pool roce-reserved map switch-priority 0 2 3
+   traffic pool rocecontrol map switch-priority 6
+
+##
+## Interface Ethernet configuration
+##
+   interface port-channel 1-2
+   interface ethernet 1/2 speed 50G force
+   interface ethernet 1/5 speed 50G force
+   interface ethernet 1/7 speed 50G force
+   interface ethernet 1/9-1/11 speed 50G force
+   interface ethernet 1/13 speed 50G force
+   interface ethernet 1/15 speed 50G force
+   interface ethernet 1/1-1/16 mtu 9000 force
+   interface port-channel 1-2 mtu 9000 force
+   interface ethernet 1/2 channel-group 1 mode on
+   interface ethernet 1/5 channel-group 2 mode on
+   interface ethernet 1/7 channel-group 1 mode on
+   interface ethernet 1/9 channel-group 2 mode on
+   interface ethernet 1/8 shutdown
+   interface ethernet 1/12 shutdown
+
+##
+##
+## Interface Ethernet configuration
+##
+   interface port-channel 1-2
+   interface ethernet 1/2 speed 50G force
+   interface ethernet 1/5 speed 50G force
+   interface ethernet 1/7 speed 50G force
+   interface ethernet 1/9-1/11 speed 50G force
+   interface ethernet 1/13 speed 50G force
+   interface ethernet 1/15 speed 50G force
+   interface ethernet 1/1-1/16 mtu 9000 force
+   interface port-channel 1-2 mtu 9000 force
+   interface ethernet 1/2 channel-group 1 mode on
+   interface ethernet 1/5 channel-group 2 mode on
+   interface ethernet 1/7 channel-group 1 mode on
+   interface ethernet 1/9 channel-group 2 mode on
+   interface ethernet 1/8 shutdown
+   interface ethernet 1/12 shutdown
+
+##
+## LAG configuration
+##
+   port-channel load-balance ethernet source-destination-mac source-destination-ip source-destination-port l3-protocol l2-protocol flow-label symmetric
+
+##
+## L3 configuration
+##
+   ip routing vrf default
+
+##
+## QoS switch configuration
+##
+   interface ethernet 1/1 qos trust L3
+   interface ethernet 1/3-1/4 qos trust L3
+   interface ethernet 1/6 qos trust L3
+   interface ethernet 1/8 qos trust L3
+   interface ethernet 1/10-1/16 qos trust L3
+   interface port-channel 1-2 qos trust L3
+   interface ethernet 1/1 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/1 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/3-1/4 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/3-1/4 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/6 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/6 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/8 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/8 qos map dscp 16 to switch-priority 3
+   interface ethernet 1/10-1/16 qos map dscp 0 to switch-priority 3
+   interface ethernet 1/10-1/16 qos map dscp 16 to switch-priority 3
+   interface port-channel 1-2 qos map dscp 0 to switch-priority 3
+   interface port-channel 1-2 qos map dscp 16 to switch-priority 3
+
+##
+## DCBX ETS configuration
+##
+   interface ethernet 1/1 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface ethernet 1/1 traffic-class 6 dcb ets strict
+   interface ethernet 1/3-1/4 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface ethernet 1/3-1/4 traffic-class 6 dcb ets strict
+   interface ethernet 1/6 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface ethernet 1/6 traffic-class 6 dcb ets strict
+   interface ethernet 1/8 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface ethernet 1/8 traffic-class 6 dcb ets strict
+   interface ethernet 1/10-1/16 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface ethernet 1/10-1/16 traffic-class 6 dcb ets strict
+   interface port-channel 1-2 traffic-class 3 bind switch-priority 0 1 2 4 5 7
+   interface port-channel 1-2 traffic-class 6 dcb ets strict
+
+##
+## Other IP configuration
+##
+   hostname danyang-mellanox-switch
+
+##
+## Other IPv6 configuration
+##
+no ipv6 enable
+
+##
+## Local user account configuration
+##
+   username admin password 7 $6$YiavEc.d$PaV2a9lCwmhJZ.CYB.WxATItB6yu2DsL7wabCPNYqeVsu9rjaA9/FdM5JdTMZhD7F.03K5SbH/zwCDGxMz/yk0
+   username danyang capability admin
+no username danyang disable
+   username danyang full-name "Danyang Zhou"
+   username danyang password 7 $6$tIhtaRJB$IqbGLxdMIPfBGdT5zUUTkCHz7Ti33FpHEGLsRPAUBzjpqMo4TKvHmHSEDyvUbUtBKhTKQIIkM/z3EQ4TRxO0B1
+   username monitor password 7 $6$qjhhmlTC$f4zDeQ2qef2mZHXSQan4K9ICCjmjrwsjVk9rHnnBwRq1iNS1.RuO.Rh6d7EelITYLNQ5n3XSm2pXCWKiPXzC10
+
+##
+## AAA remote server configuration
+##
+# ldap bind-password ********
+# radius-server key ********
+# tacacs-server key ********
+
+##
+## Network management configuration
+##
+# web proxy auth basic password ********
+   web http enable
+no web https enable
+no web https ssl secure-cookie enable
+
+##
+## SSH and Key configuration
+##
+   ssh client user danyang authorized-key sshv2 "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFIV/UGHXWig4uPnLgJGQlst3u79awHykiIVzBomR4oD jc839@login-02"
+   ssh client user danyang authorized-key sshv2 "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCf+kM8hg50lV/S2fIU4BtKPges5kRaXXo+7X3dt3kHI1o7G93cCDtf9hjAkqcFj3gaQ4T1RRi
+rWBnGwqFEPKmnxEryeb09VNaLlvshCcLJdCFbuATMi2DIMtKghxucnHqKzdK/Y4tFVLhMzsc8RvFArOsH+lw9LVbCZeTKE/D6FRu2V0S84zAU+64HUsIpYVSAfpcH19B89uReQNMI6p/2+2P3A4dMGQMD9S+sQpq
+RmGwZ4Vo4IFA/G9YeAwZR2pFUDUtA2mOLKekg7/dRSEJoiyxRFqs0AdBL6+sJpiywOyUL/0iQyan4arp8qOasG1bY0q+JENFcl6hbHAx2yRjn jc839@login-02"
+   ssh client user danyang authorized-key sshv2 "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC3bwxRBLu6gjdP9dBGk1xzVFvWtlf431C/Nl6qIelpZCivqcOXm1+nGG+Y9RKbXerqOyf1Vr7
+luPcNv9WRof5ZptUpca7P9R6oyDxcPaIfh4QbLB7mbHN7G43S3wScKneqqyeazAODRtgVBbQJWfKHZeTIOqpymFcdc6b0FNfYEg58d1XvrXp1NkxDj4VQ7q7ce715/aj4EW0VkZYXcZ4PYTIChDNpDsGUfPUZNoz
+12/XmBikRmCa7MFr1D6Wa2afySwQ7lyIrIEjM6gM6CBO4IgjvfRHishCztzYNGv2o95NYGSEBbe1dmZ7aaGyHZ5FpssaJkEreXF0yO2wIKYC5FqL/HMsTT84k1mZFjZoeeVAI87YWoOqbGcVSzBtbj3Hrt7wdN/J
+POwCw12D7xXnGyzx1SSDDIGNt5bjrcw3jwHp2dePvK0iaZagCF6btxrBxslYAIBD2UL8rAQDo92AUSWsYwukLwM0RkswAQRtWPCy9MndegsmG4JWW233f8CM= root@danyang-01"
+   ssh client user danyang authorized-key sshv2 "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDO0ULLeuFjrDBpOgKqrvVW4YrNH/hVD+d4SsYdu6GM/YvKNQ2i7Exn7DxkvrObbG1xN8jYwkx
+d2A4ECKpEg6bAJB0TKpFNvXz5HDdo3sjhOV+HHF/3qC+R1zNwGNUxS+8Hl3Kyc6Hiv0Rhn8Pfp//hhLi9fUPzKqLiT8NWZjQuK3fhvN7YaQcEH5MTs79IPk8H6OqwpHN4fGIWi1oIdURfBpvHG/FOy2ABXvlK6kk
+mfKGZTGyED83nw9yAJQmlfisDTA+0fo5w4m4t9Cs94NmY/aFRDkC8FYzf9f9aDTGOsdPA0//VotYPFGyGC+azbjxso5eGSb+efWDBVxhxe2d8w78Yr5dXKHVRlpzz7bW85z5cyJiSV/x5rrE/Q382EGmfbauXV5A
+CUhBLH11kECL3/xIG5tDSbEzQxsoViV6HC+h19hKVDeAfwW0pKV34r55TzuUud7U8rZZrPDsxs7gcgUAc5JZGw5kEXwx1B0ofJlEZf/t+mS1og8+Iee+/9vs= cjr@danyang-01"
+
+##
+## X.509 certificates configuration
+##
+#
+# Certificate name system-self-signed, ID 1cd7323eb9a7c446e651934f4d5df4fa95c0eb50
+# (public-cert config omitted since private-key config is hidden)
+
+##
+## Persistent prefix mode setting
+##
+cli default prefix-modes enable
+
+danyang-mellanox-switch [standalone: master] (config) #

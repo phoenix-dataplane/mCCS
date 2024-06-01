@@ -1,0 +1,66 @@
+enable
+config terminal
+
+no spanning-tree
+
+protocol openflow
+
+no interface ethernet 1/1-1/16 openflow mode hybrid
+interface ethernet 1/6 openflow mode hybrid
+interface ethernet 1/4 openflow mode hybrid
+interface ethernet 1/14 openflow mode hybrid
+interface ethernet 1/16 openflow mode hybrid
+interface port-channel 1 openflow mode hybrid
+interface port-channel 2 openflow mode hybrid
+
+interface ethernet 1/10 openflow mode hybrid
+interface ethernet 1/11 openflow mode hybrid
+interface ethernet 1/13 openflow mode hybrid
+interface ethernet 1/15 openflow mode hybrid
+
+# logical switch 1
+openflow add-flows 111 ip,priority=5000,in_port=Eth1/6,nw_dst=192.168.211.32/27,actions=output=Eth1/6
+openflow add-flows 112 ip,priority=5000,in_port=Eth1/14,nw_dst=192.168.211.32/27,actions=output=Eth1/6
+openflow add-flows 121 ip,priority=5000,in_port=Eth1/6,nw_dst=192.168.211.64/27,actions=output=Eth1/14
+openflow add-flows 122 ip,priority=5000,in_port=Eth1/14,nw_dst=192.168.211.64/27,actions=output=Eth1/14
+openflow add-flows 115 ip,priority=5000,in_port=Po1,nw_dst=192.168.211.32/27,actions=output=Eth1/6
+openflow add-flows 125 ip,priority=5000,in_port=Po1,nw_dst=192.168.211.64/27,actions=output=Eth1/14
+
+# logical switch 2
+openflow add-flows 211 ip,priority=5000,in_port=Eth1/4,nw_dst=192.168.211.0/27,actions=output=Eth1/4
+openflow add-flows 212 ip,priority=5000,in_port=Eth1/16,nw_dst=192.168.211.0/27,actions=output=Eth1/4
+openflow add-flows 221 ip,priority=5000,in_port=Eth1/4,nw_dst=192.168.211.160/27,actions=output=Eth1/16
+openflow add-flows 222 ip,priority=5000,in_port=Eth1/16,nw_dst=192.168.211.160/27,actions=output=Eth1/16
+openflow add-flows 215 ip,priority=5000,in_port=Po2,nw_dst=192.168.211.0/27,actions=output=Eth1/4
+openflow add-flows 225 ip,priority=5000,in_port=Po2,nw_dst=192.168.211.160/27,actions=output=Eth1/16
+
+
+# logical switch 3
+openflow add-flows 300 ip,priority=6000,in_port=Eth1/11,nw_dst=192.168.211.32/27,actions=output=Eth1/10
+openflow add-flows 301 ip,priority=6000,in_port=Eth1/11,nw_dst=192.168.211.64/27,actions=output=Eth1/10
+openflow add-flows 302 ip,priority=6000,in_port=Eth1/10,nw_dst=192.168.211.160/27,actions=output=Eth1/11
+openflow add-flows 303 ip,priority=6000,in_port=Eth1/10,nw_dst=192.168.211.0/27,actions=output=Eth1/11
+
+# logical switch 4
+openflow add-flows 400 ip,priority=6000,in_port=Eth1/15,nw_dst=192.168.211.32/27,actions=output=Eth1/13
+openflow add-flows 401 ip,priority=6000,in_port=Eth1/15,nw_dst=192.168.211.64/27,actions=output=Eth1/13
+openflow add-flows 402 ip,priority=6000,in_port=Eth1/13,nw_dst=192.168.211.160/27,actions=output=Eth1/15
+openflow add-flows 403 ip,priority=6000,in_port=Eth1/13,nw_dst=192.168.211.0/27,actions=output=Eth1/15
+
+# traffic going outside of logical switch 1
+openflow add-flows 70 ip,priority=8000,in_port=Eth1/6,nw_dst=192.168.211.160/27,actions=output=Po1
+openflow add-flows 71 ip,priority=8000,in_port=Eth1/6,nw_dst=192.168.211.0/27,actions=output=Po1
+openflow add-flows 80 ip,priority=8000,in_port=Eth1/14,nw_dst=192.168.211.160/27,actions=output=Po1
+openflow add-flows 81 ip,priority=8000,in_port=Eth1/14,nw_dst=192.168.211.0/27,actions=output=Po1
+
+# traffic going outside of logical switch 2
+openflow add-flows 90 ip,priority=8000,in_port=Eth1/4,nw_dst=192.168.211.32/27,actions=output=Po2
+openflow add-flows 91 ip,priority=8000,in_port=Eth1/4,nw_dst=192.168.211.64/27,actions=output=Po2
+openflow add-flows 100 ip,priority=8000,in_port=Eth1/16,nw_dst=192.168.211.32/27,actions=output=Po2
+openflow add-flows 101 ip,priority=8000,in_port=Eth1/16,nw_dst=192.168.211.64/27,actions=output=Po2
+
+# ARP, this is important
+openflow add-flows 200 arp,priority=1000,actions=output=Eth1/6,Eth1/14,Eth1/4,Eth1/16
+
+# default drop, this is also important to avoid broadcast storm
+openflow add-flows 1000 priority=50,in_port=ANY,actions=DROP
