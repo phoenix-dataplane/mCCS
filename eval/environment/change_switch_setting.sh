@@ -13,20 +13,22 @@ arg=$1
 
 case $arg in
         base)
-                sudo -u cjr \
-                ssh danyang-01 \
-                "ssh -oKexAlgorithms=+diffie-hellman-group14-sha1 danyang@danyang-mellanox-switch.cs.duke.edu \
-                        cli -h '\"enable\" \"config terminal\" \"spanning-tree\" \"no protocol openflow\" \"show running-config\"'"
-                ;;
-        mccs)
-read -r -d '' cmds_example << EOF
+read -r -d '' cmds << EOF
 \"enable\" \
 \"config terminal\" \
 \"spanning-tree\" \
 \"no protocol openflow\" \
+\"no interface ethernet 1/8 shutdown\" \
+\"no interface ethernet 1/12 shutdown\" \
 \"# This line is a comment\" \
 \"show running-config\"
 EOF
+                sudo -u cjr \
+                ssh danyang-01 \
+                "ssh -oKexAlgorithms=+diffie-hellman-group14-sha1 danyang@danyang-mellanox-switch.cs.duke.edu \
+                        cli -h ${cmds}"
+                ;;
+        mccs)
 read -r -d '' pysrc << EOF
 print('\n'.join(f'\\"{l.strip()}\\" \\' for l in open('switch_enable_mccs_commands.txt', 'r')))
 EOF

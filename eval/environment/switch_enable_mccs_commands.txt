@@ -1,6 +1,8 @@
 enable
 config terminal
 
+interface ethernet 1/8 shutdown
+interface ethernet 1/12 shutdown
 no spanning-tree
 
 protocol openflow
