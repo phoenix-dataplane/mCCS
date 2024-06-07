@@ -100,7 +100,7 @@ impl DaemonEngine {
                 let this_cnt = self.mem_counter;
                 self.mem_counter += 1;
                 self.device_mem.insert(
-                    0,
+                    this_cnt,
                     DeviceMemory {
                         addr: dev_ptr as usize,
                         device_idx: *dev_idx,
