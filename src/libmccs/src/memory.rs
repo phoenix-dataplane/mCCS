@@ -37,5 +37,5 @@ pub fn cuda_malloc(device_idx: i32, size: usize) -> Result<DevicePtr, Error> {
 }
 
 pub fn cuda_free(_ptr: MccsDeviceMemoryHandle) {
-    todo!()
+    eprintln!("Warning: cuda_free is not implemented yet");
 }

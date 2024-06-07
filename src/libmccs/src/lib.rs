@@ -16,13 +16,14 @@ use ipc::mccs::dp;
 use ipc::service::ShmService;
 use nvml_sys::{nvmlDeviceGetCpuAffinity, nvmlDeviceGetHandleByPciBusId_v2};
 
+mod c_abi;
 pub mod collectives;
 pub mod communicator;
 pub mod memory;
 
 pub use collectives::{all_gather, all_reduce};
 pub use communicator::{init_communicator_rank, register_stream};
-pub use memory::cuda_malloc;
+pub use memory::{cuda_free, cuda_malloc};
 
 pub use ipc::mccs::command::{AllReduceDataType, AllReduceOpType};
 
@@ -181,6 +182,9 @@ pub struct DevicePtr {
     pub ptr: *mut std::os::raw::c_void,
     backup_mem: MccsDeviceMemoryHandle,
 }
+
+unsafe impl Send for DevicePtr {}
+unsafe impl Sync for DevicePtr {}
 
 impl DevicePtr {
     pub fn add(&self, size: usize) -> Result<Self, ()> {

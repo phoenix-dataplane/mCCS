@@ -158,7 +158,6 @@ impl DaemonEngine {
                     cuda_device_idx: init.cuda_device_idx,
                 };
                 self.comm_delegation.insert(comm_handle, comm);
-
                 Ok(Some(CompletionKind::InitCommunicator((
                     comm_handle,
                     event_handle,
@@ -305,6 +304,22 @@ impl DaemonEngine {
                 WorkRequest::AllGather(all_gather) => {
                     // prepare arguments
                     let comm = self.comm_delegation.get(&all_gather.comm).unwrap();
+                    // print all device_mem
+                    log::info!(
+                        "[Daemon-{}] device_mem.size={}",
+                        self.id.0,
+                        self.device_mem.len()
+                    );
+                    for (k, v) in &self.device_mem {
+                        log::info!(
+                            "[Daemon-{}] device_mem: id={} addr={:p} device_idx={}",
+                            self.id.0,
+                            k,
+                            v.addr as *const c_void,
+                            v.device_idx
+                        );
+                    }
+
                     let send_buf_addr = (*self.device_mem.get(&all_gather.send_buf.id).unwrap())
                         .addr
                         + all_gather.send_buf.offset;
@@ -448,6 +463,7 @@ impl Engine for DaemonEngine {
 
 impl Drop for DaemonEngine {
     fn drop(&mut self) {
+        log::info!("Drop DaemonEngine {}", self.id.0);
         for mem in self.device_mem.drain().map(|(_, v)| v) {
             cuda_warning!(unsafe { cudaSetDevice(mem.device_idx) });
             cuda_warning!(unsafe { cudaFree(mem.addr as *mut c_void) });

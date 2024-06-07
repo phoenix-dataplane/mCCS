@@ -518,7 +518,8 @@ pub fn net_agent_send_progress(
                     } else {
                         let time = SystemTime::now();
                         let elapsed = time.duration_since(UNIX_EPOCH).unwrap();
-                        let epoch_ts = (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
+                        let epoch_ts =
+                            (elapsed.as_micros() % schedule.epoch_microsecs as u128) as u64;
                         match interval.mode {
                             QosMode::Allow => !interval.intervals.contains(&epoch_ts),
                             QosMode::Deny => interval.intervals.contains(&epoch_ts),

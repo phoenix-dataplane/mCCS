@@ -45,6 +45,11 @@ pub fn init_communicator_rank(
 }
 
 pub fn register_stream(cuda_dev: i32, stream: cudaStream_t) -> Result<(), Error> {
+    // Return if the stream is already registered
+    if MCCS_STREAM_SYNC.with_borrow(|sync| sync.contains_key(&stream)) {
+        return Ok(());
+    }
+
     let mut event = std::ptr::null_mut();
     let mut event_handle = cudaIpcEventHandle_t::default();
     unsafe {
