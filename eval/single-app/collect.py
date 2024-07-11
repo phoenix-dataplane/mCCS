@@ -63,6 +63,8 @@ def aggregrate_ecmp(n_gpu):
     results = []
     for i in range(10):
         base_dir = base_dir_prefix + str(i)
+        if not os.path.exists(base_dir):
+            continue
         results.append(aggregrate(base_dir, node_str))
     for i, result in enumerate(results):
         res = "Solution,App,Size (Bytes),Dtype,Latency (us),AlgBW (GB/s),BusBW (GB/s)\n"
@@ -130,6 +132,8 @@ def collect_all():
     allreduce_8gpu = [res]
     for i in range(10):
         base_dir = "/tmp/single-app" + str(i)
+        if not os.path.exists(base_dir):
+            continue
         node_str = "4GPU_ECMP"
         r = aggregrate(base_dir, node_str)
         for command in ["allgather", "allreduce"]:
@@ -167,13 +171,13 @@ def collect_all():
                 allgather_8gpu.append(line)
             else:
                 allreduce_8gpu.append(line)
-    with open(f"./output/mccs-allgather-4gpu.csv", "w") as f:
+    with open("../plot/data/mccs-allgather-4gpu.csv", "w") as f:
         f.write("\n".join(allgather_4gpu) + "\n")
-    with open(f"./output/mccs-allgather-8gpu.csv", "w") as f:
+    with open("../plot/data/mccs-allgather-8gpu.csv", "w") as f:
         f.write("\n".join(allgather_8gpu) + "\n")
-    with open(f"./output/mccs-allreduce-4gpu.csv", "w") as f:
+    with open("../plot/data/mccs-allreduce-4gpu.csv", "w") as f:
         f.write("\n".join(allreduce_4gpu) + "\n")
-    with open(f"./output/mccs-allreduce-8gpu.csv", "w") as f:
+    with open("../plot/data/mccs-allreduce-8gpu.csv", "w") as f:
         f.write("\n".join(allreduce_8gpu) + "\n")
 
 

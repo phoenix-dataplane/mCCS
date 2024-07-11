@@ -107,6 +107,14 @@ eight_gpu_flow:
   ./eval/set_ecmp_hashing_algo.sh source-port
   just one_8gpu_flow
 
+single-only-one-round:
+  ./eval/set_ecmp_hashing_algo.sh everything
+  just one_4gpu_ecmp 0
+  just one_8gpu_ecmp 0
+  ./eval/set_ecmp_hashing_algo.sh source-port
+  just one_4gpu_flow
+  just one_8gpu_flow
+
 allreduce-multi type setup cnt:
   cargo run --bin launcher -- --configfile launcher/config.toml --benchmark eval/multi-app/output/multi-allreduce-{{type}}-setup{{setup}}.toml --silent --output-dir /tmp/multi-allreduce-{{type}}-{{cnt}}
 
