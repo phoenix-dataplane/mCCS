@@ -69,7 +69,7 @@ def aggregrate_ecmp(n_gpu):
         for command in result:
             for size in result[command]:
                 res += f"{n_gpu}GPU_ECMP,{command},{convert_size(size)},float16,0,{result[command][size]},0\n"
-        with open(f"/nfs/public/mccs-data/mccs-{n_gpu}gpu-ecmp/round{i}.csv", "w") as f:
+        with open(f"./output/mccs-{n_gpu}gpu-ecmp/round{i}.csv", "w") as f:
             f.write(res)
 
 
@@ -81,7 +81,7 @@ def aggregate_flow(n_gpu):
     for command in result:
         for size in result[command]:
             res += f"{n_gpu}GPU_ECMP,{command},{convert_size(size)},float16,0,{result[command][size]},0\n"
-    with open(f"/nfs/public/mccs-data/mccs-{n_gpu}gpu-flow/round0.csv", "w") as f:
+    with open(f"./output/mccs-{n_gpu}gpu-flow/round0.csv", "w") as f:
         f.write(res)
 
 
@@ -167,13 +167,13 @@ def collect_all():
                 allgather_8gpu.append(line)
             else:
                 allreduce_8gpu.append(line)
-    with open(f"/nfs/public/mccs-data/mccs-allgather-4gpu.csv", "w") as f:
+    with open(f"./output/mccs-allgather-4gpu.csv", "w") as f:
         f.write("\n".join(allgather_4gpu) + "\n")
-    with open(f"/nfs/public/mccs-data/mccs-allgather-8gpu.csv", "w") as f:
+    with open(f"./output/mccs-allgather-8gpu.csv", "w") as f:
         f.write("\n".join(allgather_8gpu) + "\n")
-    with open(f"/nfs/public/mccs-data/mccs-allreduce-4gpu.csv", "w") as f:
+    with open(f"./output/mccs-allreduce-4gpu.csv", "w") as f:
         f.write("\n".join(allreduce_4gpu) + "\n")
-    with open(f"/nfs/public/mccs-data/mccs-allreduce-8gpu.csv", "w") as f:
+    with open(f"./output/mccs-allreduce-8gpu.csv", "w") as f:
         f.write("\n".join(allreduce_8gpu) + "\n")
 
 
