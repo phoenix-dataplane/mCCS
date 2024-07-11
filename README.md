@@ -30,7 +30,7 @@ just killall
 1. Under `eval/single-app` create directory `output`, and run the `gen_config.py`.
 2. Under `eval/multi-app` create directory `output`, and run the `gen_config.py` and `gen_traffic_gen_config.py`.
 
-### Single Application
+### Single Application (Fig.6)
 Run the following commands respectively under the root directory of the project:
 ```bash
 just four_gpu_ecmp
@@ -39,8 +39,21 @@ just four_gpu_flow
 just eight_gpu_flow
 ```
 
-### Multi Application
+### Multi Application (Fig.8)
 Run the following commands respectively under the root directory of the project:
 ```bash
 just batched-allreduce-multi-final
+```
+
+### Real Application (Fig.9)
+Run the following commands respectively under the root directory of the project:
+```bash
+just collect-setup4-ecmp
+just collect-setup4-normal
+```
+
+### Dynamic Jobs (Fig.10)
+Run the following commands respectively under the root directory of the project:
+```bash
+just run-dynamic
 ```
