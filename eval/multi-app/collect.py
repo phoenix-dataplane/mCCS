@@ -91,10 +91,11 @@ def interactive():
 
 
 def collect_allreduce_all():
-    res = "Solution,App,Size (Bytes),Dtype,Latency (us),AlgBW (GB/s),BusBW (GB/s)\n"
     mapping = {1: 2, 2: 3, 3: 2, 4: 3}
+    app_mapping = {"app1": "blue", "app2": "red", "app3": "green"}
     for setup in [1, 2, 3, 4]:
-        for i in range(10):
+        res = ""
+        for i in range(20):
             for line in collect_setup2(
                 "/tmp",
                 f"multi-allreduce-ecmp-{i}",
@@ -102,9 +103,8 @@ def collect_allreduce_all():
                 setup,
                 mapping[setup],
             ):
-                res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
-    for setup in [1, 2, 3, 4]:
-        for i in range(10):
+                res += f"Multi-Allreduce-ECMP,{app_mapping[line[0]]},128M,float16,0,{line[1]},{line[2]},{i}\n"
+        for i in range(20):
             for line in collect_setup2(
                 "/tmp",
                 f"multi-allreduce-flow-{i}",
@@ -112,9 +112,9 @@ def collect_allreduce_all():
                 setup,
                 mapping[setup],
             ):
-                res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
-    with open("../plot/data/multi-allreduce-all.csv", "w") as f:
-        f.write(res)
+                res += f"Multi-Allreduce-Flow,{app_mapping[line[0]]},128M,float16,0,{line[1]},{line[2]},{i}\n"
+        with open(f"../plot/data/multi-allreduce-{setup}.csv", "w") as f:
+            f.write(res)
 
 
 if __name__ == "__main__":
