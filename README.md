@@ -29,9 +29,8 @@ cd src/collectives
 make -j 
 ```
 2. Build Rust code
-Under `src`, run `cargo build --release` to build the Rust code.
+Run `cargo build --release` to build the Rust code.
 ```
-cd src
 cargo build --release
 ```
 
@@ -55,6 +54,8 @@ python gen_config.py
 cd eval/multi-app
 mkdir output
 python gen_config.py
+python gen_traffic_gen_config.py
+python interval.py
 ```
 
 ### Single Application Benchmarks
