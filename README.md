@@ -40,6 +40,8 @@ In case of unexpected errors (e.g., scripts are mistakenly launched), run the fo
 ```bash
 just killall
 ```
+Also, make sure no other processes with 'mccs' in the commandline run on the corresponding machines. 
+Otherwise auto-clean functionality in the script may not work properly.:
 
 ### Prepare Configuration Files for Evaluations
 Run the following command:
