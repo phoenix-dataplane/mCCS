@@ -235,7 +235,7 @@ fn wait_command(
                 wait_command(
                     kill_cmd,
                     None,
-                    Duration::from_secs(2),
+                    Duration::from_secs(3),
                     "",
                     None,
                     None,
@@ -578,7 +578,7 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
 
     let now = Instant::now();
     while weak_handles.iter().any(|h| !h.is_finished()) {
-        if now.elapsed() > Duration::from_secs(2) {
+        if now.elapsed() > Duration::from_secs(5) {
             log::warn!("Some workers not finished yet, but force quitting");
             break;
         }
