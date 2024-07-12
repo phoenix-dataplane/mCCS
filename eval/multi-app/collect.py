@@ -64,6 +64,8 @@ def collect_setup(base_dir: str, group: str, setup: int, app_cnt: int):
 
 def collect_setup2(base_dir: str, group: str, each: str, setup: int, app_cnt: int):
     path = os.path.join(base_dir, group, each + "-setup" + str(setup))
+    if not os.path.exists(path):
+        return []
     outputs = get_output(path)
     res = []
     for i in range(1, app_cnt + 1):
@@ -90,32 +92,33 @@ def interactive():
 
 def collect_allreduce_all():
     res = "Solution,App,Size (Bytes),Dtype,Latency (us),AlgBW (GB/s),BusBW (GB/s)\n"
-    if __name__ == "__main__":
-        mapping = {1: 2, 2: 3, 3: 2, 4: 3}
-        for setup in [1, 2, 3]:
-            for i in range(10):
-                for line in collect_setup2(
-                    "/tmp",
-                    f"multi-allreduce-ecmp-{i}",
-                    "multi-allreduce-ecmp",
-                    setup,
-                    mapping[setup],
-                ):
-                    res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
-        for setup in [1, 2, 3, 4]:
-            for i in range(10):
-                for line in collect_setup2(
-                    "/tmp",
-                    f"multi-allreduce-flow-{i}",
-                    "multi-allreduce-flow",
-                    setup,
-                    mapping[setup],
-                ):
-                    res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
-        print(res)
+    mapping = {1: 2, 2: 3, 3: 2, 4: 3}
+    for setup in [1, 2, 3, 4]:
+        for i in range(10):
+            for line in collect_setup2(
+                "/tmp",
+                f"multi-allreduce-ecmp-{i}",
+                "multi-allreduce-ecmp",
+                setup,
+                mapping[setup],
+            ):
+                res += f"Multi-Allreduce-ECMP-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
+    for setup in [1, 2, 3, 4]:
+        for i in range(10):
+            for line in collect_setup2(
+                "/tmp",
+                f"multi-allreduce-flow-{i}",
+                "multi-allreduce-flow",
+                setup,
+                mapping[setup],
+            ):
+                res += f"Multi-Allreduce-Flow-setup{setup}-{i},{line[0]},128M,float16,0,{line[1]},{line[2]}\n"
+    with open("../plot/data/multi-allreduce-all.csv", "w") as f:
+        f.write(res)
 
 
-collect_allreduce_all()
+if __name__ == "__main__":
+    collect_allreduce_all()
 
 # def reconfig_allreduce():
 #     s = collect_setup2

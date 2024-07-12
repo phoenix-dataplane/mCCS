@@ -28,7 +28,7 @@ just killall
 ```
 ### Prepare Configuration Files
 1. Under `eval/single-app` create directory `output`, and run the `gen_config.py`.
-2. Under `eval/multi-app` create directory `output`, and run the `gen_config.py` and `gen_traffic_gen_config.py`.
+2. Under `eval/multi-app` create directory `output`, and run the `gen_config.py`, `gen_traffic_gen_config.py` and `interval.py`.
 
 ### Single Application (Fig.6)
 Run the following commands respectively under the root directory of the project:

@@ -148,11 +148,11 @@ batched-allreduce-multi-one-round:
   #!/usr/bin/env bash
   ./eval/set_ecmp_hashing_algo.sh everything
   for i in {1..4}; do
-    just allreduce-multi ecmp $i tmp
+    just allreduce-multi ecmp $i 0
   done
   ./eval/set_ecmp_hashing_algo.sh source-port
   for i in {1..4}; do
-    just allreduce-multi flow $i tmp
+    just allreduce-multi flow $i 0
   done
 
 batched-allreduce-multi-final:
@@ -212,6 +212,16 @@ collect-setup4-normal:
     done
   done
 
+collect-setup4-one-round:
+    #!/usr/bin/env bash
+    ./eval/set_ecmp_hashing_algo.sh everything
+    for t in {'fair','qosv1','qosv2'}; do
+        just one-setup4-ecmp $t 0
+    done
+    ./eval/set_ecmp_hashing_algo.sh source-port
+    for t in {'fair','qosv1','qosv2'}; do
+        just one-setup4-normal $t 0
+    done
 
 setup2-vgg:
   ./eval/set_ecmp_hashing_algo.sh source-port
