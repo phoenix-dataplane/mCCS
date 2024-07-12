@@ -4,6 +4,18 @@ build:
 sync:
   ./_private/sync.sh
 
+prepare-environment:
+  #!/usr/bin/env bash
+  cd eval/single-app
+  mkdir output
+  python3 gen_config.py
+  cd ../../eval/multi-app
+  mkdir output
+  python3 gen_config.py
+  python3 interval.py
+  python3 gen_traffic_gen_config.py
+
+
 [private]
 back host LEVEL='info':
   RUST_LOG={{LEVEL}} ./target/debug/mccs --host {{host}}

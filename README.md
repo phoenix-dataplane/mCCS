@@ -42,20 +42,9 @@ just killall
 ```
 
 ### Prepare Configuration Files for Evaluations
-1. Under `eval/single-app` create directory `output`, and run the `gen_config.py`.
-```
-cd eval/single-app
-mkdir output
-python gen_config.py
-```
-
-2. Under `eval/multi-app` create directory `output`, and run the `gen_config.py`, `gen_traffic_gen_config.py` and `interval.py`.
-```
-cd eval/multi-app
-mkdir output
-python gen_config.py
-python gen_traffic_gen_config.py
-python interval.py
+Run the following command:
+```bash
+just prepare-environment
 ```
 
 ### Single Application Benchmarks
