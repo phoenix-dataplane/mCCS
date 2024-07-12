@@ -1,0 +1,66 @@
+mccs_daemon_basename = "mccs-deamon"
+mccs_daemon_prefix = "/tmp/mccs-${USER}"
+addrs = [
+    "0.0.0.0",
+    "192.168.211.2",
+    "192.168.211.34",
+    "192.168.211.66",
+    "192.168.211.130",
+    "192.168.211.162",
+    "192.168.211.195",
+]
+listen_port = 5000
+
+[control]
+prefix = "/tmp/mccs-${USER}"
+path = "control.sock"
+
+[comm_default_config]
+buffer_sizes = [4194304]
+channel_count = 2
+
+[comm_global_config]
+[comm_global_config.net_rdma]
+gid_index = 3
+qps_per_conn = 1
+timeout = 18
+retry_count = 7
+pkey = 0
+use_inline = false
+service_level = 0
+traffic_class = 106
+adaptive_routing = false
+ar_threshold = 8192
+pci_relaxed_ordering = false
+gdr_flush_disable = true
+socket_if_prefix = "rdma"
+
+[comm_global_config.net]
+gdr_enable = false
+gdr_copy_sync_enable = false
+gdr_copy_flush_enable = false
+
+[comm_global_config.shm]
+locality = "Sender"
+memcpy_send = false
+memcpy_recv = false
+
+
+# magic number: 49200 & 49202
+
+[[comm_patterns_override]]
+communicator_id = 114
+channels = [
+    { channel_id = 0, ring = [0, 1], udp_sport = [[0, 1, 49200], [1, 0, 49200]], net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1], udp_sport = [[0, 1, 49202], [1, 0, 49202]], net_dev = "mlx5_0" },
+]
+
+
+[[comm_patterns_override]]
+communicator_id = 137
+channels = [
+    { channel_id = 0, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49200], [3, 0, 49200]], net_dev = "mlx5_0" },
+    { channel_id = 1, ring = [0, 1, 2, 3], udp_sport = [[1, 2, 49202], [3, 0, 49202]], net_dev = "mlx5_0" },
+]
+
+

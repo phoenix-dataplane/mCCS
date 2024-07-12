@@ -49,10 +49,10 @@ fn net_send_setup(
     let udp_sport = profile.get_udp_sport(&conn_id);
     let mut tc = profile.get_tc();
 
-    if conn_id.peer_rank == 0 && my_info.rank == 7 && conn_id.conn_type == ConnType::Send && my_info.host == IpAddr::V4(Ipv4Addr::new(192, 168, 211, 162)) {
-        log::warn!("Force to use TC 66 for 25G connection.");
-        tc = Some(66);
-    }
+    // if conn_id.peer_rank == 0 && my_info.rank == 7 && conn_id.conn_type == ConnType::Send && my_info.host == IpAddr::V4(Ipv4Addr::new(192, 168, 211, 162)) {
+    //     log::warn!("Force to use TC 66 for 25G connection.");
+    //     tc = Some(66);
+    // }
 
     let agent_cuda_dev = my_info.cuda_device_idx;
     let use_gdr = profile.check_gdr(my_info.rank, net_dev, true) && config.gdr_enable;

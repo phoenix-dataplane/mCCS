@@ -1,0 +1,43 @@
+diff --git a/src/Makefile b/src/Makefile
+index 393de8e..ba21a59 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -59,7 +59,7 @@ endif
+ BUILDDIR ?= ../build
+ ifneq ($(NCCL_HOME), "")
+ NVCUFLAGS += -I$(NCCL_HOME)/include/
+-NVLDFLAGS += -L$(NCCL_HOME)/lib
++NVLDFLAGS += -L$(NCCL_HOME)/lib -Xlinker=-rpath,$(NCCL_HOME)/lib
+ endif
+ 
+ ifeq ($(MPI), 1)
+diff --git a/src/common.cu b/src/common.cu
+index 8588047..c91461b 100644
+--- a/src/common.cu
++++ b/src/common.cu
+@@ -595,14 +595,21 @@ testResult_t TimeTest(struct threadArgs* args, ncclDataType_t type, const char*
+   TESTCHECK(completeColl(args));
+ 
+   // Benchmark
++  int epochs = 1;
++  char* epochs_str = getenv("NCCL_EPOCHS");
++  if (epochs_str) {
++      epochs = std::stoi(epochs_str);
++  }
+   for (size_t size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) {
+       setupArgs(size, type, args);
+       char rootName[100];
+       sprintf(rootName, "%6i", root);
+-      PRINT("%12li  %12li  %8s  %6s  %6s", max(args->sendBytes, args->expectedBytes), args->nbytes / wordSize(type), typeName, opName, rootName);
+-      TESTCHECK(BenchTime(args, type, op, root, 0));
+-      TESTCHECK(BenchTime(args, type, op, root, 1));
+-      PRINT("\n");
++      for (int i = 0; i < epochs; i++) {
++          PRINT("%12li  %12li  %8s  %6s  %6s", max(args->sendBytes, args->expectedBytes), args->nbytes / wordSize(type), typeName, opName, rootName);
++          TESTCHECK(BenchTime(args, type, op, root, 0));
++          TESTCHECK(BenchTime(args, type, op, root, 1));
++          PRINT("\n");
++      }
+   }
+   return testSuccess;
+ }

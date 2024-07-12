@@ -112,7 +112,7 @@ class AppProperties:
 def generate_config(
     name: str,
     group: str,
-    app_list: list[AppProperties],
+    app_list,
     daemon_args: str,
     round: int = 25,
 ) -> dict:
