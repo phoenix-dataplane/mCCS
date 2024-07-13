@@ -22,13 +22,13 @@ Please coordinate with other reviewers to ensure that only one reviewer is condu
 
 
 ## Build Guide
-1. Build CUDA code
+1. Build CUDA code   
 Under `src/collectives`, run `make` to build the CUDA binaries.
 ```
 cd src/collectives
 make -j 
 ```
-2. Build Rust code
+2. Build Rust code   
 Run `cargo build --release` to build the Rust code.
 ```
 cargo build --release
