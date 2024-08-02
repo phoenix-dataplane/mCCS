@@ -25,7 +25,6 @@ case $algo in
                 ;;
 esac
 
-sudo -u cjr \
 ssh danyang-01 \
 "ssh -oKexAlgorithms=+diffie-hellman-group14-sha1 danyang@danyang-mellanox-switch.cs.duke.edu \
         cli -h '\"enable\" \"config terminal\" \"port-channel load-balance ethernet $algo_args\" \"show interfaces port-channel load-balance\"'"
