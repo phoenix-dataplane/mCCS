@@ -588,7 +588,19 @@ fn run_benchmark(opt: &Opt, path: path::PathBuf) -> anyhow::Result<()> {
     } else {
         *TERMINATE.lock().unwrap() = None;
     }
+
+    // ensure all MCCS services are killed
+    just_killall();
     Ok(())
+}
+
+fn just_killall() {
+    // ensure all MCCS services are killed
+    let mut child = Command::new("just")
+        .arg("killall")
+        .spawn()
+        .unwrap_or_else(|e| panic!("Failed to killall because: {e}"));
+    child.wait().unwrap_or_else(|e| panic!("Failed to wait for killall because: {e}"));
 }
 
 use nix::sys::signal;
