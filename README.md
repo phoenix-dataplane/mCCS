@@ -18,18 +18,21 @@ Please coordinate with other reviewers to ensure that only one reviewer is condu
 ## Prerequisites
 - rust/cargo
 - python3
-- [justfile](https://github.com/casey/just)
-
+- [justfile](https://github.com/casey/just) 
 
 ## Build Guide
-1. Build CUDA code   
+1. Clone the code   
+```
+git clone https://github.com/phoenix-dataplane/mCCS.git
+```
+2. Build CUDA code   
 Under `src/collectives`, run `make` to build the CUDA binaries.
 ```
 cd src/collectives
 make -j 
 ```
-2. Build Rust code   
-Run `cargo build --release` to build the Rust code.
+3. Build Rust code   
+Under the project root directory, run `cargo build --release` to build the Rust code.
 ```
 cargo build --release
 ```
