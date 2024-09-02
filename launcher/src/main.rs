@@ -598,6 +598,9 @@ fn just_killall() {
     // ensure all MCCS services are killed
     let mut child = Command::new("just")
         .arg("killall")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .spawn()
         .unwrap_or_else(|e| panic!("Failed to killall because: {e}"));
     child.wait().unwrap_or_else(|e| panic!("Failed to wait for killall because: {e}"));
