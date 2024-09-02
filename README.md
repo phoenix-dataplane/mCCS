@@ -15,12 +15,14 @@ MCCS's evaluation requires configuration on the switch to create our evaluation 
 
 Please coordinate with other reviewers to ensure that only one reviewer is conducting experiments on our servers at a time. Otherwise, the scripts may not work as expected.
 
+The detailed setup of our environment can be found in [Environment Setup](docs/setup.md)
+
 ## Prerequisites
 - rust/cargo
 - python3
 - [justfile](https://github.com/casey/just) 
 
-## [MCCS Code Overview](docs/overview.md)
+## [Code Overview](docs/overview.md)
 
 ## Build Guide
 1. Clone the code   
