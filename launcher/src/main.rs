@@ -188,9 +188,9 @@ fn wait_command(
                 if !status.success() {
                     match status.code() {
                         Some(code) => {
-                            log::error!("Exited with code: {}, cmd: {}", code, cmd_str)
+                            log::warn!("Exited with code: {}, cmd: {}", code, cmd_str)
                         }
-                        None => log::error!(
+                        None => log::warn!(
                             "Process terminated by signal: {}, cmd: {}",
                             status.signal().unwrap(),
                             cmd_str,
